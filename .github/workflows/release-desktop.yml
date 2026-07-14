@@ -64,13 +64,13 @@ jobs:
           if ($null -eq $msi) {
             throw "Windows MSI bundle not found."
           }
-          Copy-Item $msi.FullName "release-assets/skills-manage_${version}_windows_x64.msi"
+          Copy-Item $msi.FullName "release-assets/skillshub_${version}_windows_x64.msi"
 
-          $exePath = "src-tauri/target/x86_64-pc-windows-msvc/release/skills-manage.exe"
+          $exePath = "src-tauri/target/x86_64-pc-windows-msvc/release/skillshub.exe"
           if (-not (Test-Path $exePath)) {
             throw "Windows executable not found at $exePath."
           }
-          Compress-Archive -Path $exePath -DestinationPath "release-assets/skills-manage_${version}_windows_x64.zip" -Force
+          Compress-Archive -Path $exePath -DestinationPath "release-assets/skillshub_${version}_windows_x64.zip" -Force
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -130,9 +130,9 @@ jobs:
           [ -n "$APP_PATH" ] || { echo "macOS .app bundle not found" >&2; exit 1; }
           [ -n "$DMG_PATH" ] || { echo "macOS .dmg bundle not found" >&2; exit 1; }
 
-          ditto -c -k --keepParent "$APP_PATH" "release-assets/skills-manage_${VERSION}_macos_universal.zip"
-          cp "$DMG_PATH" "release-assets/skills-manage_${VERSION}_macos_universal.dmg"
-          tar -C "$(dirname "$APP_PATH")" -czf "release-assets/skills-manage_${VERSION}_macos_universal.tar.gz" "$(basename "$APP_PATH")"
+          ditto -c -k --keepParent "$APP_PATH" "release-assets/skillshub_${VERSION}_macos_universal.zip"
+          cp "$DMG_PATH" "release-assets/skillshub_${VERSION}_macos_universal.dmg"
+          tar -C "$(dirname "$APP_PATH")" -czf "release-assets/skillshub_${VERSION}_macos_universal.tar.gz" "$(basename "$APP_PATH")"
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -223,9 +223,9 @@ jobs:
           [ -n "$RPM_PATH" ] || { echo "Linux .rpm bundle not found" >&2; exit 1; }
           [ -n "$APPIMAGE_PATH" ] || { echo "Linux .AppImage bundle not found" >&2; exit 1; }
 
-          cp "$DEB_PATH" "release-assets/skills-manage-v${VERSION}-Linux-${ASSET_ARCH}.deb"
-          cp "$RPM_PATH" "release-assets/skills-manage-v${VERSION}-Linux-${ASSET_ARCH}.rpm"
-          cp "$APPIMAGE_PATH" "release-assets/skills-manage-v${VERSION}-Linux-${ASSET_ARCH}.AppImage"
+          cp "$DEB_PATH" "release-assets/skillshub-v${VERSION}-Linux-${ASSET_ARCH}.deb"
+          cp "$RPM_PATH" "release-assets/skillshub-v${VERSION}-Linux-${ASSET_ARCH}.rpm"
+          cp "$APPIMAGE_PATH" "release-assets/skillshub-v${VERSION}-Linux-${ASSET_ARCH}.AppImage"
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -263,6 +263,6 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          name: skills-manage v${{ steps.release_meta.outputs.version }}
+          name: skillshub v${{ steps.release_meta.outputs.version }}
           body_path: release-body.md
           files: release-assets/*
