@@ -61,6 +61,7 @@ tmp/
 /tmp/
 reference/
 .factory/
+.worktrees/
 
 # Local agent instructions may include private workspace notes
 AGENTS.md
