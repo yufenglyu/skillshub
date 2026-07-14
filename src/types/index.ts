@@ -157,6 +157,17 @@ export interface DeleteCentralSkillResult {
   skippedReadOnlyAgents: string[];
 }
 
+export interface DeleteResourceSkillOptions {
+  cascadeUninstall: boolean;
+}
+
+export interface DeleteResourceSkillResult {
+  skillId: string;
+  removedCanonicalPath: string;
+  uninstalledAgents: string[];
+  skippedReadOnlyAgents: string[];
+}
+
 export interface CentralSkillBundle {
   name: string;
   relativePath: string;

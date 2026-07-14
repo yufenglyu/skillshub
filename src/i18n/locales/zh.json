@@ -193,6 +193,12 @@
     "addToCentralLabel": "加入中央技能库：{{name}}",
     "addToCentralSuccess": "已将「{{name}}」加入中央技能库",
     "addToCentralError": "加入中央技能库失败：{{error}}",
+    "deleteLabel": "从技能资源库删除 {{name}}",
+    "deleteConfirmTitle": "删除 {{name}}？",
+    "deleteLinkedWarning": "这个技能仍安装在以下平台：{{platforms}}。从技能资源库删除会同时卸载这些可管理的平台链接或副本。",
+    "deleteCascadeLabel": "卸载并删除",
+    "deleteSuccess": "已从技能资源库删除 {{name}}。",
+    "deleteError": "删除失败: {{error}}",
     "backToFolders": "返回目录"
   },
   "centralBundleDrawer": {

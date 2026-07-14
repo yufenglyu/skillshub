@@ -18,6 +18,14 @@ import { SkillFolderCard } from "@/components/skill/SkillFolderCard";
 import { SkillListModeToggle } from "@/components/skill/SkillListModeToggle";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { isInstallTargetAgent } from "@/lib/agents";
@@ -145,10 +153,12 @@ export function ResourceLibraryView() {
   const isLoading = useResourceLibraryStore((state) => state.isLoading);
   const isUpdatingSources = useResourceLibraryStore((state) => state.isUpdatingSources);
   const togglingAgentId = useResourceLibraryStore((state) => state.togglingAgentId);
+  const deletingSkillId = useResourceLibraryStore((state) => state.deletingSkillId);
   const loadResourceLibrary = useResourceLibraryStore((state) => state.loadResourceLibrary);
   const installSkill = useResourceLibraryStore((state) => state.installSkill);
   const addToCentral = useResourceLibraryStore((state) => state.addToCentral);
   const togglePlatformLink = useResourceLibraryStore((state) => state.togglePlatformLink);
+  const deleteResourceSkill = useResourceLibraryStore((state) => state.deleteResourceSkill);
   const updateSourceBackedSkills = useResourceLibraryStore(
     (state) => state.updateSourceBackedSkills
   );
@@ -174,6 +184,7 @@ export function ResourceLibraryView() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [activeFolderKey, setActiveFolderKey] = useState<string | null>(null);
   const [installTargetSkill, setInstallTargetSkill] = useState<SkillWithLinks | null>(null);
+  const [deleteTargetSkill, setDeleteTargetSkill] = useState<SkillWithLinks | null>(null);
   const [isInstallDialogOpen, setIsInstallDialogOpen] = useState(false);
   const [drawerSkillId, setDrawerSkillId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -352,6 +363,40 @@ export function ResourceLibraryView() {
     } finally {
       setUpdatingSkillId(null);
     }
+  }
+
+  function linkedAgentNames(skill: SkillWithLinks) {
+    const affectedIds = new Set([
+      ...skill.linked_agents,
+      ...(skill.read_only_agents ?? []),
+    ]);
+    return agents
+      .filter((agent) => affectedIds.has(agent.id))
+      .map((agent) => agent.display_name);
+  }
+
+  async function handleDeleteResourceSkill(skill: SkillWithLinks, cascadeUninstall: boolean) {
+    try {
+      await deleteResourceSkill(skill.id, { cascadeUninstall });
+      await Promise.all([
+        refreshCounts(),
+        loadCentralSkills(),
+        ...skill.linked_agents.map((agentId) => getSkillsByAgent(agentId)),
+      ]);
+      toast.success(t("resource.deleteSuccess", { name: skill.name }));
+      setDeleteTargetSkill(null);
+    } catch (err) {
+      toast.error(t("resource.deleteError", { error: String(err) }));
+    }
+  }
+
+  function handleDeleteClick(skill: SkillWithLinks) {
+    if (skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0) {
+      setDeleteTargetSkill(skill);
+      return;
+    }
+
+    void handleDeleteResourceSkill(skill, false);
   }
 
   async function handleGitHubPreview() {
@@ -547,11 +592,16 @@ export function ResourceLibraryView() {
                       onInstallTo={() => handleInstallClick(skill)}
                       onInstallToCentral={() => void handleAddToCentral(skill)}
                       installToCentralLabel={t("resource.addToCentralLabel", { name: skill.name })}
+                      onDeleteFromCentral={() => handleDeleteClick(skill)}
+                      deleteFromCentralLabel={t("resource.deleteLabel", { name: skill.name })}
+                      deleteFromCentralRequiresDialog={
+                        skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0
+                      }
                       onUpdateFromSource={
                         skill.source_url ? () => void handleUpdateSingleSource(skill) : undefined
                       }
                       updateFromSourceLabel={t("central.updateSourceLabel", { name: skill.name })}
-                      isLoading={updatingSkillId === skill.id}
+                      isLoading={updatingSkillId === skill.id || deletingSkillId === skill.id}
                       detailButtonRef={(node) => setDetailButtonRef(skill.id, node)}
                       platformIcons={{
                         agents,
@@ -597,6 +647,50 @@ export function ResourceLibraryView() {
             : undefined
         }
       />
+
+      <Dialog
+        open={!!deleteTargetSkill}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTargetSkill(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {t("resource.deleteConfirmTitle", { name: deleteTargetSkill?.name ?? "" })}
+            </DialogTitle>
+            <DialogDescription>
+              {deleteTargetSkill
+                ? t("resource.deleteLinkedWarning", {
+                    platforms: linkedAgentNames(deleteTargetSkill).join(", "),
+                  })
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTargetSkill(null)}
+              disabled={!!deleteTargetSkill && deletingSkillId === deleteTargetSkill.id}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteTargetSkill) {
+                  void handleDeleteResourceSkill(deleteTargetSkill, true);
+                }
+              }}
+              disabled={!!deleteTargetSkill && deletingSkillId === deleteTargetSkill.id}
+            >
+              {t("resource.deleteCascadeLabel")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <GitHubRepoImportWizard
         open={isGitHubImportOpen}

@@ -193,6 +193,12 @@
     "addToCentralLabel": "Add to Central Skills: {{name}}",
     "addToCentralSuccess": "Added \"{{name}}\" to Central Skills",
     "addToCentralError": "Failed to add to Central Skills: {{error}}",
+    "deleteLabel": "Delete {{name}} from Skill Resource Library",
+    "deleteConfirmTitle": "Delete {{name}}?",
+    "deleteLinkedWarning": "This skill is installed on: {{platforms}}. Deleting it from the Skill Resource Library will also uninstall those managed platform links or copies.",
+    "deleteCascadeLabel": "Uninstall and delete",
+    "deleteSuccess": "Deleted {{name}} from the Skill Resource Library.",
+    "deleteError": "Delete failed: {{error}}",
     "backToFolders": "Back to folders"
   },
   "centralBundleDrawer": {

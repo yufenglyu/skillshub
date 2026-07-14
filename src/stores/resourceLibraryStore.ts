@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { invoke, isTauriRuntime } from "@/lib/tauri";
-import { AgentWithStatus, BatchInstallResult, SkillWithLinks } from "@/types";
+import {
+  AgentWithStatus,
+  BatchInstallResult,
+  DeleteResourceSkillOptions,
+  DeleteResourceSkillResult,
+  SkillWithLinks,
+} from "@/types";
 import { BROWSER_FIXTURE_AGENTS } from "@/stores/centralSkillsStore";
 
 const BROWSER_RESOURCE_SKILLS: SkillWithLinks[] = [
@@ -30,6 +36,7 @@ interface ResourceLibraryState {
   isInstalling: boolean;
   isUpdatingSources: boolean;
   togglingAgentId: string | null;
+  deletingSkillId: string | null;
   error: string | null;
 
   loadResourceLibrary: () => Promise<void>;
@@ -41,6 +48,10 @@ interface ResourceLibraryState {
   togglePlatformLink: (skillId: string, agentId: string) => Promise<void>;
   updateSourceBackedSkills: () => Promise<string[]>;
   updateSourceBackedSkill: (skillId: string) => Promise<string>;
+  deleteResourceSkill: (
+    skillId: string,
+    options: DeleteResourceSkillOptions
+  ) => Promise<DeleteResourceSkillResult>;
   addToCentral: (skillId: string) => Promise<void>;
 }
 
@@ -52,6 +63,7 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
   isInstalling: false,
   isUpdatingSources: false,
   togglingAgentId: null,
+  deletingSkillId: null,
   error: null,
 
   loadResourceLibrary: async () => {
@@ -158,6 +170,36 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
       return updated;
     } catch (err) {
       set({ error: String(err), isUpdatingSources: false });
+      throw err;
+    }
+  },
+
+  deleteResourceSkill: async (skillId, options) => {
+    set({ deletingSkillId: skillId, error: null });
+    if (!isTauriRuntime()) {
+      const result: DeleteResourceSkillResult = {
+        skillId,
+        removedCanonicalPath: `~/.skillshub/library/${skillId}`,
+        uninstalledAgents: [],
+        skippedReadOnlyAgents: [],
+      };
+      set((state) => ({
+        skills: state.skills.filter((skill) => skill.id !== skillId),
+        deletingSkillId: null,
+      }));
+      return result;
+    }
+
+    try {
+      const result = await invoke<DeleteResourceSkillResult>("delete_resource_skill", {
+        skillId,
+        options,
+      });
+      const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
+      set({ skills: skills ?? [], deletingSkillId: null });
+      return result;
+    } catch (err) {
+      set({ error: String(err), deletingSkillId: null });
       throw err;
     }
   },
