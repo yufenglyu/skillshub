@@ -1,7 +1,8 @@
 param(
   [string]$Version,
-  [ValidateSet("auto", "windows", "macos", "linux")]
-  [string]$Platform = "auto",
+  [Alias("Platform")]
+  [ValidateSet("auto", "all", "windows", "macos", "linux")]
+  [string[]]$Platforms = @("auto"),
   [string]$OutputDir = "release-assets",
   [switch]$SkipTests,
   [switch]$SkipInstall,
@@ -70,13 +71,45 @@ function Normalize-Version {
 }
 
 function Detect-Platform {
-  if ($Platform -ne "auto") {
-    return $Platform
-  }
   if (Test-IsWindows) { return "windows" }
   if (Test-IsMacOS) { return "macos" }
   if (Test-IsLinux) { return "linux" }
-  throw "Unsupported OS. Pass -Platform windows|macos|linux explicitly."
+  throw "Unsupported OS. Pass -Platforms windows|macos|linux explicitly."
+}
+
+function Resolve-TargetPlatforms {
+  param([string[]]$RequestedPlatforms)
+
+  $expanded = New-Object System.Collections.Generic.List[string]
+  foreach ($requested in $RequestedPlatforms) {
+    switch ($requested) {
+      "auto" {
+        if ($RequestedPlatforms.Count -gt 1) {
+          throw "Do not combine 'auto' with explicit platforms."
+        }
+        $expanded.Add((Detect-Platform))
+      }
+      "all" {
+        if ($RequestedPlatforms.Count -gt 1) {
+          throw "Do not combine 'all' with explicit platforms."
+        }
+        $expanded.Add("windows")
+        $expanded.Add("linux")
+        $expanded.Add("macos")
+      }
+      default {
+        $expanded.Add($requested)
+      }
+    }
+  }
+
+  $unique = @()
+  foreach ($platform in $expanded) {
+    if ($unique -notcontains $platform) {
+      $unique += $platform
+    }
+  }
+  return $unique
 }
 
 function Test-IsWindows {
@@ -301,18 +334,27 @@ if ($VersionOnly) {
   exit 0
 }
 
-$targetPlatform = Detect-Platform
+$targetPlatforms = Resolve-TargetPlatforms -RequestedPlatforms $Platforms
 $outPath = Join-Path $root $OutputDir
 New-Item -ItemType Directory -Force -Path $outPath | Out-Null
 
 Ensure-Dependencies -Root $root
 Run-Checks -Root $root
-Build-App -Root $root -TargetPlatform $targetPlatform
 
-switch ($targetPlatform) {
-  "windows" { Copy-WindowsAssets -Root $root -NextVersion $nextVersion -OutDir $outPath }
-  "macos" { Copy-MacosAssets -Root $root -NextVersion $nextVersion -OutDir $outPath }
-  "linux" { Copy-LinuxAssets -Root $root -NextVersion $nextVersion -OutDir $outPath }
+foreach ($targetPlatform in $targetPlatforms) {
+  Write-Host "Packaging target: $targetPlatform" -ForegroundColor Yellow
+  Build-App -Root $root -TargetPlatform $targetPlatform
+
+  if ($SkipBuild) {
+    Write-Host "Skipping asset copy for $targetPlatform because -SkipBuild was set." -ForegroundColor DarkYellow
+    continue
+  }
+
+  switch ($targetPlatform) {
+    "windows" { Copy-WindowsAssets -Root $root -NextVersion $nextVersion -OutDir $outPath }
+    "macos" { Copy-MacosAssets -Root $root -NextVersion $nextVersion -OutDir $outPath }
+    "linux" { Copy-LinuxAssets -Root $root -NextVersion $nextVersion -OutDir $outPath }
+  }
 }
 
-Write-Host "Packaged $targetPlatform assets in $outPath" -ForegroundColor Green
+Write-Host "Packaged $($targetPlatforms -join ', ') assets in $outPath" -ForegroundColor Green

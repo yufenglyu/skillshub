@@ -186,7 +186,24 @@ cd src-tauri && cargo clippy -- -D warnings
 powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7
 ```
 
-脚本会更新版本元数据，默认执行 TypeScript 与 Rust 编译检查，按当前平台构建 Tauri 安装包，并把产物写入 `release-assets/`。
+脚本会更新版本元数据，默认执行 TypeScript 与 Rust 编译检查，构建 Tauri 安装包，并把产物写入 `release-assets/`。
+
+打包当前系统：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms auto
+```
+
+指定一个或多个平台：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms windows
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms linux
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms macos
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms windows,linux,macos
+```
+
+`-Platforms all` 会展开为 Windows、Linux 和 macOS。每个目标仍需要对应的 Tauri 工具链和系统打包依赖：macOS 安装包应在 macOS 上构建，Linux 包应在 Linux 上构建，Windows MSI 应在 Windows 上构建。
 
 ## 项目结构
 

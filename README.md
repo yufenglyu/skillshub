@@ -37,7 +37,7 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 
 ### Skill Resource Library
 
-![Central skills library view](images/01.png)
+![Skill resource library view](images/01.png)
 
 ### Review installed skills on a specific platform
 
@@ -186,7 +186,24 @@ cd src-tauri && cargo clippy -- -D warnings
 powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7
 ```
 
-The script updates version metadata, runs type and Rust compile checks unless skipped, builds the Tauri package for the current platform, and writes release assets under `release-assets/`.
+The script updates version metadata, runs type and Rust compile checks unless skipped, builds Tauri packages, and writes release assets under `release-assets/`.
+
+Target the current OS:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms auto
+```
+
+Target one or more platforms:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms windows
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms linux
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms macos
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms windows,linux,macos
+```
+
+`-Platforms all` expands to Windows, Linux, and macOS. Each target still requires the corresponding Tauri toolchain and OS packaging dependencies; macOS packages should be built on macOS, Linux bundles on Linux, and Windows MSI packages on Windows.
 
 ## Project Structure
 
