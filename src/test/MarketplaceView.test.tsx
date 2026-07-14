@@ -286,6 +286,45 @@ describe("MarketplaceView", () => {
     expect(screen.getByText("Useful repo preview content")).toBeInTheDocument();
   });
 
+  it("installs every preview skill from the expanded official repository", async () => {
+    mockLoadPreviewSkills.mockResolvedValue([
+      {
+        id: "openai::skill-a",
+        registry_id: "openai",
+        name: "Skill A",
+        description: "First",
+        download_url: "https://example.com/a/SKILL.md",
+        is_installed: false,
+        synced_at: "2026-04-16T00:00:00Z",
+      },
+      {
+        id: "openai::skill-b",
+        registry_id: "openai",
+        name: "Skill B",
+        description: "Second",
+        download_url: "https://example.com/b/SKILL.md",
+        is_installed: false,
+        synced_at: "2026-04-16T00:00:00Z",
+      },
+    ]);
+    mockInstallSkill.mockResolvedValue(undefined);
+
+    renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Official Directory|官方源目录/i }));
+    fireEvent.click(screen.getByRole("button", { name: /OpenAI/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Browse Skills|浏览 Skills/i }));
+    await screen.findByText("Skill A");
+
+    fireEvent.click(screen.getByRole("button", { name: /Install all|全部安装/i }));
+
+    await waitFor(() => {
+      expect(mockInstallSkill).toHaveBeenCalledWith("openai::skill-a");
+      expect(mockInstallSkill).toHaveBeenCalledWith("openai::skill-b");
+    });
+    expect(mockRescan).toHaveBeenCalled();
+    expect(mockLoadResourceLibrary).toHaveBeenCalled();
+  });
+
   it("shows browser fallback copy when official preview runs without Tauri", async () => {
     const isTauriSpy = vi.spyOn(tauriBridge, "isTauriRuntime").mockReturnValue(false);
 

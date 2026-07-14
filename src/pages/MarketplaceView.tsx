@@ -114,6 +114,7 @@ export function MarketplaceView() {
   const [previewCache, setPreviewCache] = useState<Record<string, PreviewSkill[]>>({});
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewInstallingIds, setPreviewInstallingIds] = useState<Set<string>>(new Set());
+  const [bulkInstallingRepo, setBulkInstallingRepo] = useState<string | null>(null);
   const [detailSkill, setDetailSkill] = useState<MarketplaceSkillDetail | null>(null);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>({ kind: "idle" });
   const [isGitHubImportOpen, setIsGitHubImportOpen] = useState(false);
@@ -252,19 +253,24 @@ export function MarketplaceView() {
     }
   }
 
+  async function installPreviewSkillSilently(skill: PreviewSkill) {
+    if (skill.id.includes("::")) {
+      await installSkill(skill.id);
+      return;
+    }
+
+    await invoke("install_remote_skill_from_url", {
+      name: skill.name,
+      description: skill.description ?? null,
+      downloadUrl: skill.downloadUrl,
+      sourceLabel: selectedPublisher?.name ?? null,
+    });
+  }
+
   async function handleInstallPreviewSkill(skill: PreviewSkill) {
     setPreviewInstallingIds((prev) => new Set(prev).add(skill.name));
     try {
-      if (skill.id.includes("::")) {
-        await installSkill(skill.id);
-      } else {
-        await invoke("install_remote_skill_from_url", {
-          name: skill.name,
-          description: skill.description ?? null,
-          downloadUrl: skill.downloadUrl,
-          sourceLabel: selectedPublisher?.name ?? null,
-        });
-      }
+      await installPreviewSkillSilently(skill);
 
       await Promise.all([rescan(), loadResourceLibrary()]);
       setDetailSkill((current) =>
@@ -279,6 +285,46 @@ export function MarketplaceView() {
         next.delete(skill.name);
         return next;
       });
+    }
+  }
+
+  async function handleInstallAllPreviewSkills(repoFullName: string) {
+    if (previewSkills.length === 0 || bulkInstallingRepo) return;
+
+    const skillsToInstall = previewSkills;
+    setBulkInstallingRepo(repoFullName);
+    setPreviewInstallingIds((current) => {
+      const next = new Set(current);
+      for (const skill of skillsToInstall) {
+        next.add(skill.name);
+      }
+      return next;
+    });
+
+    const results = await Promise.allSettled(
+      skillsToInstall.map((skill) => installPreviewSkillSilently(skill))
+    );
+    const success = results.filter((result) => result.status === "fulfilled").length;
+    const failed = results.length - success;
+
+    try {
+      await Promise.all([rescan(), loadResourceLibrary()]);
+      if (failed > 0) {
+        toast.error(t("marketplace.installAllPartial", { success, failed }));
+      } else {
+        toast.success(t("marketplace.installAllSuccess", { success }));
+      }
+    } catch (err) {
+      toast.error(t("marketplace.installAllError", { error: String(err) }));
+    } finally {
+      setPreviewInstallingIds((current) => {
+        const next = new Set(current);
+        for (const skill of skillsToInstall) {
+          next.delete(skill.name);
+        }
+        return next;
+      });
+      setBulkInstallingRepo(null);
     }
   }
 
@@ -560,6 +606,27 @@ export function MarketplaceView() {
                               ? (lang === "zh" ? "正在获取..." : "Fetching...")
                               : `${previewSkills.length} skills`}
                           </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleInstallAllPreviewSkills(repo.fullName);
+                            }}
+                            disabled={
+                              isPreviewLoading ||
+                              previewSkills.length === 0 ||
+                              bulkInstallingRepo === repo.fullName
+                            }
+                            className="h-6 text-xs px-2"
+                          >
+                            {bulkInstallingRepo === repo.fullName ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : (
+                              <Download className="size-3" />
+                            )}
+                            <span>{t("marketplace.installAll")}</span>
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
