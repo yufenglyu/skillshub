@@ -129,7 +129,7 @@ describe("InstallDialog", () => {
     expect(screen.getByText("已链接")).toBeInTheDocument();
   });
 
-  it("shows read-only universal platforms as checked and non-installable", () => {
+  it("shows shared platforms as hints without selecting them by default", () => {
     renderDialog({
       skill: {
         ...mockSkill,
@@ -139,9 +139,9 @@ describe("InstallDialog", () => {
     });
 
     const cursorCheckbox = screen.getByLabelText("Cursor");
-    expect(cursorCheckbox).toBeChecked();
-    expect(cursorCheckbox).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText("始终包含")).toBeInTheDocument();
+    expect(cursorCheckbox).not.toBeChecked();
+    expect(cursorCheckbox).not.toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("中央库可见，未安装")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /安装到 0 个平台/i })).toBeDisabled();
   });
 
@@ -162,18 +162,18 @@ describe("InstallDialog", () => {
 
   it("shows confirm button with count of selected platforms", () => {
     renderDialog();
-    // By default, linked agents (claude-code) are pre-selected.
-    // Unlinked agents (cursor, gemini-cli) are not pre-selected.
-    // So 1 is pre-selected: claude-code
+    // Linked/shared agents are shown as state hints, but the user must choose
+    // which platforms this install action should target.
     expect(
-      screen.getByRole("button", { name: /安装到 1 个平台/i })
-    ).toBeInTheDocument();
+      screen.getByRole("button", { name: /安装到 0 个平台/i })
+    ).toBeDisabled();
   });
 
   it("calls onInstall with selected agent IDs on confirm", async () => {
     mockOnInstall.mockResolvedValueOnce(undefined);
 
     renderDialog();
+    fireEvent.click(screen.getByLabelText("Cursor"));
     const confirmBtn = screen.getByRole("button", {
       name: /安装到 .* 个平台/i,
     });
@@ -192,6 +192,7 @@ describe("InstallDialog", () => {
     mockOnInstall.mockResolvedValueOnce(undefined);
 
     renderDialog();
+    fireEvent.click(screen.getByLabelText("Cursor"));
     const confirmBtn = screen.getByRole("button", {
       name: /安装到 .* 个平台/i,
     });
@@ -215,6 +216,7 @@ describe("InstallDialog", () => {
     const copyRadio = screen.getByText("复制安装").closest("label");
     expect(copyRadio).not.toBeNull();
     fireEvent.click(copyRadio!);
+    fireEvent.click(screen.getByLabelText("Cursor"));
 
     const confirmBtn = screen.getByRole("button", {
       name: /安装到 .* 个平台/i,
@@ -234,6 +236,7 @@ describe("InstallDialog", () => {
     mockOnInstall.mockResolvedValueOnce(undefined);
 
     renderDialog();
+    fireEvent.click(screen.getByLabelText("Cursor"));
     const confirmBtn = screen.getByRole("button", {
       name: /安装到 .* 个平台/i,
     });
@@ -248,6 +251,7 @@ describe("InstallDialog", () => {
     mockOnInstall.mockRejectedValueOnce(new Error("Permission denied"));
 
     renderDialog();
+    fireEvent.click(screen.getByLabelText("Cursor"));
     const confirmBtn = screen.getByRole("button", {
       name: /安装到 .* 个平台/i,
     });
@@ -273,18 +277,18 @@ describe("InstallDialog", () => {
   it("updates confirm button count when checkbox toggled", async () => {
     renderDialog();
 
-    // Initially 1 selected (claude-code, already linked)
+    // Initially no platform is selected.
     expect(
-      screen.getByRole("button", { name: /安装到 1 个平台/i })
-    ).toBeInTheDocument();
+      screen.getByRole("button", { name: /安装到 0 个平台/i })
+    ).toBeDisabled();
 
-    // Check Cursor (add 1 more)
+    // Check Cursor.
     const cursorCheckbox = screen.getByLabelText("Cursor");
     fireEvent.click(cursorCheckbox);
 
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: /安装到 2 个平台/i })
+        screen.getByRole("button", { name: /安装到 1 个平台/i })
       ).toBeInTheDocument();
     });
   });

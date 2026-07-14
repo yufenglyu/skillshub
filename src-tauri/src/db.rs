@@ -10,9 +10,11 @@ use std::{
 };
 use uuid::Uuid;
 
-use crate::path_utils::{path_to_string, resolve_home_dir};
+use crate::path_utils::{app_data_dir, expand_home_path, path_to_string, resolve_home_dir};
 
 pub type DbPool = SqlitePool;
+
+pub const SKILL_RESOURCE_LIBRARY_DIR_SETTING_KEY: &str = "skill_resource_library_dir";
 
 // ─── Data Types ──────────────────────────────────────────────────────────────
 
@@ -27,6 +29,25 @@ pub struct Skill {
     pub source: Option<String>,
     pub content: Option<String>,
     pub scanned_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SkillSource {
+    pub skill_id: String,
+    pub source_type: String,
+    pub source_url: Option<String>,
+    pub source_author: Option<String>,
+    pub source_repo: Option<String>,
+    pub source_path: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SkillMetadata {
+    pub skill_id: String,
+    pub notes: Option<String>,
+    pub tags: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -143,6 +164,33 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
             symlink_target TEXT,
             created_at     TEXT NOT NULL DEFAULT (datetime('now')),
             PRIMARY KEY (skill_id, agent_id)
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS skill_sources (
+            skill_id      TEXT PRIMARY KEY,
+            source_type   TEXT NOT NULL,
+            source_url    TEXT,
+            source_author TEXT,
+            source_repo   TEXT,
+            source_path   TEXT,
+            updated_at    TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS skill_metadata (
+            skill_id   TEXT PRIMARY KEY,
+            notes      TEXT,
+            tags       TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT NOT NULL
         )",
     )
     .execute(pool)
@@ -437,7 +485,10 @@ async fn seed_builtin_agents(pool: &DbPool) -> Result<(), String> {
              ON CONFLICT(id) DO UPDATE SET
               display_name = excluded.display_name,
               category = excluded.category,
-              global_skills_dir = excluded.global_skills_dir,
+              global_skills_dir = CASE
+                                    WHEN agents.id = 'central' THEN agents.global_skills_dir
+                                    ELSE excluded.global_skills_dir
+                                  END,
               project_skills_dir = excluded.project_skills_dir,
               icon_name = excluded.icon_name",
         )
@@ -479,7 +530,8 @@ async fn seed_builtin_agents(pool: &DbPool) -> Result<(), String> {
 /// `~/.agents/skills`) only the first insert takes effect.
 async fn seed_builtin_scan_directories(pool: &DbPool) -> Result<(), String> {
     let now = Utc::now().to_rfc3339();
-    for agent in builtin_agents() {
+    let agents = get_all_agents(pool).await?;
+    for agent in agents.iter().filter(|agent| agent.is_builtin) {
         sqlx::query(
             "INSERT OR IGNORE INTO scan_directories
              (path, label, is_active, is_builtin, added_at)
@@ -494,9 +546,10 @@ async fn seed_builtin_scan_directories(pool: &DbPool) -> Result<(), String> {
     }
 
     // Remove builtin scan directories that no longer exist in code
-    let builtin_paths: std::collections::HashSet<String> = builtin_agents()
+    let builtin_paths: std::collections::HashSet<String> = agents
         .into_iter()
-        .map(|a| a.global_skills_dir)
+        .filter(|agent| agent.is_builtin)
+        .map(|agent| agent.global_skills_dir)
         .collect();
     let all_db_dirs: Vec<(String,)> =
         sqlx::query_as("SELECT path FROM scan_directories WHERE is_builtin = 1")
@@ -1182,6 +1235,11 @@ pub struct SkillForAgent {
     pub is_read_only: bool,
     pub conflict_group: Option<String>,
     pub conflict_count: i64,
+    pub source_url: Option<String>,
+    pub source_author: Option<String>,
+    pub source_repo: Option<String>,
+    pub source_path: Option<String>,
+    pub created_at: Option<String>,
 }
 
 fn observation_to_skill_for_agent(observation: AgentSkillObservation) -> SkillForAgent {
@@ -1200,6 +1258,11 @@ fn observation_to_skill_for_agent(observation: AgentSkillObservation) -> SkillFo
         is_read_only: observation.is_read_only,
         conflict_group: None,
         conflict_count: 0,
+        source_url: None,
+        source_author: None,
+        source_repo: None,
+        source_path: None,
+        created_at: Some(observation.scanned_at),
     }
 }
 
@@ -1256,9 +1319,15 @@ pub async fn get_skills_for_agent(
                 NULL AS source_root,
                 0 AS is_read_only,
                 NULL AS conflict_group,
-                0 AS conflict_count
+                0 AS conflict_count,
+                ss.source_url,
+                ss.source_author,
+                ss.source_repo,
+                ss.source_path,
+                si.created_at
          FROM skills s
          JOIN skill_installations si ON s.id = si.skill_id
+         LEFT JOIN skill_sources ss ON ss.skill_id = s.id
          WHERE si.agent_id = ?",
     )
     .bind(agent_id)
@@ -1349,6 +1418,47 @@ pub async fn get_central_skills(pool: &DbPool) -> Result<Vec<Skill>, String> {
         .map_err(|e| e.to_string())
 }
 
+pub fn default_skill_resource_library_dir() -> std::path::PathBuf {
+    app_data_dir().join("library")
+}
+
+pub async fn get_skill_resource_library_dir(pool: &DbPool) -> Result<std::path::PathBuf, String> {
+    Ok(get_setting(pool, SKILL_RESOURCE_LIBRARY_DIR_SETTING_KEY)
+        .await?
+        .map(|path| expand_home_path(&path))
+        .unwrap_or_else(default_skill_resource_library_dir))
+}
+
+pub async fn set_skill_resource_library_dir(
+    pool: &DbPool,
+    path: &str,
+) -> Result<std::path::PathBuf, String> {
+    let expanded = expand_home_path(path.trim());
+    if expanded.as_os_str().is_empty() {
+        return Err("Skill resource library path cannot be empty".to_string());
+    }
+    std::fs::create_dir_all(&expanded)
+        .map_err(|e| format!("Failed to create Skill Resource Library directory: {}", e))?;
+    set_setting(
+        pool,
+        SKILL_RESOURCE_LIBRARY_DIR_SETTING_KEY,
+        &path_to_string(&expanded),
+    )
+    .await?;
+    Ok(expanded)
+}
+
+pub async fn get_resource_library_skills(pool: &DbPool) -> Result<Vec<Skill>, String> {
+    sqlx::query_as::<_, Skill>(
+        "SELECT * FROM skills
+         WHERE is_central = 0 AND canonical_path IS NOT NULL
+         ORDER BY name",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Retrieve a skill by its ID.
 pub async fn get_skill_by_id(pool: &DbPool, skill_id: &str) -> Result<Option<Skill>, String> {
     sqlx::query_as::<_, Skill>("SELECT * FROM skills WHERE id = ?")
@@ -1358,9 +1468,112 @@ pub async fn get_skill_by_id(pool: &DbPool, skill_id: &str) -> Result<Option<Ski
         .map_err(|e| e.to_string())
 }
 
+pub async fn upsert_skill_source(pool: &DbPool, source: &SkillSource) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO skill_sources
+         (skill_id, source_type, source_url, source_author, source_repo, source_path, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(skill_id) DO UPDATE SET
+           source_type = excluded.source_type,
+           source_url = excluded.source_url,
+           source_author = excluded.source_author,
+           source_repo = excluded.source_repo,
+           source_path = excluded.source_path,
+           updated_at = excluded.updated_at",
+    )
+    .bind(&source.skill_id)
+    .bind(&source.source_type)
+    .bind(&source.source_url)
+    .bind(&source.source_author)
+    .bind(&source.source_repo)
+    .bind(&source.source_path)
+    .bind(&source.updated_at)
+    .execute(pool)
+    .await
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+pub async fn get_skill_source(
+    pool: &DbPool,
+    skill_id: &str,
+) -> Result<Option<SkillSource>, String> {
+    sqlx::query_as::<_, SkillSource>("SELECT * FROM skill_sources WHERE skill_id = ?")
+        .bind(skill_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn get_all_skill_sources(pool: &DbPool) -> Result<Vec<SkillSource>, String> {
+    sqlx::query_as::<_, SkillSource>("SELECT * FROM skill_sources ORDER BY skill_id")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn get_skill_metadata(
+    pool: &DbPool,
+    skill_id: &str,
+) -> Result<Option<SkillMetadata>, String> {
+    sqlx::query_as::<_, SkillMetadata>("SELECT * FROM skill_metadata WHERE skill_id = ?")
+        .bind(skill_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn upsert_skill_metadata(
+    pool: &DbPool,
+    skill_id: &str,
+    notes: Option<&str>,
+    tags: &[String],
+) -> Result<SkillMetadata, String> {
+    let now = Utc::now().to_rfc3339();
+    let tags_json = serde_json::to_string(tags).map_err(|e| e.to_string())?;
+    sqlx::query(
+        "INSERT INTO skill_metadata (skill_id, notes, tags, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(skill_id) DO UPDATE SET
+           notes = excluded.notes,
+           tags = excluded.tags,
+           updated_at = excluded.updated_at",
+    )
+    .bind(skill_id)
+    .bind(notes)
+    .bind(&tags_json)
+    .bind(&now)
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(SkillMetadata {
+        skill_id: skill_id.to_string(),
+        notes: notes.map(str::to_string),
+        tags: tags_json,
+        updated_at: now,
+    })
+}
+
+pub fn parse_skill_metadata_tags(metadata: Option<&SkillMetadata>) -> Vec<String> {
+    metadata
+        .and_then(|metadata| serde_json::from_str::<Vec<String>>(&metadata.tags).ok())
+        .unwrap_or_default()
+}
+
 /// Delete a skill and all its installation records.
 pub async fn delete_skill(pool: &DbPool, skill_id: &str) -> Result<(), String> {
     sqlx::query("DELETE FROM skill_installations WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skill_sources WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skill_metadata WHERE skill_id = ?")
         .bind(skill_id)
         .execute(pool)
         .await
@@ -1394,6 +1607,16 @@ pub async fn delete_central_skill_records(
         .await
         .map_err(|e| e.to_string())?;
     sqlx::query("DELETE FROM skill_explanations WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skill_sources WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skill_metadata WHERE skill_id = ?")
         .bind(skill_id)
         .execute(pool)
         .await
@@ -1544,8 +1767,16 @@ pub async fn delete_skills_not_in_scope(
     found_skill_ids: &[String],
 ) -> Result<(), String> {
     if found_skill_ids.is_empty() {
-        // Nothing found — delete all installation records first, then all skills.
+        // Nothing found — delete dependent records first, then all skills.
         sqlx::query("DELETE FROM skill_installations")
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM skill_sources")
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM skill_metadata")
             .execute(pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -1572,6 +1803,28 @@ pub async fn delete_skills_not_in_scope(
         q = q.bind(id.as_str());
     }
     q.execute(pool).await.map_err(|e| e.to_string())?;
+
+    // Cascade: remove source metadata rows for skills that are no longer on disk.
+    let source_sql = format!(
+        "DELETE FROM skill_sources WHERE skill_id NOT IN ({})",
+        placeholders
+    );
+    let mut q_sources = sqlx::query(&source_sql);
+    for id in found_skill_ids {
+        q_sources = q_sources.bind(id.as_str());
+    }
+    q_sources.execute(pool).await.map_err(|e| e.to_string())?;
+
+    // Cascade: remove editable metadata rows for skills that are no longer on disk.
+    let metadata_sql = format!(
+        "DELETE FROM skill_metadata WHERE skill_id NOT IN ({})",
+        placeholders
+    );
+    let mut q_metadata = sqlx::query(&metadata_sql);
+    for id in found_skill_ids {
+        q_metadata = q_metadata.bind(id.as_str());
+    }
+    q_metadata.execute(pool).await.map_err(|e| e.to_string())?;
 
     // Remove the stale skills themselves.
     let skill_sql = format!("DELETE FROM skills WHERE id NOT IN ({})", placeholders);
@@ -1717,6 +1970,21 @@ pub async fn update_custom_agent(
     get_agent_by_id(pool, agent_id)
         .await?
         .ok_or_else(|| "Failed to retrieve updated agent".to_string())
+}
+
+pub async fn update_central_agent_skills_dir(
+    pool: &DbPool,
+    global_skills_dir: &str,
+) -> Result<Agent, String> {
+    sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
+        .bind(global_skills_dir)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    get_agent_by_id(pool, "central")
+        .await?
+        .ok_or_else(|| "Central agent not found".to_string())
 }
 
 // ─── Collections ──────────────────────────────────────────────────────────────

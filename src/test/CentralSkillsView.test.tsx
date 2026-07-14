@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { CentralSkillsView } from "../pages/CentralSkillsView";
 import {
@@ -200,9 +200,12 @@ const mockLoadCentralBundleDetail = vi.fn();
 const mockClearCentralBundleDetail = vi.fn();
 const mockInstallSkill = vi.fn();
 const mockTogglePlatformLink = vi.fn();
+const mockUninstallSkillsFromAgent = vi.fn();
 const mockDeleteCentralSkill = vi.fn();
 const mockPreviewDeleteCentralBundle = vi.fn();
 const mockDeleteCentralBundle = vi.fn();
+const mockUpdateSourceBackedSkills = vi.fn();
+const mockUpdateSourceBackedSkill = vi.fn();
 const mockRescan = vi.fn();
 const mockGetSkillsByAgent = vi.fn();
 const mockPreviewGitHubRepoImport = vi.fn();
@@ -234,10 +237,14 @@ function buildCentralStoreState(overrides = {}) {
     clearCentralBundleDetail: mockClearCentralBundleDetail,
     installSkill: mockInstallSkill,
     togglePlatformLink: mockTogglePlatformLink,
+    uninstallSkillsFromAgent: mockUninstallSkillsFromAgent,
     deleteCentralSkill: mockDeleteCentralSkill,
     previewDeleteCentralBundle: mockPreviewDeleteCentralBundle,
     deleteCentralBundle: mockDeleteCentralBundle,
     clearBundleDeletePreview: vi.fn(),
+    isUpdatingSources: false,
+    updateSourceBackedSkills: mockUpdateSourceBackedSkills,
+    updateSourceBackedSkill: mockUpdateSourceBackedSkill,
     ...overrides,
   };
 }
@@ -437,6 +444,29 @@ describe("CentralSkillsView", () => {
     expect(installButtons).toHaveLength(2);
   });
 
+  it("updates one source-backed skill from its card action", async () => {
+    mockUpdateSourceBackedSkill.mockResolvedValue("frontend-design");
+    renderCentralSkillsView({
+      skills: [
+        {
+          ...mockSkills[0],
+          source_url: "https://example.com/frontend-design/SKILL.md",
+          source_author: "example",
+          source_repo: "skills",
+        },
+        mockSkills[1],
+      ],
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /从来源更新 frontend-design/i })
+    );
+
+    await waitFor(() => {
+      expect(mockUpdateSourceBackedSkill).toHaveBeenCalledWith("frontend-design");
+    });
+  });
+
   it("deletes an unlinked central skill after inline confirmation", async () => {
     mockDeleteCentralSkill.mockResolvedValue({
       skillId: "code-reviewer",
@@ -478,10 +508,11 @@ describe("CentralSkillsView", () => {
       })
     );
 
-    expect(
-      await screen.findByRole("dialog", { name: /删除 frontend-design/i })
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Claude Code/)).toBeInTheDocument();
+    const deleteDialog = await screen.findByRole("dialog", {
+      name: /删除 frontend-design/i,
+    });
+    expect(deleteDialog).toBeInTheDocument();
+    expect(within(deleteDialog).getByText(/Claude Code/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /同时卸载并删除/i }));
 
@@ -637,11 +668,12 @@ describe("CentralSkillsView", () => {
     fireEvent.click(screen.getByRole("button", { name: /删除套件 Superpowers/i }));
 
     expect(mockPreviewDeleteCentralBundle).toHaveBeenCalledWith("Superpowers");
-    expect(
-      await screen.findByRole("dialog", { name: /删除套件 Superpowers/i })
-    ).toBeInTheDocument();
-    expect(screen.getByText(/using-superpowers/)).toBeInTheDocument();
-    expect(screen.getByText(/Claude Code/)).toBeInTheDocument();
+    const deleteBundleDialog = await screen.findByRole("dialog", {
+      name: /删除套件 Superpowers/i,
+    });
+    expect(deleteBundleDialog).toBeInTheDocument();
+    expect(within(deleteBundleDialog).getByText(/using-superpowers/)).toBeInTheDocument();
+    expect(within(deleteBundleDialog).getByText(/Claude Code/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /删除套件并卸载/i }));
 
@@ -733,7 +765,7 @@ describe("CentralSkillsView", () => {
 
   // ── Empty State ───────────────────────────────────────────────────────────
 
-  it("shows first-visit empty state when no skills exist", () => {
+  it("shows a plain empty state when no central skills exist", () => {
     mockUseCentralSkillsStore.mockImplementation((selector?: unknown) => {
       const state = buildCentralStoreState({ skills: [] });
       if (typeof selector === "function") return selector(state);
@@ -746,13 +778,8 @@ describe("CentralSkillsView", () => {
       </MemoryRouter>
     );
 
-    expect(
-      screen.getByText(/欢迎使用 skills-manage/)
-    ).toBeInTheDocument();
-    // Should show guidance about creating a skill
-    expect(
-      screen.getAllByText(/agents\/skills/).length
-    ).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("中央技能库中没有可用的技能")).toBeInTheDocument();
+    expect(screen.queryByText(/欢迎使用 SkillsHub/)).not.toBeInTheDocument();
   });
 
   it("shows loading state", () => {
@@ -818,6 +845,94 @@ describe("CentralSkillsView", () => {
       expect(screen.getByText("code-reviewer")).toBeInTheDocument();
       expect(screen.queryByText("frontend-design")).not.toBeInTheDocument();
     });
+  });
+
+  it("filters skills by local notes and tags when searching", async () => {
+    renderCentralSkillsView({
+      skills: [
+        {
+          ...mockSkills[0],
+          notes: "dashboard-only local guidance",
+          tags: ["ui-pattern"],
+        },
+        mockSkills[1],
+      ],
+    });
+    const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
+    fireEvent.change(searchInput, { target: { value: "dashboard-only" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("frontend-design")).toBeInTheDocument();
+      expect(screen.queryByText("code-reviewer")).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(searchInput, { target: { value: "ui-pattern" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("frontend-design")).toBeInTheDocument();
+      expect(screen.queryByText("code-reviewer")).not.toBeInTheDocument();
+    });
+  });
+
+  it("filters skills by selected tag", async () => {
+    renderCentralSkillsView({
+      skills: [
+        {
+          ...mockSkills[0],
+          tags: ["frontend"],
+        },
+        {
+          ...mockSkills[1],
+          tags: ["review"],
+        },
+      ],
+    });
+
+    const tagFilter = screen.getByRole("group", { name: "标签" });
+    fireEvent.click(within(tagFilter).getByRole("button", { name: "#frontend" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("frontend-design")).toBeInTheDocument();
+      expect(screen.queryByText("code-reviewer")).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(within(tagFilter).getByRole("button", { name: "全部" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("frontend-design")).toBeInTheDocument();
+      expect(screen.getByText("code-reviewer")).toBeInTheDocument();
+    });
+  });
+
+  it("bulk uninstalls selected central skills from a platform without deleting central skills", async () => {
+    renderCentralSkillsView({
+      skills: [
+        {
+          ...mockSkills[0],
+          linked_agents: ["claude-code"],
+        },
+        {
+          ...mockSkills[1],
+          linked_agents: ["claude-code"],
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByLabelText("选择 frontend-design"));
+    fireEvent.click(screen.getByLabelText("选择 code-reviewer"));
+    fireEvent.change(screen.getByLabelText("选择卸载平台"), {
+      target: { value: "claude-code" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "从平台卸载" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认卸载" }));
+
+    await waitFor(() => {
+      expect(mockUninstallSkillsFromAgent).toHaveBeenCalledWith(
+        ["frontend-design", "code-reviewer"],
+        "claude-code"
+      );
+    });
+    expect(mockDeleteCentralSkill).not.toHaveBeenCalled();
   });
 
   it("shows empty state when search has no results", async () => {

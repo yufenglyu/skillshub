@@ -50,6 +50,11 @@ export interface ScannedSkill {
   is_read_only?: boolean;
   conflict_group?: string | null;
   conflict_count?: number;
+  source_url?: string | null;
+  source_author?: string | null;
+  source_repo?: string | null;
+  source_path?: string | null;
+  created_at?: string | null;
 }
 
 // ─── Skill Types ──────────────────────────────────────────────────────────────
@@ -62,8 +67,16 @@ export interface Skill {
   canonical_path?: string;
   is_central: boolean;
   source?: string;
+  source_url?: string | null;
+  source_author?: string | null;
+  source_repo?: string | null;
+  source_path?: string | null;
+  notes?: string | null;
+  tags?: string[];
   content?: string;
   scanned_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface SkillInstallation {
@@ -113,6 +126,12 @@ export interface SkillWithLinks {
   canonical_path?: string;
   is_central: boolean;
   source?: string;
+  source_url?: string | null;
+  source_author?: string | null;
+  source_repo?: string | null;
+  source_path?: string | null;
+  notes?: string | null;
+  tags?: string[];
   scanned_at: string;
   created_at?: string;
   updated_at?: string;

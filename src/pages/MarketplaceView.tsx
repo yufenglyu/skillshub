@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { useMarketplaceStore } from "@/stores/marketplaceStore";
 import { usePlatformStore } from "@/stores/platformStore";
-import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
+import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useSkillStore } from "@/stores/skillStore";
 import {
   OFFICIAL_PUBLISHERS,
@@ -94,10 +94,10 @@ export function MarketplaceView() {
 
   const rescan = usePlatformStore((s) => s.rescan);
   const platformAgents = usePlatformStore((s) => s.agents);
-  const centralSkills = useCentralSkillsStore((s) => s.skills);
-  const centralAgents = useCentralSkillsStore((s) => s.agents);
-  const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
-  const installCentralSkill = useCentralSkillsStore((s) => s.installSkill);
+  const resourceSkills = useResourceLibraryStore((s) => s.skills);
+  const resourceAgents = useResourceLibraryStore((s) => s.agents);
+  const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
+  const installResourceSkill = useResourceLibraryStore((s) => s.installSkill);
   const skillsByAgent = useSkillStore((s) => s.skillsByAgent);
   const getSkillsByAgent = useSkillStore((s) => s.getSkillsByAgent);
 
@@ -156,6 +156,7 @@ export function MarketplaceView() {
       setDetailSkill((current) =>
         current && current.id === skillId ? { ...current, installed: true } : current
       );
+      await loadResourceLibrary();
       toast.success(t("marketplace.installSuccess"));
     } catch (err) {
       toast.error(String(err));
@@ -254,18 +255,21 @@ export function MarketplaceView() {
   async function handleInstallPreviewSkill(skill: PreviewSkill) {
     setPreviewInstallingIds((prev) => new Set(prev).add(skill.name));
     try {
-      // Download SKILL.md and write to central dir via Tauri FS plugin
-      const resp = await fetch(skill.downloadUrl);
-      if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
-      const content = await resp.text();
+      if (skill.id.includes("::")) {
+        await installSkill(skill.id);
+      } else {
+        await invoke("install_remote_skill_from_url", {
+          name: skill.name,
+          description: skill.description ?? null,
+          downloadUrl: skill.downloadUrl,
+          sourceLabel: selectedPublisher?.name ?? null,
+        });
+      }
 
-      // Write via the Tauri FS plugin
-      const { writeTextFile, mkdir, BaseDirectory } = await import("@tauri-apps/plugin-fs");
-      const skillDir = `.agents/skills/${skill.name}`;
-      await mkdir(skillDir, { baseDir: BaseDirectory.Home, recursive: true });
-      await writeTextFile(`${skillDir}/SKILL.md`, content, { baseDir: BaseDirectory.Home });
-
-      await rescan();
+      await Promise.all([rescan(), loadResourceLibrary()]);
+      setDetailSkill((current) =>
+        current && current.name === skill.name ? { ...current, installed: true } : current
+      );
       toast.success(t("marketplace.installSuccess"));
     } catch (err) {
       toast.error(String(err));
@@ -298,10 +302,8 @@ export function MarketplaceView() {
   async function handleGitHubImport(selections: Parameters<typeof importGitHubRepoSkills>[1]) {
     try {
       const result = await importGitHubRepoSkills(githubRepoUrl, selections);
-      await Promise.all([rescan(), loadRegistries(), loadCentralSkills()]);
-      toast.success(
-        lang === "zh" ? "GitHub 仓库技能已导入中央技能库" : "GitHub repo skills imported to Central"
-      );
+      await Promise.all([rescan(), loadRegistries(), loadResourceLibrary()]);
+      toast.success(t("resource.githubImportSuccess"));
       return result;
     } catch (err) {
       toast.error(String(err));
@@ -314,12 +316,12 @@ export function MarketplaceView() {
     const importedIds = new Set(
       githubImport.importResult.importedSkills.map((skill) => skill.importedSkillId)
     );
-    return centralSkills.filter((skill) => importedIds.has(skill.id));
-  }, [centralSkills, githubImport.importResult]);
+    return resourceSkills.filter((skill) => importedIds.has(skill.id));
+  }, [resourceSkills, githubImport.importResult]);
 
   const availableInstallAgents = useMemo(
-    () => (centralAgents.length > 0 ? centralAgents : platformAgents),
-    [centralAgents, platformAgents]
+    () => (resourceAgents.length > 0 ? resourceAgents : platformAgents),
+    [resourceAgents, platformAgents]
   );
 
   async function handleInstallImportedSkill(
@@ -327,14 +329,20 @@ export function MarketplaceView() {
     agentIds: string[],
     method: "symlink" | "copy"
   ) {
-    await installCentralSkill(skillId, agentIds, method);
-    await Promise.all([rescan(), loadCentralSkills(), ...agentIds.map((agentId) => getSkillsByAgent(agentId))]);
+    await installResourceSkill(skillId, agentIds, method);
+    await Promise.all([
+      rescan(),
+      loadResourceLibrary(),
+      ...agentIds.map((agentId) => getSkillsByAgent(agentId)),
+    ]);
   }
 
   async function handleAfterImportSuccess() {
     const agentIds = Object.keys(skillsByAgent);
-    if (agentIds.length === 0) return;
-    await Promise.all(agentIds.map((agentId) => getSkillsByAgent(agentId)));
+    await Promise.all([
+      loadResourceLibrary(),
+      ...agentIds.map((agentId) => getSkillsByAgent(agentId)),
+    ]);
   }
 
   // ── Tabs ───────────────────────────────────────────────────────────────

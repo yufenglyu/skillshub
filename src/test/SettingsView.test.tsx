@@ -14,6 +14,10 @@ vi.mock("../stores/platformStore", () => ({
   usePlatformStore: vi.fn(),
 }));
 
+vi.mock("../stores/centralSkillsStore", () => ({
+  useCentralSkillsStore: vi.fn(),
+}));
+
 vi.mock("../stores/themeStore", () => ({
   useThemeStore: vi.fn(),
   ACCENT_NAMES: [
@@ -29,6 +33,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import { useSettingsStore } from "../stores/settingsStore";
 import { usePlatformStore } from "../stores/platformStore";
+import { useCentralSkillsStore } from "../stores/centralSkillsStore";
 import { useThemeStore } from "../stores/themeStore";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -87,9 +92,17 @@ function setupMocks({
   githubPat = "",
   isLoadingGitHubPat = false,
   isSavingGitHubPat = false,
+  resourceLibraryDir = "~/.skillsmanage/library",
+  isLoadingResourceLibraryDir = false,
   loadGitHubPat = vi.fn(),
   saveGitHubPat = vi.fn(),
   clearGitHubPat = vi.fn(),
+  updateCentralSkillsDir = vi.fn(),
+  loadResourceLibraryDir = vi.fn(),
+  updateResourceLibraryDir = vi.fn(),
+  exportAppBackup = vi.fn(),
+  importAppBackup = vi.fn(),
+  loadCentralSkills = vi.fn(),
   rescan = vi.fn(),
   refreshCounts = vi.fn(),
   flavor = "mocha" as const,
@@ -112,9 +125,16 @@ function setupMocks({
       githubPat,
       isLoadingGitHubPat,
       isSavingGitHubPat,
+      resourceLibraryDir,
+      isLoadingResourceLibraryDir,
       loadGitHubPat,
       saveGitHubPat,
       clearGitHubPat,
+      updateCentralSkillsDir,
+      loadResourceLibraryDir,
+      updateResourceLibraryDir,
+      exportAppBackup,
+      importAppBackup,
       clearError: vi.fn(),
     })
   );
@@ -140,6 +160,12 @@ function setupMocks({
       setAccent,
       init: vi.fn(),
     })
+  );
+
+  vi.mocked(useCentralSkillsStore).mockImplementation((selector) =>
+    selector({
+      loadCentralSkills,
+    } as never)
   );
 }
 
@@ -462,7 +488,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("skills-manage v0.9.1")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.10.6")).toBeTruthy();
   });
 
   it("shows the database path in the about section", () => {

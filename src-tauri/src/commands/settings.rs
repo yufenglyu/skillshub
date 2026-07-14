@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::db::{self, DbPool, ScanDirectory};
+use crate::db::{self, Agent, DbPool, ScanDirectory};
 use crate::path_utils::{expand_home_path, path_to_string};
 use crate::AppState;
 
@@ -52,6 +52,90 @@ pub async fn set_setting_impl(pool: &DbPool, key: &str, value: &str) -> Result<(
         return Err("Settings key cannot be empty".to_string());
     }
     db::set_setting(pool, key, value).await
+}
+
+pub async fn update_central_skills_dir_impl(pool: &DbPool, path: &str) -> Result<Agent, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("Central Skills path cannot be empty".to_string());
+    }
+
+    let expanded_path = path_to_string(&expand_home_path(path));
+    std::fs::create_dir_all(&expanded_path)
+        .map_err(|e| format!("Failed to create Central Skills directory: {}", e))?;
+
+    let old_central = db::get_agent_by_id(pool, "central")
+        .await?
+        .ok_or_else(|| "Central agent not found".to_string())?;
+    let updated = db::update_central_agent_skills_dir(pool, &expanded_path).await?;
+    demote_skills_outside_new_central_root(pool, &old_central.global_skills_dir, &expanded_path)
+        .await?;
+    sqlx::query(
+        "INSERT INTO scan_directories
+         (path, label, is_active, is_builtin, added_at)
+         VALUES (?, 'Central Skills', 1, 1, ?)
+         ON CONFLICT(path) DO UPDATE SET
+           label = excluded.label,
+           is_active = 1,
+           is_builtin = 1",
+    )
+    .bind(&expanded_path)
+    .bind(chrono::Utc::now().to_rfc3339())
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(updated)
+}
+
+pub async fn get_skill_resource_library_dir_impl(pool: &DbPool) -> Result<String, String> {
+    Ok(path_to_string(&db::get_skill_resource_library_dir(pool).await?))
+}
+
+pub async fn update_skill_resource_library_dir_impl(
+    pool: &DbPool,
+    path: &str,
+) -> Result<String, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("Skill Resource Library path cannot be empty".to_string());
+    }
+    Ok(path_to_string(&db::set_skill_resource_library_dir(pool, path).await?))
+}
+
+async fn demote_skills_outside_new_central_root(
+    pool: &DbPool,
+    old_root: &str,
+    new_root: &str,
+) -> Result<(), String> {
+    let old_root = std::path::PathBuf::from(old_root);
+    let new_root = std::path::PathBuf::from(new_root);
+    if old_root == new_root {
+        return Ok(());
+    }
+
+    for skill in db::get_central_skills(pool).await? {
+        let skill_dir = skill
+            .canonical_path
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::path::Path::new(&skill.file_path)
+                    .parent()
+                    .map(std::path::Path::to_path_buf)
+            })
+            .unwrap_or_else(|| std::path::PathBuf::from(&skill.file_path));
+
+        if skill_dir.starts_with(&old_root) && !skill_dir.starts_with(&new_root) {
+            sqlx::query("UPDATE skills SET is_central = 0 WHERE id = ?")
+                .bind(&skill.id)
+                .execute(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
 }
 
 // ─── Tauri Commands ───────────────────────────────────────────────────────────
@@ -107,6 +191,29 @@ pub async fn set_setting(
     value: String,
 ) -> Result<(), String> {
     set_setting_impl(&state.db, &key, &value).await
+}
+
+#[tauri::command]
+pub async fn update_central_skills_dir(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Agent, String> {
+    update_central_skills_dir_impl(&state.db, &path).await
+}
+
+#[tauri::command]
+pub async fn get_skill_resource_library_dir(
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    get_skill_resource_library_dir_impl(&state.db).await
+}
+
+#[tauri::command]
+pub async fn update_skill_resource_library_dir(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    update_skill_resource_library_dir_impl(&state.db, &path).await
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -395,5 +502,72 @@ mod tests {
         assert!(result.is_ok(), "Setting an empty value should succeed");
         let value = get_setting_impl(&pool, "empty-val").await.unwrap();
         assert_eq!(value.as_deref(), Some(""));
+    }
+
+    #[tokio::test]
+    async fn test_update_central_skills_dir_persists_across_init() {
+        let pool = setup_test_db().await;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let old_central_dir = tmp.path().join("old-central-skills");
+        let old_skill_dir = old_central_dir.join("legacy-skill");
+        std::fs::create_dir_all(&old_skill_dir).unwrap();
+        std::fs::write(
+            old_skill_dir.join("SKILL.md"),
+            "---\nname: legacy-skill\n---\n",
+        )
+        .unwrap();
+        update_central_skills_dir_impl(&pool, &old_central_dir.to_string_lossy())
+            .await
+            .expect("old central dir should update");
+        db::upsert_skill(
+            &pool,
+            &db::Skill {
+                id: "legacy-skill".to_string(),
+                name: "legacy-skill".to_string(),
+                description: None,
+                file_path: old_skill_dir
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(old_skill_dir.to_string_lossy().into_owned()),
+                is_central: true,
+                source: None,
+                content: None,
+                scanned_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let central_dir = tmp.path().join("managed-central-skills");
+        let central_dir_str = central_dir.to_string_lossy().to_string();
+
+        let updated = update_central_skills_dir_impl(&pool, &central_dir_str)
+            .await
+            .expect("central dir should update");
+        assert_eq!(updated.id, "central");
+        assert_eq!(updated.global_skills_dir, central_dir_str);
+
+        db::init_database(&pool)
+            .await
+            .expect("second init should not reset central dir");
+
+        let central = db::get_agent_by_id(&pool, "central")
+            .await
+            .unwrap()
+            .expect("central agent exists");
+        assert_eq!(
+            central.global_skills_dir, central_dir_str,
+            "central path must not be overwritten by builtin seeding"
+        );
+
+        let legacy = db::get_skill_by_id(&pool, "legacy-skill")
+            .await
+            .unwrap()
+            .expect("legacy skill record remains available to platform views");
+        assert!(
+            !legacy.is_central,
+            "skills under the old Central root must not remain in the Central library after changing roots"
+        );
     }
 }

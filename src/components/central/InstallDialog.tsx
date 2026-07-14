@@ -53,21 +53,11 @@ export function InstallDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // When the dialog opens for a skill, pre-select currently unlinked agents.
-  // Agents that already have this skill are checked by default too so the
-  // user can see the full picture, but they can deselect any.
+  // Start with an explicit empty selection. Linked or shared platforms are
+  // displayed as state hints, but install targets are always user-chosen.
   useEffect(() => {
     if (open && skill) {
-      // Default: check agents that are already linked (show current state).
-      const initialSelection = new Set<string>(
-        targetAgents
-          .filter((a) =>
-            skill.linked_agents.includes(a.id) ||
-            (skill.read_only_agents?.includes(a.id) ?? false)
-          )
-          .map((a) => a.id)
-      );
-      setSelectedAgentIds(initialSelection);
+      setSelectedAgentIds(new Set());
       setInstallMethod("symlink");
       setError(null);
     }
@@ -88,8 +78,7 @@ export function InstallDialog({
 
   function getSelectedInstallableAgentIds() {
     if (!skill) return [];
-    const readOnlyAgentIds = new Set(skill.read_only_agents ?? []);
-    return Array.from(selectedAgentIds).filter((id) => !readOnlyAgentIds.has(id));
+    return Array.from(selectedAgentIds);
   }
 
   async function handleConfirm() {
@@ -148,7 +137,6 @@ export function InstallDialog({
                   >
                     <Checkbox
                       checked={isChecked}
-                      disabled={isReadOnly}
                       onCheckedChange={(checked) =>
                         handleCheckboxChange(agent.id, !!checked)
                       }
@@ -157,16 +145,14 @@ export function InstallDialog({
                     <span
                       className="text-sm text-foreground flex-1 cursor-pointer select-none truncate"
                       onClick={() => {
-                        if (!isReadOnly) {
-                          handleCheckboxChange(agent.id, !isChecked);
-                        }
+                        handleCheckboxChange(agent.id, !isChecked);
                       }}
                     >
                       {agent.display_name}
                     </span>
                     {isReadOnly ? (
-                      <span className="text-xs text-primary shrink-0">
-                        {t("installDialog.alwaysIncluded")}
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {t("installDialog.sharedAvailable")}
                       </span>
                     ) : isLinked ? (
                       <span className="text-xs text-primary shrink-0">

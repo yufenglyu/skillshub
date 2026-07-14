@@ -18,6 +18,8 @@ import {
   Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { SkillFrontmatterCard } from "@/components/skill/SkillFrontmatterCard";
 import { parseFrontmatter } from "@/lib/frontmatter";
@@ -34,6 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 import { invoke, isTauriRuntime } from "@/lib/tauri";
 import { isInstallTargetAgent } from "@/lib/agents";
+import { formatPathForDisplay } from "@/lib/path";
 
 // ─── Section Label ─────────────────────────────────────────────────────────────
 
@@ -79,9 +82,11 @@ function SourceOriginBadge({ originKind }: { originKind: ClaudeSourceKind }) {
             defaultValue: i18n.language.startsWith("zh") ? "插件来源" : "Plugin source",
           })
         : isCompatibility
-          ? t("platform.originCompatibility", {
-              defaultValue: i18n.language.startsWith("zh") ? "兼容来源" : "Compatibility source",
-            })
+        ? t("platform.originCompatibility", {
+            defaultValue: i18n.language.startsWith("zh")
+              ? "中央库兼容可见"
+              : "Visible from Central",
+          })
         : t("platform.originUser", {
             defaultValue: i18n.language.startsWith("zh") ? "用户来源" : "User source",
           })}
@@ -444,6 +449,7 @@ export function SkillDetailView({
   const loadCachedExplanation = useSkillDetailStore((s) => s.loadCachedExplanation);
   const generateExplanation = useSkillDetailStore((s) => s.generateExplanation);
   const refreshExplanation = useSkillDetailStore((s) => s.refreshExplanation);
+  const updateMetadata = useSkillDetailStore((s) => s.updateMetadata);
   const reset = useSkillDetailStore((s) => s.reset);
 
   // Platform agents (loaded at app init)
@@ -483,6 +489,9 @@ export function SkillDetailView({
   const [activeTab, setActiveTab] = useState<PreviewTab>("markdown");
   const [isCollectionPickerOpen, setIsCollectionPickerOpen] = useState(false);
   const [showErrorDetails, setShowErrorDetails] = useState(false);
+  const [notesInput, setNotesInput] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
+  const [isSavingMetadata, setIsSavingMetadata] = useState(false);
   const addToCollectionButtonRef = useRef<HTMLButtonElement | null>(null);
   const selectedFilePath = selectedFile?.path ?? null;
   const selectedRelativePath = selectedFile?.relativePath ?? null;
@@ -499,6 +508,11 @@ export function SkillDetailView({
       setIsCollectionPickerOpen(false);
     }
   }, [detail?.is_read_only, isCollectionPickerOpen]);
+
+  useEffect(() => {
+    setNotesInput(detail?.notes ?? "");
+    setTagsInput((detail?.tags ?? []).join(", "));
+  }, [detail?.id, detail?.notes, detail?.tags]);
 
   const fetchDirectoryTree = useCallback(async (dirPath: string) => {
     if (!isTauriRuntime()) {
@@ -678,6 +692,37 @@ export function SkillDetailView({
       queueMicrotask(() => {
         addToCollectionButtonRef.current?.focus();
       });
+    }
+  }
+
+  function parseTagsInput(value: string): string[] {
+    const seen = new Set<string>();
+    return value
+      .split(/[,，\n]/)
+      .map((tag) => tag.trim().replace(/^#/, ""))
+      .filter(Boolean)
+      .filter((tag) => {
+        const key = tag.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 30);
+  }
+
+  async function handleSaveMetadata() {
+    if (!detail || detail.is_read_only) return;
+    setIsSavingMetadata(true);
+    try {
+      await updateMetadata(detail.id, {
+        notes: notesInput.trim() ? notesInput.trim() : null,
+        tags: parseTagsInput(tagsInput),
+      });
+      toast.success(t("detail.metadataSaved"));
+    } catch (err) {
+      toast.error(t("detail.metadataSaveError", { error: String(err) }));
+    } finally {
+      setIsSavingMetadata(false);
     }
   }
 
@@ -1118,32 +1163,130 @@ export function SkillDetailView({
                     </section>
                   )}
 
+                  {!isFileMode && detail && !detail.is_read_only && (
+                    <section aria-label={t("detail.localMetadataRegion")}>
+                      <SectionLabel>{t("detail.localMetadata")}</SectionLabel>
+                      <div className="space-y-2.5 rounded-lg border border-border/70 bg-muted/20 p-3">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-medium text-muted-foreground">
+                            {t("detail.notes")}
+                          </label>
+                          <Textarea
+                            value={notesInput}
+                            onChange={(event) => setNotesInput(event.target.value)}
+                            placeholder={t("detail.notesPlaceholder")}
+                            className="min-h-20 resize-y text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-medium text-muted-foreground">
+                            {t("detail.tags")}
+                          </label>
+                          <Input
+                            value={tagsInput}
+                            onChange={(event) => setTagsInput(event.target.value)}
+                            placeholder={t("detail.tagsPlaceholder")}
+                            className="h-8 text-xs"
+                          />
+                          {parseTagsInput(tagsInput).length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {parseTagsInput(tagsInput).map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                                >
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 w-full"
+                          disabled={isSavingMetadata}
+                          onClick={handleSaveMetadata}
+                        >
+                          {isSavingMetadata ? (
+                            <>
+                              <Loader2 className="size-3.5 animate-spin" />
+                              {t("detail.savingMetadata")}
+                            </>
+                          ) : (
+                            t("detail.saveMetadata")
+                          )}
+                        </Button>
+                      </div>
+                    </section>
+                  )}
+
                   {/* Metadata */}
                   <section aria-label={t("detail.metadataRegion")}>
                     <SectionLabel>{t("detail.metadata")}</SectionLabel>
                     <div className="space-y-2.5">
-                      <MetadataRow label={t("detail.filePath")} value={detail.file_path} />
+                      <MetadataRow label={t("detail.filePath")} value={formatPathForDisplay(detail.file_path)} />
                       {detail.dir_path && (
                         <MetadataRow
                           label={t("detail.directoryPath", {
                             defaultValue: i18n.language.startsWith("zh") ? "目录路径" : "Directory path",
                           })}
-                          value={detail.dir_path}
+                          value={formatPathForDisplay(detail.dir_path)}
                         />
                       )}
                       {detail.canonical_path && (
-                        <MetadataRow label={t("detail.canonical")} value={detail.canonical_path} />
+                        <MetadataRow label={t("detail.canonical")} value={formatPathForDisplay(detail.canonical_path)} />
                       )}
                       {detail.source_root && (
                         <MetadataRow
                           label={t("detail.sourceRoot", {
                             defaultValue: i18n.language.startsWith("zh") ? "来源根目录" : "Source root",
                           })}
-                          value={detail.source_root}
+                          value={formatPathForDisplay(detail.source_root)}
                         />
                       )}
                       {!detail.source_kind && detail.source && (
                         <MetadataRow label={t("detail.source")} value={detail.source} />
+                      )}
+                      {detail.source_author && (
+                        <MetadataRow
+                          label={t("detail.sourceAuthor", {
+                            defaultValue: i18n.language.startsWith("zh") ? "来源作者" : "Source author",
+                          })}
+                          value={detail.source_author}
+                        />
+                      )}
+                      {detail.source_repo && (
+                        <MetadataRow
+                          label={t("detail.sourceRepo", {
+                            defaultValue: i18n.language.startsWith("zh") ? "来源仓库" : "Source repository",
+                          })}
+                          value={detail.source_repo}
+                        />
+                      )}
+                      {detail.source_path && (
+                        <MetadataRow
+                          label={t("detail.sourcePath", {
+                            defaultValue: i18n.language.startsWith("zh") ? "来源路径" : "Source path",
+                          })}
+                          value={detail.source_path}
+                        />
+                      )}
+                      {detail.created_at && (
+                        <MetadataRow
+                          label={t("detail.createdAt", {
+                            defaultValue: i18n.language.startsWith("zh") ? "创建时间" : "Created",
+                          })}
+                          value={new Date(detail.created_at).toLocaleString()}
+                        />
+                      )}
+                      {detail.updated_at && (
+                        <MetadataRow
+                          label={t("detail.updatedAt", {
+                            defaultValue: i18n.language.startsWith("zh") ? "更新时间" : "Updated",
+                          })}
+                          value={new Date(detail.updated_at).toLocaleString()}
+                        />
                       )}
                       <MetadataRow
                         label={t("detail.scannedAt")}

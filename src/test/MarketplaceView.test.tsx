@@ -6,6 +6,7 @@ import type {
   GitHubRepoPreview,
   GitHubRepoImportResult,
   MarketplaceSkill,
+  SkillWithLinks,
   SkillRegistry,
 } from "@/types";
 
@@ -17,8 +18,8 @@ const mockPreviewGitHubRepoImport = vi.fn();
 const mockImportGitHubRepoSkills = vi.fn();
 const mockResetGitHubImport = vi.fn();
 const mockRescan = vi.fn();
-const mockLoadCentralSkills = vi.fn();
-const mockInstallCentralSkill = vi.fn();
+const mockLoadResourceLibrary = vi.fn();
+const mockInstallResourceSkill = vi.fn();
 const mockGetSkillsByAgent = vi.fn();
 
 const platformAgents: AgentWithStatus[] = [
@@ -39,6 +40,22 @@ const platformAgents: AgentWithStatus[] = [
     is_detected: true,
     is_builtin: true,
     is_enabled: true,
+  },
+];
+
+const resourceSkills: SkillWithLinks[] = [
+  {
+    id: "openai-docs",
+    name: "OpenAI Docs",
+    description: "OpenAI docs skill description",
+    file_path: "~/.skillsmanage/library/openai/skills/openai-docs/SKILL.md",
+    canonical_path: "~/.skillsmanage/library/openai/skills/openai-docs",
+    is_central: false,
+    source_author: "openai",
+    source_repo: "openai/skills",
+    scanned_at: "2026-04-16T00:00:00Z",
+    linked_agents: [],
+    read_only_agents: [],
   },
 ];
 
@@ -167,13 +184,13 @@ vi.mock("@/stores/platformStore", () => ({
     }),
 }));
 
-vi.mock("@/stores/centralSkillsStore", () => ({
-  useCentralSkillsStore: (selector: (state: Record<string, unknown>) => unknown) =>
+vi.mock("@/stores/resourceLibraryStore", () => ({
+  useResourceLibraryStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
-      skills: [],
+      skills: resourceSkills,
       agents: platformAgents,
-      loadCentralSkills: mockLoadCentralSkills,
-      installSkill: mockInstallCentralSkill,
+      loadResourceLibrary: mockLoadResourceLibrary,
+      installSkill: mockInstallResourceSkill,
     }),
 }));
 
@@ -198,8 +215,8 @@ describe("MarketplaceView", () => {
     mockImportGitHubRepoSkills.mockReset();
     mockResetGitHubImport.mockReset();
     mockRescan.mockReset();
-    mockLoadCentralSkills.mockReset();
-    mockInstallCentralSkill.mockReset();
+    mockLoadResourceLibrary.mockReset();
+    mockInstallResourceSkill.mockReset();
     mockGetSkillsByAgent.mockReset();
 
     mockGetNormalizedRegistryIdentity.mockImplementation(normalizeRegistryIdentity);
@@ -414,7 +431,7 @@ describe("MarketplaceView", () => {
           originalSkillId: "openai-docs",
           importedSkillId: "openai-docs",
           skillName: "OpenAI Docs",
-          targetDirectory: "/Users/test/.agents/skills/openai-docs",
+          targetDirectory: "/Users/test/.skillsmanage/library/openai/skills/openai-docs",
           resolution: "overwrite",
         },
       ],
@@ -427,9 +444,58 @@ describe("MarketplaceView", () => {
     const resultHub = await screen.findByTestId("github-import-result-hub");
     expect(resultHub).toBeInTheDocument();
     expect(within(resultHub).getByRole("button", { name: /Continue platform setup|继续配置平台安装/i })).toBeInTheDocument();
-    expect(within(resultHub).getByRole("button", { name: /Open Central|打开中央技能库/i })).toBeInTheDocument();
+    expect(within(resultHub).getByRole("button", { name: /Open Skill Resource Library|打开技能资源库/i })).toBeInTheDocument();
     expect(within(resultHub).getByRole("button", { name: /Start another import|开始新的导入/i })).toBeInTheDocument();
     expect(within(resultHub).getByText("legacy-skill")).toBeInTheDocument();
+  });
+
+  it("refreshes the skill resource library after confirming a GitHub import", async () => {
+    const importResult: GitHubRepoImportResult = {
+      repo: {
+        owner: "openai",
+        repo: "skills",
+        branch: "main",
+        normalizedUrl: "https://github.com/openai/skills",
+      },
+      importedSkills: [
+        {
+          sourcePath: "skills/.curated/openai-docs",
+          originalSkillId: "openai-docs",
+          importedSkillId: "openai-docs",
+          skillName: "OpenAI Docs",
+          targetDirectory: "/Users/test/.skillsmanage/library/openai/skills/openai-docs",
+          resolution: "overwrite",
+        },
+      ],
+      skippedSkills: [],
+    };
+    storeState.githubImport.preview = makePreview([
+      {
+        sourcePath: "skills/.curated/openai-docs",
+        skillId: "openai-docs",
+        skillName: "OpenAI Docs",
+        description: "OpenAI docs skill description",
+        rootDirectory: "skills/.curated",
+        skillDirectoryName: "openai-docs",
+        downloadUrl: "https://example.com/openai-docs/SKILL.md",
+        conflict: null,
+      },
+    ]);
+    mockImportGitHubRepoSkills.mockResolvedValue(importResult);
+
+    renderView();
+    fireEvent.click(screen.getByRole("button", { name: /Import GitHub repo|导入 GitHub 仓库/i }));
+    await screen.findByTestId("github-import-preview-workspace");
+    fireEvent.click(screen.getByRole("button", { name: /Review import|检查导入内容/i }));
+    await screen.findByTestId("github-import-confirm-summary");
+    fireEvent.click(screen.getByRole("button", { name: /^Import$|^导入$/i }));
+
+    await waitFor(() => {
+      expect(mockImportGitHubRepoSkills).toHaveBeenCalled();
+      expect(mockLoadResourceLibrary).toHaveBeenCalled();
+    });
+    expect(mockLoadResourceLibrary).toHaveBeenCalledTimes(2);
+    expect(mockLoadRegistries).toHaveBeenCalled();
   });
 
   it("shows settings guidance when github preview fails with auth or rate-limit help", async () => {

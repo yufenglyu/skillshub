@@ -1,24 +1,66 @@
+# Dependencies
 node_modules/
+
+# Frontend build output
 dist/
 build/
 out/
+
+# Tauri / Rust build output
 target/
 src-tauri/target/
-reference/
-.vscode/
+
+# Release artifacts generated locally
+release-assets/
+*.msi
+*.dmg
+*.AppImage
+*.rpm
+*.deb
+*.app.zip
+*.tar.gz
+
+# Test and coverage output
+coverage/
+*.lcov
+.vitest/
+
+# Local databases and app data
 *.db
 *.db-shm
 *.db-wal
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
-coverage/
-*.lcov
-.env*
+
+# Environment and secrets
+.env
+.env.*
 !.env.example
 !.env.sample
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS and editor files
 .DS_Store
 Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local scratch / generated references
+tmp/
 /tmp/
+reference/
 .factory/
+
+# Local agent instructions may include private workspace notes
 AGENTS.md

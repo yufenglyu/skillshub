@@ -126,6 +126,43 @@ function renderCard(linkedAgents: string[], readOnlyAgents: string[] = []) {
   return { onToggle, onManagePlatforms };
 }
 
+describe("UnifiedSkillCard source badges", () => {
+  it("explains read-only platform rows", () => {
+    render(
+      <UnifiedSkillCard
+        name="readonly-skill"
+        description="Read-only skill"
+        sourceType="copy"
+        originKind="compatibility"
+        isReadOnly
+      />
+    );
+
+    expect(screen.getByLabelText(/只读: .*不是当前平台的可删除安装/)).toBeInTheDocument();
+  });
+});
+
+describe("UnifiedSkillCard action buttons", () => {
+  it("uses a custom install-to-central label when provided", () => {
+    const onInstallToCentral = vi.fn();
+    render(
+      <UnifiedSkillCard
+        name="resource-skill"
+        description="Resource skill"
+        onInstallToCentral={onInstallToCentral}
+        installToCentralLabel="加入中央技能库：resource-skill"
+      />
+    );
+
+    const button = screen.getByRole("button", {
+      name: "加入中央技能库：resource-skill",
+    });
+    fireEvent.click(button);
+
+    expect(onInstallToCentral).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("UnifiedSkillCard platform toggles", () => {
   it("renders all lobster toggles and only featured coding toggles on the card", () => {
     renderCard(["cursor", "openclaw"]);

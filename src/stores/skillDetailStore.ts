@@ -30,6 +30,7 @@ interface SkillDetailState {
   installSkill: (skillId: string, agentId: string) => Promise<void>;
   uninstallSkill: (skillId: string, agentId: string) => Promise<void>;
   refreshInstallations: (skillId: string) => Promise<void>;
+  updateMetadata: (skillId: string, metadata: { notes: string | null; tags: string[] }) => Promise<void>;
   cleanupExplanationListeners: () => void;
   reset: () => void;
 }
@@ -366,6 +367,34 @@ export const useSkillDetailStore = create<SkillDetailState>((set) => ({
       }));
     } catch (err) {
       set({ error: String(err) });
+    }
+  },
+
+  updateMetadata: async (skillId, metadata) => {
+    if (!isTauriRuntime()) {
+      set((state) => ({
+        detail: state.detail
+          ? { ...state.detail, notes: metadata.notes, tags: metadata.tags }
+          : state.detail,
+      }));
+      return;
+    }
+    try {
+      const saved = await invoke<{ notes: string | null; tags: string[] }>(
+        "update_skill_metadata",
+        {
+          skillId,
+          metadata,
+        }
+      );
+      set((state) => ({
+        detail: state.detail
+          ? { ...state.detail, notes: saved.notes, tags: saved.tags }
+          : state.detail,
+      }));
+    } catch (err) {
+      set({ error: String(err) });
+      throw err;
     }
   },
 

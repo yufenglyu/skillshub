@@ -222,6 +222,7 @@ const mockReset = vi.fn();
 const mockRescan = vi.fn();
 const mockRefreshCounts = vi.fn();
 const mockRefreshInstallations = vi.fn();
+const mockUpdateMetadata = vi.fn();
 
 function buildDetailStoreState(overrides = {}) {
   return {
@@ -242,6 +243,7 @@ function buildDetailStoreState(overrides = {}) {
     installSkill: mockInstallSkill,
     uninstallSkill: mockUninstallSkill,
     refreshInstallations: mockRefreshInstallations,
+    updateMetadata: mockUpdateMetadata,
     cleanupExplanationListeners: mockCleanupExplanationListeners,
     reset: mockReset,
     ...overrides,
@@ -394,6 +396,51 @@ describe("SkillDetailView", () => {
   it("shows source", () => {
     renderView();
     expect(screen.getByText("native")).toBeInTheDocument();
+  });
+
+  it("saves editable local notes and tags", async () => {
+    mockUpdateMetadata.mockResolvedValue(undefined);
+    applyStoreMocks({
+      detail: {
+        ...mockDetail,
+        notes: "Existing note",
+        tags: ["frontend"],
+      },
+    });
+    renderView("frontend-design", "page", { skipMockSetup: true });
+
+    const notesInput = screen.getByPlaceholderText(/记录此技能的用途/i);
+    const tagsInput = screen.getByPlaceholderText(/输入标签/i);
+    fireEvent.change(notesInput, { target: { value: "Use for dashboard work" } });
+    fireEvent.change(tagsInput, { target: { value: "ui, dashboard, UI" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存备注与标签/i }));
+
+    await waitFor(() => {
+      expect(mockUpdateMetadata).toHaveBeenCalledWith("frontend-design", {
+        notes: "Use for dashboard work",
+        tags: ["ui", "dashboard"],
+      });
+    });
+  });
+
+  it("hides local notes and tags editor for read-only plugin skills", () => {
+    applyStoreMocks({
+      detail: mockPluginDetail,
+      content: mockPluginContent,
+    });
+
+    render(
+      <MemoryRouter>
+        <SkillDetailView
+          skillId="frontend-design"
+          agentId="claude-code"
+          rowId="claude-code::plugin::frontend-design"
+          variant="drawer"
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByRole("region", { name: /技能备注与标签/i })).toBeNull();
   });
 
   it("shows a read-only plugin source state and blocks management actions", () => {

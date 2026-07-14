@@ -3,24 +3,30 @@
   <id>com.iamzhihuix.skillsmanage</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>Apache-2.0</project_license>
-  <name>skills-manage</name>
-  <summary>AI Agent Skills Manager</summary>
+  <name>SkillsHub</name>
+  <summary>AI Agent Skills Hub</summary>
   <description>
-    <p>Manage, discover, and install AI agent skills across local platforms from a Tauri desktop app.</p>
+    <p>Manage resource libraries, central skills, platform installs, collections, and GitHub or marketplace skill imports from a local-first Tauri desktop app.</p>
   </description>
   <launchable type="desktop-id">skills-manage.desktop</launchable>
-  <url type="homepage">https://github.com/iamzhihuix/skills-manage</url>
-  <developer id="com.iamzhihuix">
-    <name>iamzhihuix</name>
+  <url type="homepage">https://github.com/yufenglyu/skillshub</url>
+  <developer id="io.github.yufenglyu">
+    <name>yufenglyu</name>
   </developer>
   <categories>
     <category>Development</category>
     <category>Utility</category>
   </categories>
   <provides>
-    <binary>skills-manage</binary>
+    <binary>skillshub</binary>
   </provides>
   <releases>
+    <release version="0.10.6" date="2026-07-14"/>
+    <release version="0.10.5" date="2026-07-14"/>
+    <release version="0.10.4" date="2026-07-14"/>
+    <release version="0.10.3" date="2026-07-14"/>
+    <release version="0.10.2" date="2026-07-14"/>
+    <release version="0.10.1" date="2026-07-13"/>
     <release version="0.10.0" date="2026-04-30"/>
   </releases>
 </component>

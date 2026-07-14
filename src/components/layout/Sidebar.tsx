@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Loader2,
+  Database,
   Blocks,
   Layers,
   Radar,
@@ -16,6 +17,7 @@ import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useCollectionStore } from "@/stores/collectionStore";
 import { useDiscoverStore } from "@/stores/discoverStore";
+import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useObsidianStore } from "@/stores/obsidianStore";
 import { cn } from "@/lib/utils";
 import { isEnabledInstallTargetAgent } from "@/lib/agents";
@@ -116,6 +118,8 @@ export function Sidebar() {
 
   const totalDiscovered = useDiscoverStore((s) => s.totalSkillsFound);
   const loadDiscoveredSkills = useDiscoverStore((s) => s.loadDiscoveredSkills);
+  const resourceSkillsCount = useResourceLibraryStore((s) => s.skills.length);
+  const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
   const obsidianVaults = useObsidianStore((s) => s.vaults);
   const loadObsidianVaults = useObsidianStore((s) => s.loadVaults);
 
@@ -131,8 +135,9 @@ export function Sidebar() {
   useEffect(() => {
     loadCollections();
     loadDiscoveredSkills();
+    loadResourceLibrary();
     loadObsidianVaults();
-  }, [loadCollections, loadDiscoveredSkills, loadObsidianVaults]);
+  }, [loadCollections, loadDiscoveredSkills, loadObsidianVaults, loadResourceLibrary]);
 
   function toggleShowAllPlatforms() {
     setShowAllPlatforms((previous) => {
@@ -201,10 +206,20 @@ export function Sidebar() {
 
       {/* Scrollable nav items */}
       <div className="flex-1 overflow-y-auto py-2 px-1.5 space-y-0.5">
+        {/* Resource Library */}
+        <NavItem
+          label={t("sidebar.resourceLibrary")}
+          isActive={pathname === "/resources" || pathname === "/"}
+          onClick={() => navigate("/resources")}
+          icon={<Database className="size-4" />}
+          expanded={expanded}
+          count={resourceSkillsCount}
+        />
+
         {/* Central Skills */}
         <NavItem
           label={t("sidebar.centralSkills")}
-          isActive={pathname === "/central" || pathname === "/"}
+          isActive={pathname === "/central"}
           onClick={() => navigate("/central")}
           icon={<Blocks className="size-4" />}
           expanded={expanded}

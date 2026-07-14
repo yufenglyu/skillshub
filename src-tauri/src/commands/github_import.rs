@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::{
     db::{self, DbPool, Skill},
+    path_utils::source_grouped_skill_dir,
     AppState,
 };
 
@@ -345,11 +346,11 @@ async fn import_github_repo_skills_impl(
         selected.push((candidate, selection));
     }
 
-    let central_root = central_skills_root(pool).await?;
-    std::fs::create_dir_all(&central_root)
-        .map_err(|e| format!("Failed to create central skills directory: {}", e))?;
+    let resource_root = skill_resource_library_root(pool).await?;
+    std::fs::create_dir_all(&resource_root)
+        .map_err(|e| format!("Failed to create skill resource library directory: {}", e))?;
 
-    let mut occupied_ids = current_central_skill_ids(pool).await?;
+    let mut occupied_ids = current_managed_skill_ids(pool).await?;
     let mut staging_ops = Vec::new();
     let mut skipped_skills = Vec::new();
 
@@ -361,9 +362,9 @@ async fn import_github_repo_skills_impl(
             }
             DuplicateResolution::Overwrite => {
                 if let Some(existing) = db::get_skill_by_id(pool, &candidate.skill_id).await? {
-                    if !existing.is_central {
+                    if existing.is_central || existing.canonical_path.is_none() {
                         return Err(format!(
-                            "Skill '{}' conflicts with a non-central record and cannot be overwritten safely.",
+                            "Skill '{}' conflicts with an existing record and cannot be overwritten safely. Rename it to import into the resource library.",
                             candidate.skill_id
                         ));
                     }
@@ -442,7 +443,14 @@ async fn import_github_repo_skills_impl(
     let mut created_paths = Vec::new();
 
     for op in &staging_ops {
-        let target_dir = central_root.join(&op.final_skill_id);
+        let source_repo = format!("{}/{}", repo.owner, repo.repo);
+        let target_dir = source_grouped_skill_dir(
+            &resource_root,
+            Some(&repo.owner),
+            Some(&source_repo),
+            None,
+            &op.final_skill_id,
+        );
         if target_dir.exists() {
             if op.resolution == DuplicateResolution::Overwrite {
                 std::fs::remove_dir_all(&target_dir).map_err(|e| {
@@ -493,12 +501,25 @@ async fn import_github_repo_skills_impl(
             description: frontmatter.description.clone(),
             file_path: skill_md_path.to_string_lossy().into_owned(),
             canonical_path: Some(target_dir.to_string_lossy().into_owned()),
-            is_central: true,
+            is_central: false,
             source: Some(format!("github:{}/{}", repo.owner, repo.repo)),
             content: None,
             scanned_at: Utc::now().to_rfc3339(),
         };
         db::upsert_skill(pool, &db_skill).await?;
+        db::upsert_skill_source(
+            pool,
+            &db::SkillSource {
+                skill_id: op.final_skill_id.clone(),
+                source_type: "github".to_string(),
+                source_url: Some(op.candidate.download_url.clone()),
+                source_author: Some(repo.owner.clone()),
+                source_repo: Some(format!("{}/{}", repo.owner, repo.repo)),
+                source_path: Some(op.candidate.source_path.clone()),
+                updated_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await?;
 
         imported_skills.push(ImportedGitHubSkillSummary {
             source_path: op.candidate.source_path.clone(),
@@ -544,15 +565,12 @@ fn cleanup_created_directories(paths: &[PathBuf]) {
     }
 }
 
-async fn central_skills_root(pool: &DbPool) -> Result<PathBuf, String> {
-    let central = db::get_agent_by_id(pool, "central")
-        .await?
-        .ok_or_else(|| "Central agent not found in database".to_string())?;
-    Ok(PathBuf::from(central.global_skills_dir))
+async fn skill_resource_library_root(pool: &DbPool) -> Result<PathBuf, String> {
+    db::get_skill_resource_library_dir(pool).await
 }
 
-async fn current_central_skill_ids(pool: &DbPool) -> Result<HashSet<String>, String> {
-    let rows = sqlx::query("SELECT id FROM skills WHERE is_central = 1")
+async fn current_managed_skill_ids(pool: &DbPool) -> Result<HashSet<String>, String> {
+    let rows = sqlx::query("SELECT id FROM skills WHERE canonical_path IS NOT NULL")
         .fetch_all(pool)
         .await
         .map_err(|e| e.to_string())?;
@@ -570,7 +588,7 @@ async fn build_preview_skills(
     for candidate in candidates {
         let existing = db::get_skill_by_id(pool, &candidate.skill_id).await?;
         let conflict = existing.and_then(|existing| {
-            if existing.is_central {
+            if existing.canonical_path.is_some() {
                 Some(GitHubSkillConflict {
                     existing_skill_id: existing.id,
                     existing_name: existing.name,
@@ -657,7 +675,7 @@ pub(crate) async fn github_direct_auth_from_settings(
 
 fn github_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .user_agent("skills-manage/0.9.1")
+        .user_agent("SkillsHub/0.10.6")
         .build()
         .map_err(|e| e.to_string())
 }
@@ -1778,7 +1796,7 @@ mod tests {
         .await
         .expect("seed overwrite conflict");
 
-        let mut occupied = current_central_skill_ids(&pool).await.expect("occupied");
+        let mut occupied = current_managed_skill_ids(&pool).await.expect("occupied");
         assert!(occupied.contains(&agent_planner.skill_id));
         assert!(occupied.contains(&commit.skill_id));
         assert!(occupied.contains(&code_review.skill_id));

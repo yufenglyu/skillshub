@@ -46,6 +46,9 @@ describe("path helpers", () => {
     expect(formatPathForDisplay("C:\\Users\\alice\\.claude\\skills")).toBe(
       "C:\\Users\\alice\\.claude\\skills"
     );
+    expect(formatPathForDisplay("C:\\Users\\alice\\.agents/skills/demo/SKILL.md")).toBe(
+      "C:\\Users\\alice\\.agents\\skills\\demo\\SKILL.md"
+    );
   });
 
   it("derives home directories from unix and windows paths", () => {

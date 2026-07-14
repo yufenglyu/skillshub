@@ -3,12 +3,13 @@ import {
   AlertTriangle,
   ArrowUpDown,
   Blocks,
+  Download,
   FolderOpen,
   RefreshCw,
   Search,
-  Settings,
+  Trash2,
+  X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
@@ -35,12 +36,14 @@ import {
 import { AgentWithStatus, CentralSkillBundle, ScannedSkill, SkillWithLinks } from "@/types";
 import { GitHubRepoImportWizard } from "@/components/marketplace/GitHubRepoImportWizard";
 import { useMarketplaceStore } from "@/stores/marketplaceStore";
+import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { formatPathForDisplay } from "@/lib/path";
 import { buildSearchText, normalizeSearchQuery } from "@/lib/search";
 import { dirnameFromSkillFile, splitSkillsByTopLevel } from "@/lib/skillFolders";
 import { isTauriRuntime } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
+import { isInstallTargetAgent } from "@/lib/agents";
 
 const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
@@ -108,6 +111,7 @@ const noopGetSkillsByAgent = async (_agentId: string) => {};
 const noopPreviewGitHubRepoImport = async () => null;
 const noopResetGitHubImport = () => {};
 const noopTogglePlatformLink = async (_skillId: string, _agentId: string) => {};
+const noopUninstallSkillsFromAgent = async (_skillIds: string[], _agentId: string) => {};
 const noopDeleteCentralSkill = async (
   _skillId: string,
   _options: { cascadeUninstall: boolean }
@@ -174,43 +178,6 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-// ─── First Visit Empty State ──────────────────────────────────────────────────
-
-function FirstVisitEmptyState() {
-  const navigate = useNavigate();
-  const { t } = useTranslation();
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-6 py-16 text-center px-8">
-      <div className="p-5 rounded-full bg-primary/10 ring-1 ring-primary/20">
-        <Blocks className="size-14 text-primary opacity-70" />
-      </div>
-      <div className="space-y-2">
-        <h2 className="text-xl font-semibold text-foreground">{t("empty.welcomeTitle")}</h2>
-        <p className="text-sm text-muted-foreground max-w-sm leading-relaxed">
-          {t("empty.welcomeDesc")}
-        </p>
-      </div>
-      <div className="flex flex-col gap-3 items-center">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-xl px-4 py-3 max-w-xs text-left border border-border">
-          <FolderOpen className="size-4 shrink-0 text-primary/60" />
-          <span>
-            {t("empty.createHint")} <code className="font-mono">~/.agents/skills/my-skill/SKILL.md</code>
-          </span>
-        </div>
-        <Button
-          variant="default"
-          size="sm"
-          onClick={() => navigate("/settings")}
-          className="gap-2"
-        >
-          <Settings className="size-4" />
-          {t("empty.goToSettings")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 function parseSortableTimestamp(value?: string | null): number {
   if (!value) return 0;
   const timestamp = Date.parse(value);
@@ -239,6 +206,9 @@ export function CentralSkillsView() {
   const rawLoadCentralSkills = useCentralSkillsStore(
     (state) => state.loadCentralSkills
   );
+  const updateSourceBackedSkill = useCentralSkillsStore(
+    (state) => state.updateSourceBackedSkill
+  ) ?? (async (skillId: string) => skillId);
   const shouldUseBrowserFixtures =
     !isTauriRuntime() &&
     rawSkills === undefined &&
@@ -264,6 +234,9 @@ export function CentralSkillsView() {
   const togglePlatformLink =
     useCentralSkillsStore((state) => state.togglePlatformLink) ??
     noopTogglePlatformLink;
+  const uninstallSkillsFromAgent =
+    useCentralSkillsStore((state) => state.uninstallSkillsFromAgent) ??
+    noopUninstallSkillsFromAgent;
   const deleteCentralSkill =
     useCentralSkillsStore((state) => state.deleteCentralSkill) ??
     noopDeleteCentralSkill;
@@ -292,6 +265,19 @@ export function CentralSkillsView() {
   const togglingAgentId = useCentralSkillsStore((state) => state.togglingAgentId);
   const deletingSkillId = useCentralSkillsStore((state) => state.deletingSkillId);
   const deletingBundlePath = useCentralSkillsStore((state) => state.deletingBundlePath);
+  const isUpdatingSources = useCentralSkillsStore((state) => state.isUpdatingSources);
+  const updateSourceBackedSkills = useCentralSkillsStore(
+    (state) => state.updateSourceBackedSkills
+  ) ?? (async () => []);
+  const loadResourceLibrary = useResourceLibraryStore(
+    (state) => state.loadResourceLibrary
+  ) ?? (async () => {});
+  const resourceSkills =
+    useResourceLibraryStore((state) => state.skills) ?? EMPTY_SKILLS;
+  const resourceAgents =
+    useResourceLibraryStore((state) => state.agents) ?? EMPTY_AGENTS;
+  const installResourceSkill =
+    useResourceLibraryStore((state) => state.installSkill) ?? noopInstallSkill;
 
   // Keep the platform sidebar counts in sync after install.
   const refreshCounts =
@@ -318,6 +304,14 @@ export function CentralSkillsView() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [viewMode, setViewMode] = useSkillListViewMode("central");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [updatingSkillId, setUpdatingSkillId] = useState<string | null>(null);
+  const [selectedCentralSkillIds, setSelectedCentralSkillIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [bulkUninstallAgentId, setBulkUninstallAgentId] = useState("");
+  const [isBulkUninstallConfirming, setIsBulkUninstallConfirming] = useState(false);
+  const [isBulkUninstalling, setIsBulkUninstalling] = useState(false);
   const [installTargetSkill, setInstallTargetSkill] =
     useState<SkillWithLinks | null>(null);
   const [deleteTargetSkill, setDeleteTargetSkill] =
@@ -371,10 +365,31 @@ export function CentralSkillsView() {
     () =>
       visibleSkills.map((skill) => ({
         skill,
-        searchText: buildSearchText([skill.name, skill.description]),
+        searchText: buildSearchText([
+          skill.name,
+          skill.description,
+          skill.notes,
+          ...(skill.tags ?? []),
+          skill.source_author,
+          skill.source_repo,
+        ]),
       })),
     [visibleSkills]
   );
+  const availableTags = useMemo(() => {
+    const tags = new Map<string, string>();
+    for (const skill of skills) {
+      for (const tag of skill.tags ?? []) {
+        const normalized = tag.toLowerCase();
+        if (!tags.has(normalized)) {
+          tags.set(normalized, tag);
+        }
+      }
+    }
+    return Array.from(tags.entries())
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  }, [skills]);
   const isSearchActive = normalizedSearchQuery.length > 0;
 
   // Load central skills on mount.
@@ -388,26 +403,43 @@ export function CentralSkillsView() {
 
   // Filter skills by search query.
   const filteredSkills = useMemo(() => {
-    if (!normalizedSearchQuery) return visibleSkills;
     return searchableSkills
-      .filter(({ searchText }) => searchText.includes(normalizedSearchQuery))
+      .filter(({ skill }) => {
+        if (!selectedTag) return true;
+        return (skill.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag);
+      })
+      .filter(({ searchText }) => !normalizedSearchQuery || searchText.includes(normalizedSearchQuery))
       .map(({ skill }) => skill);
-  }, [normalizedSearchQuery, searchableSkills, visibleSkills]);
+  }, [normalizedSearchQuery, searchableSkills, selectedTag]);
 
   const filteredBundles = useMemo(() => {
     if (viewMode !== "folders") return [];
-    if (!normalizedSearchQuery) return bundles;
     return bundles.filter((bundle) => {
+      const group = centralFolderGroupsByPath.get(bundle.relativePath);
+      if (selectedTag) {
+        const hasSelectedTag =
+          group?.skills.some((skill) =>
+            (skill.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag)
+          ) ?? false;
+        if (!hasSelectedTag) return false;
+      }
+      if (!normalizedSearchQuery) return true;
       const bundleSearchText = buildSearchText([bundle.name, bundle.relativePath, bundle.path]);
       if (bundleSearchText.includes(normalizedSearchQuery)) return true;
-      const group = centralFolderGroupsByPath.get(bundle.relativePath);
       return (
         group?.skills.some((skill) =>
-          buildSearchText([skill.name, skill.description]).includes(normalizedSearchQuery)
+          buildSearchText([
+            skill.name,
+            skill.description,
+            skill.notes,
+            ...(skill.tags ?? []),
+            skill.source_author,
+            skill.source_repo,
+          ]).includes(normalizedSearchQuery)
         ) ?? false
       );
     });
-  }, [bundles, centralFolderGroupsByPath, normalizedSearchQuery, viewMode]);
+  }, [bundles, centralFolderGroupsByPath, normalizedSearchQuery, selectedTag, viewMode]);
 
   // Sort filtered skills.
   const sortedSkills = useMemo(() => {
@@ -430,6 +462,49 @@ export function CentralSkillsView() {
       return timeComparison === 0 ? nameComparison : timeComparison * direction;
     });
   }, [filteredSkills, sortDirection, sortField]);
+
+  const uninstallTargetAgents = useMemo(
+    () => agents.filter(isInstallTargetAgent),
+    [agents]
+  );
+  const visibleUninstallableSkills = useMemo(
+    () => sortedSkills.filter((skill) => skill.linked_agents.length > 0),
+    [sortedSkills]
+  );
+  const selectedCentralSkills = useMemo(
+    () => skills.filter((skill) => selectedCentralSkillIds.has(skill.id)),
+    [selectedCentralSkillIds, skills]
+  );
+  const selectedLinkedSkillIdsForAgent = useMemo(
+    () =>
+      selectedCentralSkills
+        .filter(
+          (skill) =>
+            bulkUninstallAgentId.length > 0 &&
+            skill.linked_agents.includes(bulkUninstallAgentId)
+        )
+        .map((skill) => skill.id),
+    [bulkUninstallAgentId, selectedCentralSkills]
+  );
+  const allVisibleUninstallableSelected =
+    visibleUninstallableSkills.length > 0 &&
+    visibleUninstallableSkills.every((skill) =>
+      selectedCentralSkillIds.has(skill.id)
+    );
+  const skippedSelectedCount =
+    selectedCentralSkillIds.size - selectedLinkedSkillIdsForAgent.length;
+
+  useEffect(() => {
+    setSelectedCentralSkillIds((current) => {
+      const validIds = new Set(skills.map((skill) => skill.id));
+      const next = new Set([...current].filter((skillId) => validIds.has(skillId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [skills]);
+
+  useEffect(() => {
+    setIsBulkUninstallConfirming(false);
+  }, [bulkUninstallAgentId, selectedCentralSkillIds]);
 
   useEffect(() => {
     if (!isSearchActive || !contentRef.current) return;
@@ -562,6 +637,79 @@ export function CentralSkillsView() {
     }
   }
 
+  function toggleCentralSkillSelection(skill: SkillWithLinks) {
+    if (skill.linked_agents.length === 0) return;
+    setSelectedCentralSkillIds((current) => {
+      const next = new Set(current);
+      if (next.has(skill.id)) {
+        next.delete(skill.id);
+      } else {
+        next.add(skill.id);
+      }
+      return next;
+    });
+  }
+
+  function toggleVisibleUninstallableSelection() {
+    setSelectedCentralSkillIds((current) => {
+      const next = new Set(current);
+      if (allVisibleUninstallableSelected) {
+        for (const skill of visibleUninstallableSkills) {
+          next.delete(skill.id);
+        }
+      } else {
+        for (const skill of visibleUninstallableSkills) {
+          next.add(skill.id);
+        }
+      }
+      return next;
+    });
+  }
+
+  async function handleBulkUninstallFromAgent() {
+    if (!bulkUninstallAgentId || selectedLinkedSkillIdsForAgent.length === 0) {
+      return;
+    }
+    setIsBulkUninstalling(true);
+    try {
+      await uninstallSkillsFromAgent(selectedLinkedSkillIdsForAgent, bulkUninstallAgentId);
+      await Promise.all([refreshCounts(), getSkillsByAgent(bulkUninstallAgentId)]);
+      setSelectedCentralSkillIds(new Set());
+      setIsBulkUninstallConfirming(false);
+      toast.success(
+        t("central.bulkUninstallSuccess", {
+          count: selectedLinkedSkillIdsForAgent.length,
+        })
+      );
+    } catch (err) {
+      toast.error(t("central.bulkUninstallError", { error: String(err) }));
+    } finally {
+      setIsBulkUninstalling(false);
+    }
+  }
+
+  async function handleUpdateSources() {
+    try {
+      const updated = await updateSourceBackedSkills();
+      await refreshCounts();
+      toast.success(t("central.updateSourcesSuccess", { count: updated.length }));
+    } catch (err) {
+      toast.error(t("central.updateSourcesError", { error: String(err) }));
+    }
+  }
+
+  async function handleUpdateSingleSource(skill: SkillWithLinks) {
+    setUpdatingSkillId(skill.id);
+    try {
+      await updateSourceBackedSkill(skill.id);
+      toast.success(t("central.updateSourceSuccess", { name: skill.name }));
+    } catch (err) {
+      toast.error(t("central.updateSourceError", { name: skill.name, error: String(err) }));
+    } finally {
+      setUpdatingSkillId(null);
+    }
+  }
+
   async function handleGitHubPreview() {
     try {
       return await previewGitHubRepoImport(githubRepoUrl);
@@ -575,8 +723,8 @@ export function CentralSkillsView() {
   ) {
     try {
       const result = await importGitHubRepoSkills(githubRepoUrl, selections);
-      await Promise.all([refreshCounts(), loadCentralSkills()]);
-      toast.success(t("marketplace.githubImportCentralSuccess"));
+      await Promise.all([refreshCounts(), loadCentralSkills(), loadResourceLibrary()]);
+      toast.success(t("resource.githubImportSuccess"));
       return result;
     } catch (err) {
       toast.error(t("marketplace.installError", { error: String(err) }));
@@ -589,8 +737,19 @@ export function CentralSkillsView() {
     agentIds: string[],
     method: "symlink" | "copy"
   ) {
-    await handleInstall(skillId, agentIds, method);
-    await Promise.all(agentIds.map((agentId) => getSkillsByAgent(agentId)));
+    const result = await installResourceSkill(skillId, agentIds, method);
+    if (result.failed.length > 0) {
+      toast.error(
+        t("central.installPartialFail", {
+          platforms: result.failed.map((item) => item.agent_id).join(", "),
+        })
+      );
+    }
+    await Promise.all([
+      refreshCounts(),
+      loadResourceLibrary(),
+      ...agentIds.map((agentId) => getSkillsByAgent(agentId)),
+    ]);
   }
 
   const installableImportedSkills = useMemo(() => {
@@ -598,12 +757,12 @@ export function CentralSkillsView() {
     const importedIds = new Set(
       githubImport.importResult.importedSkills.map((skill) => skill.importedSkillId)
     );
-    return skills.filter((skill) => importedIds.has(skill.id));
-  }, [githubImport.importResult, skills]);
+    return resourceSkills.filter((skill) => importedIds.has(skill.id));
+  }, [githubImport.importResult, resourceSkills]);
 
   const availableInstallAgents = useMemo(
-    () => (agents.length > 0 ? agents : platformAgents),
-    [agents, platformAgents]
+    () => (resourceAgents.length > 0 ? resourceAgents : agents.length > 0 ? agents : platformAgents),
+    [agents, platformAgents, resourceAgents]
   );
   const platformDrawerSkill = useMemo(
     () => skills.find((skill) => skill.id === platformDrawerSkillId) ?? null,
@@ -612,8 +771,10 @@ export function CentralSkillsView() {
 
   async function handleAfterImportSuccess() {
     const agentIds = Object.keys(skillsByAgent);
-    if (agentIds.length === 0) return;
-    await Promise.all(agentIds.map((agentId) => getSkillsByAgent(agentId)));
+    await Promise.all([
+      loadResourceLibrary(),
+      ...agentIds.map((agentId) => getSkillsByAgent(agentId)),
+    ]);
   }
 
   return (
@@ -637,9 +798,23 @@ export function CentralSkillsView() {
             {centralSkillsDir}
           </p>
         </div>
-        <Button variant="outline" onClick={() => setIsGitHubImportOpen(true)}>
-          {t("marketplace.githubImportSecondaryCta")}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleUpdateSources}
+            disabled={isUpdatingSources}
+          >
+            {isUpdatingSources ? (
+              <RefreshCw className="size-4 animate-spin" />
+            ) : (
+              <Download className="size-4" />
+            )}
+            {t("central.updateSources")}
+          </Button>
+          <Button variant="outline" onClick={() => setIsGitHubImportOpen(true)}>
+            {t("marketplace.githubImportSecondaryCta")}
+          </Button>
+        </div>
       </div>
 
       {/* Search bar */}
@@ -709,6 +884,138 @@ export function CentralSkillsView() {
             <SkillListModeToggle value={viewMode} onChange={setViewMode} />
           </div>
         </div>
+        {availableTags.length > 0 && (
+          <div
+            role="group"
+            aria-label={t("central.tagFilter")}
+            className="mt-3 flex flex-wrap items-center gap-1.5"
+          >
+            <span className="text-xs font-medium text-muted-foreground">
+              {t("central.tagFilter")}
+            </span>
+            <button
+              type="button"
+              aria-pressed={selectedTag === null}
+              onClick={() => setSelectedTag(null)}
+              className={cn(
+                "h-7 rounded-lg px-2.5 text-xs font-medium transition-colors",
+                selectedTag === null
+                  ? "bg-primary/15 text-foreground"
+                  : "bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              )}
+            >
+              {t("central.allTags")}
+            </button>
+            {availableTags.map((tag) => (
+              <button
+                key={tag.key}
+                type="button"
+                aria-pressed={selectedTag === tag.key}
+                onClick={() => setSelectedTag(selectedTag === tag.key ? null : tag.key)}
+                className={cn(
+                  "h-7 rounded-lg px-2.5 text-xs font-medium transition-colors",
+                  selectedTag === tag.key
+                    ? "bg-primary/15 text-foreground"
+                    : "bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                )}
+              >
+                #{tag.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {skills.length > 0 && (
+          <div
+            role="group"
+            aria-label={t("central.bulkUninstallLabel")}
+            className="mt-3 flex flex-wrap items-center gap-2"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={visibleUninstallableSkills.length === 0 || isBulkUninstalling}
+              onClick={toggleVisibleUninstallableSelection}
+              className="h-8"
+            >
+              {allVisibleUninstallableSelected
+                ? t("central.deselectVisible")
+                : t("central.selectVisible")}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {t("central.selectedCount", { count: selectedCentralSkillIds.size })}
+            </span>
+            <label className="sr-only" htmlFor="central-bulk-uninstall-agent">
+              {t("central.bulkUninstallPlatformLabel")}
+            </label>
+            <select
+              id="central-bulk-uninstall-agent"
+              aria-label={t("central.bulkUninstallPlatformLabel")}
+              value={bulkUninstallAgentId}
+              disabled={isBulkUninstalling}
+              onChange={(event) => setBulkUninstallAgentId(event.target.value)}
+              className="h-8 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="">{t("central.bulkUninstallChoosePlatform")}</option>
+              {uninstallTargetAgents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.display_name}
+                </option>
+              ))}
+            </select>
+            {visibleUninstallableSkills.length === 0 && (
+              <span className="text-xs text-muted-foreground">
+                {t("central.bulkUninstallNoInstalled")}
+              </span>
+            )}
+            {bulkUninstallAgentId &&
+              selectedCentralSkillIds.size > 0 &&
+              skippedSelectedCount > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {t("central.bulkUninstallSkipped", { count: skippedSelectedCount })}
+                </span>
+              )}
+            {selectedLinkedSkillIdsForAgent.length > 0 &&
+              (isBulkUninstallConfirming ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={isBulkUninstalling}
+                    onClick={() => void handleBulkUninstallFromAgent()}
+                    className="h-8 gap-1.5"
+                  >
+                    <Trash2 className="size-3.5" />
+                    {t("central.bulkUninstallConfirm")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={isBulkUninstalling}
+                    onClick={() => setIsBulkUninstallConfirming(false)}
+                    className="h-8 gap-1.5"
+                  >
+                    <X className="size-3.5" />
+                    {t("common.cancel")}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={isBulkUninstalling}
+                  onClick={() => setIsBulkUninstallConfirming(true)}
+                  className="h-8 gap-1.5"
+                >
+                  <Trash2 className="size-3.5" />
+                  {t("central.bulkUninstallAction")}
+                </Button>
+              ))}
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -716,7 +1023,7 @@ export function CentralSkillsView() {
         {isLoading ? (
           <EmptyState message={t("central.loading")} />
         ) : skills.length === 0 && bundles.length === 0 ? (
-          <FirstVisitEmptyState />
+          <EmptyState message={t("central.noSkills")} />
         ) : (
           <div className="space-y-6">
             {viewMode === "folders" && filteredBundles.length > 0 && (
@@ -765,14 +1072,36 @@ export function CentralSkillsView() {
                       key={skill.id}
                       name={skill.name}
                       description={skill.description}
+                      checkbox={
+                        skill.linked_agents.length > 0
+                          ? {
+                              checked: selectedCentralSkillIds.has(skill.id),
+                              onChange: () => toggleCentralSkillSelection(skill),
+                              ariaLabel: t("central.selectSkillLabel", {
+                                name: skill.name,
+                              }),
+                            }
+                          : undefined
+                      }
+                      publisher={skill.source_repo ?? skill.source_author ?? undefined}
+                      sourceAuthor={skill.source_author}
+                      sourceRepo={skill.source_repo}
+                      sourceUrl={skill.source_url}
+                      createdAt={skill.created_at}
+                      updatedAt={skill.updated_at}
+                      tags={(skill.tags ?? []).map((tag) => ({ key: tag, label: tag }))}
                       onDetail={() => handleOpenDrawer(skill.id)}
                       onInstallTo={() => handleInstallClick(skill)}
+                      onUpdateFromSource={
+                        skill.source_url ? () => void handleUpdateSingleSource(skill) : undefined
+                      }
+                      updateFromSourceLabel={t("central.updateSourceLabel", { name: skill.name })}
                       onDeleteFromCentral={() => handleDeleteClick(skill)}
                       deleteFromCentralLabel={t("central.deleteFromCentralLabel", { name: skill.name })}
                       deleteFromCentralRequiresDialog={
                         skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0
                       }
-                      isLoading={deletingSkillId === skill.id}
+                      isLoading={deletingSkillId === skill.id || updatingSkillId === skill.id}
                       detailButtonRef={(node) => setDetailButtonRef(skill.id, node)}
                       platformIcons={{
                         agents,
@@ -884,7 +1213,7 @@ export function CentralSkillsView() {
           resetGitHubImport();
           setGitHubRepoUrl("");
         }}
-        launcherLabel={t("central.title")}
+        launcherLabel={t("resource.title")}
       />
 
       <Dialog

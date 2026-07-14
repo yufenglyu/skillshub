@@ -123,7 +123,14 @@ export function GlobalSearchDialog({
         groupKey: "central",
         groupLabel: t("globalSearch.centralSkills"),
         icon: <Blocks className="size-4 shrink-0 text-primary/70" />,
-        searchText: buildSearchText([skill.name, skill.description]),
+        searchText: buildSearchText([
+          skill.name,
+          skill.description,
+          skill.notes,
+          ...(skill.tags ?? []),
+          skill.source_author,
+          skill.source_repo,
+        ]),
         labelText,
         descriptionText,
         onSelect: () => {

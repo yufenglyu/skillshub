@@ -1,12 +1,12 @@
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
 use super::github_import;
-use crate::path_utils::central_skills_dir;
-use crate::AppState;
+use crate::{db, path_utils::source_grouped_skill_dir, AppState};
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -351,7 +351,7 @@ async fn sync_registry_impl(
     };
 
     // Check which skills are already installed locally
-    let central_dir = central_skills_dir();
+    let central_dir = central_skills_root(pool).await?;
 
     // Upsert skills into marketplace_skills
     for skill in &skills {
@@ -477,8 +477,308 @@ fn row_to_marketplace_skill(row: &sqlx::sqlite::SqliteRow) -> MarketplaceSkill {
 
 #[derive(sqlx::FromRow)]
 struct MarketplaceSkillRow {
+    id: String,
+    registry_id: String,
     name: String,
+    description: Option<String>,
     download_url: String,
+    registry_name: Option<String>,
+    registry_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MarketplaceSkillFrontmatter {
+    name: String,
+    description: Option<String>,
+}
+
+async fn central_skills_root(pool: &db::DbPool) -> Result<PathBuf, String> {
+    let central = db::get_agent_by_id(pool, "central")
+        .await?
+        .ok_or_else(|| "Central agent not found in database".to_string())?;
+    Ok(PathBuf::from(central.global_skills_dir))
+}
+
+async fn skill_resource_library_root(pool: &db::DbPool) -> Result<PathBuf, String> {
+    db::get_skill_resource_library_dir(pool).await
+}
+
+fn parse_marketplace_skill_frontmatter(content: &str) -> Option<MarketplaceSkillFrontmatter> {
+    let after_open = content
+        .strip_prefix("---\n")
+        .or_else(|| content.strip_prefix("---\r\n"))?;
+    let close_pos = after_open.find("\n---")?;
+    serde_yaml::from_str(&after_open[..close_pos]).ok()
+}
+
+fn github_source_from_url(url: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let Some(marker_index) = url.find("githubusercontent.com/") else {
+        return (None, None, None);
+    };
+    let tail = &url[marker_index + "githubusercontent.com/".len()..];
+    let parts: Vec<&str> = tail.split('/').collect();
+    if parts.len() < 4 {
+        return (None, None, None);
+    }
+    let author = parts[0].to_string();
+    let repo = format!("{}/{}", parts[0], parts[1]);
+    let source_path = if parts.len() > 4 {
+        Some(
+            parts[3..]
+                .join("/")
+                .trim_end_matches("/SKILL.md")
+                .to_string(),
+        )
+    } else {
+        None
+    };
+    (Some(author), Some(repo), source_path)
+}
+
+fn sanitize_local_skill_id(name: &str) -> Result<String, String> {
+    let id = name
+        .trim()
+        .to_lowercase()
+        .replace(' ', "-")
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+
+    if id.is_empty() {
+        Err("Skill name cannot produce a valid local id".to_string())
+    } else {
+        Ok(id)
+    }
+}
+
+async fn local_skill_id_for_source(
+    pool: &db::DbPool,
+    name: &str,
+    source_url: &str,
+    source_repo: Option<&str>,
+    source_author: Option<&str>,
+) -> Result<String, String> {
+    let base_id = sanitize_local_skill_id(name)?;
+    if skill_id_can_be_used_for_source(pool, &base_id, source_url).await? {
+        return Ok(base_id);
+    }
+
+    let suffix_seed = source_repo.or(source_author).unwrap_or("remote-source");
+    let suffix = sanitize_local_skill_id(&suffix_seed.replace('/', "-"))?;
+    let mut candidate = format!("{}-{}", base_id, suffix);
+    if skill_id_can_be_used_for_source(pool, &candidate, source_url).await? {
+        return Ok(candidate);
+    }
+
+    for index in 2..1000 {
+        candidate = format!("{}-{}-{}", base_id, suffix, index);
+        if skill_id_can_be_used_for_source(pool, &candidate, source_url).await? {
+            return Ok(candidate);
+        }
+    }
+
+    Err(format!(
+        "Unable to allocate a unique local id for skill '{}'",
+        name
+    ))
+}
+
+async fn skill_id_can_be_used_for_source(
+    pool: &db::DbPool,
+    skill_id: &str,
+    source_url: &str,
+) -> Result<bool, String> {
+    if db::get_skill_by_id(pool, skill_id).await?.is_none() {
+        return Ok(true);
+    }
+
+    let existing_source = db::get_skill_source(pool, skill_id).await?;
+    Ok(existing_source
+        .as_ref()
+        .and_then(|source| source.source_url.as_deref())
+        .is_some_and(|existing_url| existing_url == source_url))
+}
+
+async fn marketplace_skill_row(
+    pool: &db::DbPool,
+    skill_id: &str,
+) -> Result<MarketplaceSkillRow, String> {
+    sqlx::query_as::<_, MarketplaceSkillRow>(
+        "SELECT ms.id, ms.registry_id, ms.name, ms.description, ms.download_url,
+                sr.name AS registry_name, sr.url AS registry_url
+         FROM marketplace_skills ms
+         LEFT JOIN skill_registries sr ON sr.id = ms.registry_id
+         WHERE ms.id = ?",
+    )
+    .bind(skill_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "Skill not found".to_string())
+}
+
+pub async fn install_marketplace_skill_content_impl(
+    pool: &db::DbPool,
+    skill_id: &str,
+    content: &str,
+) -> Result<(), String> {
+    let skill = marketplace_skill_row(pool, skill_id).await?;
+    let frontmatter = parse_marketplace_skill_frontmatter(content);
+    let resource_root = skill_resource_library_root(pool).await?;
+    std::fs::create_dir_all(&resource_root)
+        .map_err(|e| format!("Failed to create skill resource library directory: {}", e))?;
+
+    let (url_author, url_repo, url_source_path) = github_source_from_url(&skill.download_url);
+    let local_skill_id = local_skill_id_for_source(
+        pool,
+        &skill.name,
+        &skill.download_url,
+        url_repo.as_deref().or(skill.registry_url.as_deref()),
+        url_author.as_deref().or(skill.registry_name.as_deref()),
+    )
+    .await?;
+    let source_author = url_author.or(skill.registry_name.clone());
+    let source_repo = url_repo.or(skill.registry_url.clone());
+    let skill_dir = source_grouped_skill_dir(
+        &resource_root,
+        source_author.as_deref(),
+        source_repo.as_deref(),
+        Some(&skill.registry_id),
+        &local_skill_id,
+    );
+    std::fs::create_dir_all(&skill_dir)
+        .map_err(|e| format!("Failed to create directory: {}", e))?;
+
+    let skill_md_path = skill_dir.join("SKILL.md");
+    std::fs::write(&skill_md_path, content)
+        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let name = frontmatter
+        .as_ref()
+        .map(|frontmatter| frontmatter.name.clone())
+        .unwrap_or_else(|| skill.name.clone());
+    let description = frontmatter
+        .and_then(|frontmatter| frontmatter.description)
+        .or(skill.description.clone());
+
+    let db_skill = db::Skill {
+        id: local_skill_id.clone(),
+        name,
+        description,
+        file_path: skill_md_path.to_string_lossy().into_owned(),
+        canonical_path: Some(skill_dir.to_string_lossy().into_owned()),
+        is_central: false,
+        source: skill
+            .registry_url
+            .clone()
+            .or_else(|| Some(skill.registry_id.clone())),
+        content: None,
+        scanned_at: now.clone(),
+    };
+    db::upsert_skill(pool, &db_skill).await?;
+
+    let source = db::SkillSource {
+        skill_id: local_skill_id,
+        source_type: "marketplace".to_string(),
+        source_url: Some(skill.download_url.clone()),
+        source_author,
+        source_repo,
+        source_path: url_source_path,
+        updated_at: now,
+    };
+    db::upsert_skill_source(pool, &source).await?;
+
+    sqlx::query("UPDATE marketplace_skills SET is_installed = 1 WHERE id = ?")
+        .bind(&skill.id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+async fn install_remote_skill_content_impl(
+    pool: &db::DbPool,
+    name: &str,
+    description: Option<String>,
+    download_url: &str,
+    source_label: Option<String>,
+    content: &str,
+) -> Result<(), String> {
+    let frontmatter = parse_marketplace_skill_frontmatter(content);
+    let resource_root = skill_resource_library_root(pool).await?;
+    std::fs::create_dir_all(&resource_root)
+        .map_err(|e| format!("Failed to create skill resource library directory: {}", e))?;
+
+    let (url_author, url_repo, url_source_path) = github_source_from_url(download_url);
+    let local_skill_id = local_skill_id_for_source(
+        pool,
+        name,
+        download_url,
+        url_repo.as_deref(),
+        url_author.as_deref().or(source_label.as_deref()),
+    )
+    .await?;
+    let source_author = url_author.or(source_label.clone());
+    let source_repo = url_repo;
+    let skill_dir = source_grouped_skill_dir(
+        &resource_root,
+        source_author.as_deref(),
+        source_repo.as_deref(),
+        Some("raw-url"),
+        &local_skill_id,
+    );
+    std::fs::create_dir_all(&skill_dir)
+        .map_err(|e| format!("Failed to create directory: {}", e))?;
+
+    let skill_md_path = skill_dir.join("SKILL.md");
+    std::fs::write(&skill_md_path, content)
+        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let name = frontmatter
+        .as_ref()
+        .map(|frontmatter| frontmatter.name.clone())
+        .unwrap_or_else(|| name.to_string());
+    let description = frontmatter
+        .and_then(|frontmatter| frontmatter.description)
+        .or(description);
+    let db_skill = db::Skill {
+        id: local_skill_id.clone(),
+        name,
+        description,
+        file_path: skill_md_path.to_string_lossy().into_owned(),
+        canonical_path: Some(skill_dir.to_string_lossy().into_owned()),
+        is_central: false,
+        source: Some(download_url.to_string()),
+        content: None,
+        scanned_at: now.clone(),
+    };
+    db::upsert_skill(pool, &db_skill).await?;
+    db::upsert_skill_source(
+        pool,
+        &db::SkillSource {
+            skill_id: local_skill_id,
+            source_type: "raw".to_string(),
+            source_url: Some(download_url.to_string()),
+            source_author,
+            source_repo,
+            source_path: url_source_path,
+            updated_at: now,
+        },
+    )
+    .await?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -486,20 +786,11 @@ pub async fn install_marketplace_skill(
     state: State<'_, AppState>,
     skill_id: String,
 ) -> Result<(), String> {
-    // Get skill info
-    let skill = sqlx::query_as::<_, MarketplaceSkillRow>(
-        "SELECT id, registry_id, name, description, download_url, is_installed, synced_at
-         FROM marketplace_skills WHERE id = ?",
-    )
-    .bind(&skill_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| e.to_string())?
-    .ok_or_else(|| "Skill not found".to_string())?;
+    let skill = marketplace_skill_row(&state.db, &skill_id).await?;
 
     // Download SKILL.md content
     let client = reqwest::Client::builder()
-        .user_agent("skills-manage/0.9.1")
+        .user_agent("SkillsHub/0.10.6")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -518,23 +809,128 @@ pub async fn install_marketplace_skill(
         .await
         .map_err(|e| format!("Failed to read response: {}", e))?;
 
-    // Create directory and write SKILL.md
-    let skill_dir = central_skills_dir().join(&skill.name);
-    std::fs::create_dir_all(&skill_dir)
-        .map_err(|e| format!("Failed to create directory: {}", e))?;
+    install_marketplace_skill_content_impl(&state.db, &skill_id, &content).await
+}
 
-    let skill_md_path = skill_dir.join("SKILL.md");
-    std::fs::write(&skill_md_path, &content)
-        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
-
-    // Mark as installed in DB
-    sqlx::query("UPDATE marketplace_skills SET is_installed = 1 WHERE id = ?")
-        .bind(&skill_id)
-        .execute(&state.db)
-        .await
+#[tauri::command]
+pub async fn install_remote_skill_from_url(
+    state: State<'_, AppState>,
+    name: String,
+    description: Option<String>,
+    download_url: String,
+    source_label: Option<String>,
+) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .user_agent("SkillsHub/0.10.6")
+        .build()
         .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(&download_url)
+        .send()
+        .await
+        .map_err(|e| format!("Download failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Download returned {}", resp.status()));
+    }
+    let content = resp
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
 
-    Ok(())
+    install_remote_skill_content_impl(
+        &state.db,
+        &name,
+        description,
+        &download_url,
+        source_label,
+        &content,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn update_source_backed_central_skills(
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let sources = db::get_all_skill_sources(&state.db).await?;
+    let client = reqwest::Client::builder()
+        .user_agent("SkillsHub/0.10.6")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut updated = Vec::new();
+
+    for source in sources {
+        let Some(url) = source.source_url.as_deref() else {
+            continue;
+        };
+        let Some(skill) = db::get_skill_by_id(&state.db, &source.skill_id).await? else {
+            continue;
+        };
+        let resp = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to update {}: {}", skill.id, e))?;
+        if !resp.status().is_success() {
+            return Err(format!(
+                "Failed to update {}: HTTP {}",
+                skill.id,
+                resp.status()
+            ));
+        }
+        let content = resp
+            .text()
+            .await
+            .map_err(|e| format!("Failed to read update for {}: {}", skill.id, e))?;
+        let skill_md_path = PathBuf::from(&skill.file_path);
+        std::fs::write(&skill_md_path, content)
+            .map_err(|e| format!("Failed to write update for {}: {}", skill.id, e))?;
+        updated.push(skill.id);
+    }
+
+    Ok(updated)
+}
+
+#[tauri::command]
+pub async fn update_source_backed_central_skill(
+    state: State<'_, AppState>,
+    skill_id: String,
+) -> Result<String, String> {
+    let source = db::get_skill_source(&state.db, &skill_id)
+        .await?
+        .ok_or_else(|| format!("Skill '{}' has no recorded source", skill_id))?;
+    let url = source
+        .source_url
+        .as_deref()
+        .ok_or_else(|| format!("Skill '{}' has no update URL", skill_id))?;
+    let skill = db::get_skill_by_id(&state.db, &skill_id)
+        .await?
+        .ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
+    let client = reqwest::Client::builder()
+        .user_agent("SkillsHub/0.10.6")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to update {}: {}", skill.id, e))?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "Failed to update {}: HTTP {}",
+            skill.id,
+            resp.status()
+        ));
+    }
+    let content = resp
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read update for {}: {}", skill.id, e))?;
+    let skill_md_path = PathBuf::from(&skill.file_path);
+    std::fs::write(&skill_md_path, content)
+        .map_err(|e| format!("Failed to write update for {}: {}", skill.id, e))?;
+
+    Ok(skill.id)
 }
 
 // ─── AI Explanation ──────────────────────────────────────────────────────────
@@ -720,7 +1116,7 @@ pub async fn explain_skill(state: State<'_, AppState>, content: String) -> Resul
         .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
 
     let client = reqwest::Client::builder()
-        .user_agent("skills-manage/0.9.1")
+        .user_agent("SkillsHub/0.10.6")
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(60))
         .build()
@@ -1075,7 +1471,7 @@ async fn do_explain_skill_stream(
 
     // Streaming: only connect_timeout (total `.timeout()` would kill long streams).
     let client = reqwest::Client::builder()
-        .user_agent("skills-manage/0.9.1")
+        .user_agent("SkillsHub/0.10.6")
         .connect_timeout(Duration::from_secs(10))
         .pool_idle_timeout(Duration::from_secs(90))
         .build()
@@ -1353,10 +1749,10 @@ mod tests {
     use super::{
         add_registry_impl, cache_skill_explanation, classify_reqwest_error,
         detect_explanation_api_protocol, format_reqwest_error, get_fallback_endpoint,
-        load_cached_skill_explanation, marketplace_skills_from_candidates,
-        registry_has_cached_skills, search_marketplace_skills_impl, sync_registry_impl,
-        ExplanationApiProtocol, ExplanationErrorKind, RegistryCacheMetadata, RegistrySyncStatus,
-        SyncRegistryOptions,
+        install_marketplace_skill_content_impl, load_cached_skill_explanation,
+        marketplace_skills_from_candidates, registry_has_cached_skills,
+        search_marketplace_skills_impl, sync_registry_impl, ExplanationApiProtocol,
+        ExplanationErrorKind, RegistryCacheMetadata, RegistrySyncStatus, SyncRegistryOptions,
     };
     use crate::commands::github_import::RemoteSkillCandidate;
     use crate::db;
@@ -1877,5 +2273,285 @@ mod tests {
         assert!(registry_has_cached_skills(&pool, &registry.id)
             .await
             .expect("cached"));
+    }
+
+    #[tokio::test]
+    async fn install_marketplace_skill_uses_configured_resource_dir_and_records_source() {
+        let (pool, _dir) = setup_test_db().await;
+        let central_dir = tempdir().expect("central dir");
+        let resource_dir = tempdir().expect("resource dir");
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
+            .bind(central_dir.path().to_string_lossy().to_string())
+            .execute(&pool)
+            .await
+            .expect("set central dir");
+        db::set_setting(
+            &pool,
+            "skill_resource_library_dir",
+            &resource_dir.path().to_string_lossy(),
+        )
+        .await
+        .expect("set resource dir");
+
+        let registry = add_registry_impl(
+            &pool,
+            "Example Author".to_string(),
+            "github".to_string(),
+            "https://github.com/example/skills".to_string(),
+            None,
+        )
+        .await
+        .expect("registry created");
+        let skill_id = format!("{}::brand-guidelines", registry.id);
+        sqlx::query(
+            "INSERT INTO marketplace_skills
+             (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
+             VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+        )
+        .bind(&skill_id)
+        .bind(&registry.id)
+        .bind("brand-guidelines")
+        .bind("Brand guidance")
+        .bind("https://raw.githubusercontent.com/example/skills/main/brand-guidelines/SKILL.md")
+        .bind("2026-04-16T12:00:00Z")
+        .bind("2026-04-16T12:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("insert marketplace skill");
+
+        install_marketplace_skill_content_impl(
+            &pool,
+            &skill_id,
+            "---\nname: brand-guidelines\ndescription: Brand guidance\n---\n",
+        )
+        .await
+        .expect("install marketplace skill");
+
+        assert!(resource_dir
+            .path()
+            .join("example")
+            .join("skills")
+            .join("brand-guidelines")
+            .join("SKILL.md")
+            .exists());
+        let installed = db::get_skill_by_id(&pool, "brand-guidelines")
+            .await
+            .unwrap()
+            .expect("skill should be tracked as a resource library skill");
+        let expected_canonical = resource_dir
+            .path()
+            .join("example")
+            .join("skills")
+            .join("brand-guidelines")
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(
+            installed.canonical_path.as_deref(),
+            Some(expected_canonical.as_str())
+        );
+        assert!(!installed.is_central);
+
+        let source = db::get_skill_source(&pool, "brand-guidelines")
+            .await
+            .unwrap()
+            .expect("source metadata should be recorded");
+        assert_eq!(source.source_author.as_deref(), Some("example"));
+        assert_eq!(source.source_repo.as_deref(), Some("example/skills"));
+        assert_eq!(
+            source.source_url.as_deref(),
+            Some("https://raw.githubusercontent.com/example/skills/main/brand-guidelines/SKILL.md")
+        );
+    }
+
+    #[tokio::test]
+    async fn install_marketplace_skill_writes_resource_library_not_central() {
+        let (pool, _dir) = setup_test_db().await;
+        let central_dir = tempdir().expect("central dir");
+        let resource_dir = tempdir().expect("resource dir");
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
+            .bind(central_dir.path().to_string_lossy().to_string())
+            .execute(&pool)
+            .await
+            .expect("set central dir");
+        db::set_setting(
+            &pool,
+            "skill_resource_library_dir",
+            &resource_dir.path().to_string_lossy(),
+        )
+        .await
+        .expect("set resource dir");
+
+        let registry = add_registry_impl(
+            &pool,
+            "Example Author".to_string(),
+            "github".to_string(),
+            "https://github.com/example/skills".to_string(),
+            None,
+        )
+        .await
+        .expect("registry created");
+        let skill_id = format!("{}::brand-guidelines", registry.id);
+        sqlx::query(
+            "INSERT INTO marketplace_skills
+             (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
+             VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+        )
+        .bind(&skill_id)
+        .bind(&registry.id)
+        .bind("brand-guidelines")
+        .bind("Brand guidance")
+        .bind("https://raw.githubusercontent.com/example/skills/main/brand-guidelines/SKILL.md")
+        .bind("2026-04-16T12:00:00Z")
+        .bind("2026-04-16T12:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("insert marketplace skill");
+
+        install_marketplace_skill_content_impl(
+            &pool,
+            &skill_id,
+            "---\nname: brand-guidelines\ndescription: Brand guidance\n---\n",
+        )
+        .await
+        .expect("install marketplace skill");
+
+        let resource_skill_dir = resource_dir
+            .path()
+            .join("example")
+            .join("skills")
+            .join("brand-guidelines");
+        assert!(resource_skill_dir.join("SKILL.md").exists());
+        assert!(
+            !central_dir
+                .path()
+                .join("example")
+                .join("skills")
+                .join("brand-guidelines")
+                .exists(),
+            "marketplace install should not make a skill visible via central library"
+        );
+
+        let installed = db::get_skill_by_id(&pool, "brand-guidelines")
+            .await
+            .unwrap()
+            .expect("skill should be tracked");
+        assert_eq!(
+            installed.canonical_path.as_deref(),
+            Some(resource_skill_dir.to_string_lossy().as_ref())
+        );
+        assert!(
+            !installed.is_central,
+            "resource library installs are not central until explicitly synced"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_marketplace_skill_keeps_same_name_different_sources_distinct() {
+        let (pool, _dir) = setup_test_db().await;
+        let central_dir = tempdir().expect("central dir");
+        let resource_dir = tempdir().expect("resource dir");
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
+            .bind(central_dir.path().to_string_lossy().to_string())
+            .execute(&pool)
+            .await
+            .expect("set central dir");
+        db::set_setting(
+            &pool,
+            "skill_resource_library_dir",
+            &resource_dir.path().to_string_lossy(),
+        )
+        .await
+        .expect("set resource dir");
+
+        let first_registry = add_registry_impl(
+            &pool,
+            "Example".to_string(),
+            "github".to_string(),
+            "https://github.com/example/skills".to_string(),
+            None,
+        )
+        .await
+        .expect("first registry");
+        let second_registry = add_registry_impl(
+            &pool,
+            "Other".to_string(),
+            "github".to_string(),
+            "https://github.com/other/skills".to_string(),
+            None,
+        )
+        .await
+        .expect("second registry");
+
+        let first_skill_id = format!("{}::brand-guidelines", first_registry.id);
+        let second_skill_id = format!("{}::brand-guidelines", second_registry.id);
+        for (skill_id, registry_id, download_url) in [
+            (
+                &first_skill_id,
+                &first_registry.id,
+                "https://raw.githubusercontent.com/example/skills/main/brand-guidelines/SKILL.md",
+            ),
+            (
+                &second_skill_id,
+                &second_registry.id,
+                "https://raw.githubusercontent.com/other/skills/main/brand-guidelines/SKILL.md",
+            ),
+        ] {
+            sqlx::query(
+                "INSERT INTO marketplace_skills
+                 (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
+                 VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+            )
+            .bind(skill_id)
+            .bind(registry_id)
+            .bind("brand-guidelines")
+            .bind("Brand guidance")
+            .bind(download_url)
+            .bind("2026-04-16T12:00:00Z")
+            .bind("2026-04-16T12:00:00Z")
+            .execute(&pool)
+            .await
+            .expect("insert marketplace skill");
+        }
+
+        install_marketplace_skill_content_impl(
+            &pool,
+            &first_skill_id,
+            "---\nname: brand-guidelines\ndescription: First\n---\n",
+        )
+        .await
+        .expect("install first skill");
+        install_marketplace_skill_content_impl(
+            &pool,
+            &second_skill_id,
+            "---\nname: brand-guidelines\ndescription: Second\n---\n",
+        )
+        .await
+        .expect("install second skill");
+
+        assert!(resource_dir
+            .path()
+            .join("example")
+            .join("skills")
+            .join("brand-guidelines")
+            .join("SKILL.md")
+            .exists());
+        assert!(resource_dir
+            .path()
+            .join("other")
+            .join("skills")
+            .join("brand-guidelines-other-skills")
+            .join("SKILL.md")
+            .exists());
+
+        let first_source = db::get_skill_source(&pool, "brand-guidelines")
+            .await
+            .unwrap()
+            .expect("first source");
+        let second_source = db::get_skill_source(&pool, "brand-guidelines-other-skills")
+            .await
+            .unwrap()
+            .expect("second source");
+        assert_eq!(first_source.source_repo.as_deref(), Some("example/skills"));
+        assert_eq!(second_source.source_repo.as_deref(), Some("other/skills"));
     }
 }

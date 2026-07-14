@@ -458,6 +458,9 @@ export function CollectionsListView() {
                           key={skill.id}
                           name={skill.name}
                           description={skill.description}
+                          sourceAuthor={skill.source_author}
+                          sourceRepo={skill.source_repo}
+                          sourceUrl={skill.source_url}
                           onDetail={() => handleOpenDrawer(skill.id)}
                           detailButtonRef={(node) => setDetailButtonRef(skill.id, node)}
                           onInstallTo={() => handleInstallSingleSkillClick(skill.id)}

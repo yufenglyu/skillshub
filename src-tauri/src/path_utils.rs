@@ -70,6 +70,68 @@ pub fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+#[cfg(windows)]
+pub fn remove_symlink_path(path: &Path) -> Result<(), String> {
+    match std::fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(dir_error) => match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(file_error) => Err(format!(
+                "directory symlink removal failed: {}; file symlink removal failed: {}",
+                dir_error, file_error
+            )),
+        },
+    }
+}
+
+#[cfg(not(windows))]
+pub fn remove_symlink_path(path: &Path) -> Result<(), String> {
+    std::fs::remove_file(path).map_err(|e| e.to_string())
+}
+
+pub fn sanitize_path_segment(value: &str) -> String {
+    let segment = value
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches(['-', '.', ' '])
+        .to_string();
+
+    if segment.is_empty() {
+        "unknown".to_string()
+    } else {
+        segment
+    }
+}
+
+pub fn source_grouped_skill_dir(
+    central_root: &Path,
+    source_author: Option<&str>,
+    source_repo: Option<&str>,
+    fallback_group: Option<&str>,
+    skill_id: &str,
+) -> PathBuf {
+    let (author, repo) = match source_repo.and_then(|repo| repo.split_once('/')) {
+        Some((author, repo)) => (author, repo),
+        None => (
+            source_author.unwrap_or("remote-source"),
+            source_repo.or(fallback_group).unwrap_or("imported-skills"),
+        ),
+    };
+
+    central_root
+        .join(sanitize_path_segment(author))
+        .join(sanitize_path_segment(repo))
+        .join(sanitize_path_segment(skill_id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +187,39 @@ mod tests {
         let expanded =
             expand_home_path_with_home("/opt/skills/custom", Path::new("/tmp/ignored-home"));
         assert_eq!(expanded, PathBuf::from("/opt/skills/custom"));
+    }
+
+    #[test]
+    fn source_grouped_skill_dir_uses_author_repo_and_skill_id() {
+        let path = source_grouped_skill_dir(
+            Path::new("/central"),
+            Some("openai"),
+            Some("openai/skills"),
+            None,
+            "brand-guidelines",
+        );
+        assert_eq!(
+            path,
+            PathBuf::from("/central")
+                .join("openai")
+                .join("skills")
+                .join("brand-guidelines")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn remove_symlink_path_removes_windows_directory_symlink_without_target() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let target = dir.path().join("target");
+        let link = dir.path().join("link");
+        std::fs::create_dir_all(&target).expect("target");
+        std::fs::write(target.join("SKILL.md"), "---\nname: linked\n---\n").expect("skill");
+        std::os::windows::fs::symlink_dir(&target, &link).expect("symlink");
+
+        remove_symlink_path(&link).expect("remove symlink");
+
+        assert!(std::fs::symlink_metadata(&link).is_err());
+        assert!(target.join("SKILL.md").exists());
     }
 }

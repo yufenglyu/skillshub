@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use tauri::State;
 
 use crate::db::{self, Collection, DbPool, SkillForAgent};
+use crate::path_utils::remove_symlink_path;
 use crate::AppState;
 
 use super::linker::uninstall_skill_from_agent_impl;
@@ -24,6 +25,12 @@ pub struct SkillWithLinks {
     pub canonical_path: Option<String>,
     pub is_central: bool,
     pub source: Option<String>,
+    pub source_url: Option<String>,
+    pub source_author: Option<String>,
+    pub source_repo: Option<String>,
+    pub source_path: Option<String>,
+    pub notes: Option<String>,
+    pub tags: Vec<String>,
     pub scanned_at: String,
     pub created_at: String,
     pub updated_at: String,
@@ -60,7 +67,15 @@ pub struct SkillDetail {
     pub canonical_path: Option<String>,
     pub is_central: bool,
     pub source: Option<String>,
+    pub source_url: Option<String>,
+    pub source_author: Option<String>,
+    pub source_repo: Option<String>,
+    pub source_path: Option<String>,
+    pub notes: Option<String>,
+    pub tags: Vec<String>,
     pub scanned_at: String,
+    pub created_at: String,
+    pub updated_at: String,
     pub source_kind: Option<String>,
     pub source_root: Option<String>,
     pub is_read_only: bool,
@@ -143,6 +158,21 @@ pub struct DeleteCentralSkillBundleResult {
     pub skipped_read_only_agents: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSkillMetadataRequest {
+    pub notes: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillMetadataResponse {
+    pub skill_id: String,
+    pub notes: Option<String>,
+    pub tags: Vec<String>,
+    pub updated_at: String,
+}
+
 // ─── Tauri Commands ───────────────────────────────────────────────────────────
 
 fn system_time_to_rfc3339(time: SystemTime) -> String {
@@ -172,6 +202,26 @@ fn skill_filesystem_timestamps(skill: &db::Skill) -> (String, String) {
         .unwrap_or_else(|| skill.scanned_at.clone());
 
     (created_at, updated_at)
+}
+
+fn normalize_skill_tags(tags: Vec<String>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    tags.into_iter()
+        .map(|tag| tag.trim().trim_start_matches('#').to_string())
+        .filter(|tag| !tag.is_empty())
+        .filter(|tag| seen.insert(tag.to_lowercase()))
+        .take(30)
+        .collect()
+}
+
+fn metadata_response(metadata: db::SkillMetadata) -> SkillMetadataResponse {
+    let tags = db::parse_skill_metadata_tags(Some(&metadata));
+    SkillMetadataResponse {
+        skill_id: metadata.skill_id,
+        notes: metadata.notes,
+        tags,
+        updated_at: metadata.updated_at,
+    }
 }
 
 fn skill_dir_path(skill: &db::Skill) -> String {
@@ -270,7 +320,7 @@ fn remove_central_skill_dir(target: &Path) -> Result<(), String> {
     })?;
 
     if metadata.file_type().is_symlink() {
-        std::fs::remove_file(target)
+        remove_symlink_path(target)
             .map_err(|e| format!("Failed to remove central skill symlink: {}", e))
     } else if metadata.is_dir() {
         std::fs::remove_dir_all(target)
@@ -453,7 +503,7 @@ fn remove_central_bundle_target(target: &CentralBundleTarget) -> Result<(), Stri
     })?;
 
     if metadata.file_type().is_symlink() {
-        std::fs::remove_file(&target.delete_path)
+        remove_symlink_path(&target.delete_path)
             .map_err(|e| format!("Failed to remove Central bundle symlink: {}", e))
     } else if metadata.is_dir() {
         std::fs::remove_dir_all(&target.delete_path)
@@ -695,6 +745,8 @@ async fn get_observation_detail(
     } else {
         db::get_skill_collections(pool, &observation.skill_id).await?
     };
+    let metadata = db::get_skill_metadata(pool, &observation.skill_id).await?;
+    let tags = db::parse_skill_metadata_tags(metadata.as_ref());
     let (conflict_group, conflict_count) =
         observation_conflict_metadata(agent_id, &observation.skill_id, &conflict_counts);
 
@@ -724,7 +776,15 @@ async fn get_observation_detail(
             .as_ref()
             .and_then(|skill| skill.source.clone())
             .or_else(|| Some(observation.link_type.clone())),
-        scanned_at: observation.scanned_at,
+        source_url: None,
+        source_author: None,
+        source_repo: None,
+        source_path: None,
+        notes: metadata.and_then(|metadata| metadata.notes),
+        tags,
+        scanned_at: observation.scanned_at.clone(),
+        created_at: observation.scanned_at.clone(),
+        updated_at: observation.scanned_at,
         source_kind: Some(observation.source_kind),
         source_root: Some(observation.source_root),
         is_read_only: observation.is_read_only,
@@ -757,6 +817,10 @@ async fn get_skill_detail_with_row_impl(
     let installations = installation_details(db::get_skill_installations(pool, skill_id).await?);
     let collections = db::get_skill_collections(pool, skill_id).await?;
     let read_only_agents = read_only_agent_ids_for_skill(pool, skill_id, skill.is_central).await?;
+    let source_metadata = db::get_skill_source(pool, skill_id).await?;
+    let metadata = db::get_skill_metadata(pool, skill_id).await?;
+    let tags = db::parse_skill_metadata_tags(metadata.as_ref());
+    let (created_at, updated_at) = skill_filesystem_timestamps(&skill);
 
     Ok(SkillDetail {
         row_id,
@@ -768,7 +832,21 @@ async fn get_skill_detail_with_row_impl(
         canonical_path: skill.canonical_path,
         is_central: skill.is_central,
         source: skill.source,
+        source_url: source_metadata
+            .as_ref()
+            .and_then(|source| source.source_url.clone()),
+        source_author: source_metadata
+            .as_ref()
+            .and_then(|source| source.source_author.clone()),
+        source_repo: source_metadata
+            .as_ref()
+            .and_then(|source| source.source_repo.clone()),
+        source_path: source_metadata.and_then(|source| source.source_path),
+        notes: metadata.and_then(|metadata| metadata.notes),
+        tags,
         scanned_at: skill.scanned_at,
+        created_at,
+        updated_at,
         source_kind: None,
         source_root: None,
         is_read_only: false,
@@ -807,6 +885,9 @@ async fn skill_with_links(pool: &DbPool, skill: db::Skill) -> Result<SkillWithLi
     let linked_agents: Vec<String> = installations.into_iter().map(|i| i.agent_id).collect();
     let read_only_agents = read_only_agent_ids_for_skill(pool, &skill.id, skill.is_central).await?;
     let (created_at, updated_at) = skill_filesystem_timestamps(&skill);
+    let source_metadata = db::get_skill_source(pool, &skill.id).await?;
+    let metadata = db::get_skill_metadata(pool, &skill.id).await?;
+    let tags = db::parse_skill_metadata_tags(metadata.as_ref());
 
     Ok(SkillWithLinks {
         id: skill.id,
@@ -816,6 +897,18 @@ async fn skill_with_links(pool: &DbPool, skill: db::Skill) -> Result<SkillWithLi
         canonical_path: skill.canonical_path,
         is_central: skill.is_central,
         source: skill.source,
+        source_url: source_metadata
+            .as_ref()
+            .and_then(|source| source.source_url.clone()),
+        source_author: source_metadata
+            .as_ref()
+            .and_then(|source| source.source_author.clone()),
+        source_repo: source_metadata
+            .as_ref()
+            .and_then(|source| source.source_repo.clone()),
+        source_path: source_metadata.and_then(|source| source.source_path),
+        notes: metadata.and_then(|metadata| metadata.notes),
+        tags,
         scanned_at: skill.scanned_at,
         created_at,
         updated_at,
@@ -913,6 +1006,82 @@ pub async fn get_central_skills(state: State<'_, AppState>) -> Result<Vec<SkillW
     }
 
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_resource_library_skills(
+    state: State<'_, AppState>,
+) -> Result<Vec<SkillWithLinks>, String> {
+    get_resource_library_skills_impl(&state.db).await
+}
+
+pub async fn get_resource_library_skills_impl(
+    pool: &DbPool,
+) -> Result<Vec<SkillWithLinks>, String> {
+    let resource_root = db::get_skill_resource_library_dir(pool).await?;
+    sync_resource_library_skills(pool, &resource_root).await?;
+
+    let skills = db::get_resource_library_skills(pool).await?;
+
+    let mut result = Vec::with_capacity(skills.len());
+    for skill in skills {
+        let Some(canonical_path) = skill.canonical_path.as_deref() else {
+            continue;
+        };
+        if !Path::new(canonical_path).starts_with(&resource_root) {
+            continue;
+        }
+        result.push(skill_with_links(pool, skill).await?);
+    }
+
+    Ok(result)
+}
+
+async fn sync_resource_library_skills(pool: &DbPool, resource_root: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(resource_root)
+        .map_err(|e| format!("Failed to create Skill Resource Library directory: {}", e))?;
+
+    let scanned = scan_skill_root(resource_root, false, ScanDirectoryOptions::nested());
+    for skill in scanned {
+        let existing_source = db::get_skill_by_id(pool, &skill.id)
+            .await?
+            .and_then(|existing| existing.source);
+        let db_skill = db::Skill {
+            id: skill.id,
+            name: skill.name,
+            description: skill.description,
+            file_path: skill.file_path,
+            canonical_path: Some(skill.dir_path),
+            is_central: false,
+            source: existing_source.or_else(|| Some("resource-library".to_string())),
+            content: None,
+            scanned_at: Utc::now().to_rfc3339(),
+        };
+        db::upsert_skill(pool, &db_skill).await?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_skill_metadata(
+    state: State<'_, AppState>,
+    skill_id: String,
+    metadata: UpdateSkillMetadataRequest,
+) -> Result<SkillMetadataResponse, String> {
+    db::get_skill_by_id(&state.db, &skill_id)
+        .await?
+        .ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
+
+    let notes = metadata
+        .notes
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let tags = normalize_skill_tags(metadata.tags);
+    let saved = db::upsert_skill_metadata(&state.db, &skill_id, notes.as_deref(), &tags).await?;
+    Ok(metadata_response(saved))
 }
 
 pub async fn get_central_skill_bundles_impl(
@@ -1424,6 +1593,82 @@ mod tests {
         };
         db::upsert_skill(pool, &skill).await.unwrap();
         skill
+    }
+
+    #[tokio::test]
+    async fn test_get_resource_library_skills_impl_indexes_skills_from_disk() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("resource-library");
+        let skill_dir = resource_root
+            .join("author")
+            .join("repo")
+            .join("manual-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: Manual Skill\ndescription: Imported on disk only\n---\n\n# Manual Skill\n",
+        )
+        .unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .unwrap();
+
+        let skills = get_resource_library_skills_impl(&pool).await.unwrap();
+
+        let skill = skills
+            .iter()
+            .find(|skill| skill.id == "manual-skill")
+            .expect("disk-only resource skill should be indexed");
+        assert_eq!(skill.name, "Manual Skill");
+        assert_eq!(skill.description.as_deref(), Some("Imported on disk only"));
+        assert!(!skill.is_central);
+        assert_eq!(
+            skill.canonical_path.as_deref(),
+            Some(skill_dir.to_string_lossy().as_ref())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_resource_library_skills_impl_preserves_existing_source() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("resource-library");
+        let skill_dir = resource_root.join("author").join("repo").join("source-skill");
+        let skill_md_path = skill_dir.join("SKILL.md");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            &skill_md_path,
+            "---\nname: Source Skill\ndescription: Existing source\n---\n\n# Source Skill\n",
+        )
+        .unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .unwrap();
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "source-skill".to_string(),
+                name: "Source Skill".to_string(),
+                description: Some("Existing source".to_string()),
+                file_path: skill_md_path.to_string_lossy().into_owned(),
+                canonical_path: Some(skill_dir.to_string_lossy().into_owned()),
+                is_central: false,
+                source: Some("github:owner/repo".to_string()),
+                content: None,
+                scanned_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let skills = get_resource_library_skills_impl(&pool).await.unwrap();
+
+        let skill = skills
+            .iter()
+            .find(|skill| skill.id == "source-skill")
+            .expect("resource skill should be returned");
+        assert_eq!(skill.source.as_deref(), Some("github:owner/repo"));
     }
 
     // ── get_skills_by_agent ───────────────────────────────────────────────────
@@ -2259,6 +2504,12 @@ mod tests {
                 canonical_path: skill.canonical_path,
                 is_central: skill.is_central,
                 source: skill.source,
+                source_url: None,
+                source_author: None,
+                source_repo: None,
+                source_path: None,
+                notes: None,
+                tags: Vec::new(),
                 scanned_at: skill.scanned_at,
                 created_at,
                 updated_at,

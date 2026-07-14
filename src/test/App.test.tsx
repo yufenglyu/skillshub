@@ -67,6 +67,29 @@ vi.mock("../stores/centralSkillsStore", () => ({
   }),
 }));
 
+vi.mock("../stores/resourceLibraryStore", () => ({
+  useResourceLibraryStore: vi.fn().mockImplementation((selector?: unknown) => {
+    const state = {
+      skills: [],
+      agents: [],
+      resourceLibraryDir: "~/.skillsmanage/library",
+      isLoading: false,
+      isUpdatingSources: false,
+      togglingAgentId: null,
+      loadResourceLibrary: vi.fn().mockResolvedValue(undefined),
+      installSkill: vi.fn(),
+      togglePlatformLink: vi.fn(),
+      updateSourceBackedSkills: vi.fn(),
+      updateSourceBackedSkill: vi.fn(),
+      addToCentral: vi.fn(),
+    };
+    if (typeof selector === "function") {
+      return selector(state);
+    }
+    return state;
+  }),
+}));
+
 vi.mock("../stores/discoverStore", () => ({
   useDiscoverStore: vi.fn().mockImplementation((selector?: unknown) => {
     const state = {
@@ -101,6 +124,19 @@ vi.mock("../stores/obsidianStore", () => ({
 }));
 
 describe("App", () => {
+  it("redirects the root route to the resource library", async () => {
+    await act(async () => {
+      render(
+        <MemoryRouter initialEntries={["/"]}>
+          <App />
+        </MemoryRouter>
+      );
+    });
+
+    expect(screen.getAllByText("技能资源库").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByRole("heading", { name: "中央技能库" })).not.toBeInTheDocument();
+  });
+
   it("renders the app shell with top bar", async () => {
     await act(async () => {
       render(
@@ -110,7 +146,7 @@ describe("App", () => {
       );
     });
     // TopBar shows the app name
-    expect(screen.getByText("skills-manage")).toBeInTheDocument();
+    expect(screen.getByText("SkillsHub")).toBeInTheDocument();
   });
 
   it("renders sidebar with icon-only navigation", async () => {

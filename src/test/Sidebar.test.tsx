@@ -3,6 +3,7 @@ import { render, screen, fireEvent, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { Sidebar } from "../components/layout/Sidebar";
 import { usePlatformStore } from "../stores/platformStore";
+import { useResourceLibraryStore } from "../stores/resourceLibraryStore";
 import type { DiscoveredProject, DiscoveredSkill, ObsidianVault } from "../types";
 import {
   OBSIDIAN_CROSS_AREA_FIXTURE,
@@ -12,6 +13,10 @@ import {
 // Mock the platformStore to avoid real Tauri invocations
 vi.mock("../stores/platformStore", () => ({
   usePlatformStore: vi.fn(),
+}));
+
+vi.mock("../stores/resourceLibraryStore", () => ({
+  useResourceLibraryStore: vi.fn(),
 }));
 
 // Mock the collectionStore
@@ -116,6 +121,21 @@ const defaultObsidianState = {
   getVaultSkills: vi.fn(),
 };
 
+const defaultResourceLibraryState = {
+  skills: [],
+  agents: [],
+  resourceLibraryDir: "~/.skillsmanage/library",
+  isLoading: false,
+  isUpdatingSources: false,
+  togglingAgentId: null,
+  loadResourceLibrary: vi.fn(),
+  installSkill: vi.fn(),
+  togglePlatformLink: vi.fn(),
+  updateSourceBackedSkills: vi.fn(),
+  updateSourceBackedSkill: vi.fn(),
+  addToCentral: vi.fn(),
+};
+
 function LocationProbe() {
   const location = useLocation();
   return <div data-testid="location-path">{location.pathname}</div>;
@@ -175,6 +195,10 @@ function renderSidebar(
     vi.mocked(usePlatformStore).mockReturnValue(options.platformState);
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  vi.mocked(useResourceLibraryStore).mockImplementation((selector: any) =>
+    selector(defaultResourceLibraryState)
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   vi.mocked(useDiscoverStore).mockImplementation((selector: any) =>
     selector({
       ...defaultDiscoverState,
@@ -204,6 +228,10 @@ describe("Sidebar", () => {
     // Default: collection store returns empty state.
     vi.mocked(useCollectionStore).mockImplementation((selector) =>
       selector(defaultCollectionState)
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(useResourceLibraryStore).mockImplementation((selector: any) =>
+      selector(defaultResourceLibraryState)
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(useDiscoverStore).mockImplementation((selector: any) =>
@@ -303,6 +331,14 @@ describe("Sidebar", () => {
     renderSidebar("/central");
     const centralButton = screen.getByRole("button", { name: /中央技能库/ });
     expect(centralButton.className).toContain("bg-hover-bg");
+  });
+
+  it("highlights Skill Resource Library when on root route", () => {
+    renderSidebar("/");
+    const resourceButton = screen.getByRole("button", { name: /技能资源库/ });
+    const centralButton = screen.getByRole("button", { name: /中央技能库/ });
+    expect(resourceButton.className).toContain("bg-hover-bg");
+    expect(centralButton.className).not.toContain("bg-hover-bg");
   });
 
   it("does not highlight Settings in sidebar (moved to TopBar)", () => {

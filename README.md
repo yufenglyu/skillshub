@@ -1,31 +1,41 @@
-# skills-manage
+# SkillsHub
 
-`skills-manage` is a Tauri desktop app for managing AI coding agent skills across multiple platforms from one place.
+SkillsHub is a local-first Tauri desktop app for managing AI agent skills across a resource library, a central skill library, and many coding platforms.
 
 [中文文档](README_CN.md)
 
 > **Disclaimer**
 >
-> `skills-manage` is an independent, unofficial desktop application for managing local skill directories and importing public skill metadata. It is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, GitHub, MiniMax, or any other supported platform, publisher, or trademark owner.
+> SkillsHub is an independent, unofficial desktop application for managing local skill directories and importing public skill metadata. It is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, GitHub, MiniMax, or any other supported platform, publisher, or trademark owner.
 
 ## Overview
 
-`skills-manage` follows the [Agent Skills](https://github.com/anthropics/agent-skills) open pattern and uses `~/.agents/skills/` as the canonical central directory. Skills can then be installed to individual platforms through symlinks, so one source of truth can drive multiple AI coding tools.
+SkillsHub separates long-term skill storage from platform installation:
+
+- **Skill Resource Library** is the default home for downloaded, imported, and source-backed skills. It can be any local directory and is organized by author or repository when source metadata is available.
+- **Central Skills** is the compatibility directory, usually `~/.agents/skills/`, used when a skill should be shared with compatible tools or distributed to selected platforms.
+- **Platform views** show what each coding agent can see and let you install, uninstall, or batch-uninstall skills without deleting the resource copy.
+
+Existing application data remains in `~/.skillsmanage/db.sqlite` for upgrade compatibility with earlier builds.
 
 ## Highlights
 
-- Central skill library plus per-platform install and uninstall flows.
-- Claude Code can surface native skills and read-only marketplace plugin skills in one platform view.
-- Full skill detail view with Markdown preview, raw source view, and AI explanation generation.
-- Collections for organizing skills and batch-installing them to platforms.
-- Discover scan for project-level skill libraries, including an Obsidian sidebar category for vault skills (`.skills/`, `.agents/skills/`, `.claude/skills/`).
-- Marketplace browsing and GitHub repository import with authenticated requests and retry fallback.
-- Fast search for large skill libraries with deferred queries, lazy indexing, and virtualization.
-- Bilingual UI, Catppuccin themes, accent colors, onboarding, and responsive navigation.
+- Resource library first workflow for GitHub imports, marketplace installs, and local skill storage.
+- One-click promotion from the resource library to Central Skills while preserving source grouping such as `owner/repo/skill`.
+- Manual platform selection for installs, with symlink, copy, and automatic fallback modes.
+- Central Skills directory view with folder mode, bulk platform uninstall, source updates, and safe delete previews.
+- Skill detail view with Markdown preview, raw source, AI explanation, source metadata, author/repo, creation/update timestamps, notes, and tags.
+- Search across names, descriptions, notes, tags, and source metadata.
+- Tag filtering and collection management for reusable skill sets.
+- GitHub repository import with preview, rename/overwrite/skip conflict handling, and source metadata tracking.
+- Marketplace browsing, source sync, and per-source updates.
+- App backup import/export for skills, metadata, collections, settings, and resource/central storage layout.
+- Project skill discovery, including Obsidian vault grouping and local project skill directories.
+- Bilingual UI, Catppuccin themes, accent colors, responsive navigation, and compact shortcut buttons.
 
 ## Screenshots
 
-### Central skills and platform installs
+### Skill Resource Library
 
 ![Central skills library view](images/01.png)
 
@@ -51,25 +61,18 @@
 
 ## Download
 
-- Latest release: <https://github.com/iamzhihuix/skills-manage/releases/latest>
-- Current prebuilt packages: Apple Silicon macOS (`.dmg` and `.app.zip`)
-- Other platforms: run from source for now
+- Latest release: <https://github.com/yufenglyu/skillshub/releases/latest>
+- Windows, macOS, and Linux packages can be built with `scripts/package-release.ps1`.
+- If a platform package is not published yet, run from source.
 
 ### macOS Unsigned Build
 
-The current public macOS build is not notarized. If macOS shows a warning such as:
-
-![macOS damaged app warning](images/app-damaged.png)
-
-- `"skills-manage" is damaged and can't be opened`
-- `"skills-manage" cannot be opened because Apple could not verify it`
-
-the app is usually not actually corrupted; it is being blocked by Gatekeeper quarantine on an unsigned build.
+If macOS reports that the app is damaged or cannot be verified, the unsigned build may be blocked by Gatekeeper quarantine.
 
 After moving the app to `/Applications`, run:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/skills-manage.app"
+xattr -dr com.apple.quarantine "/Applications/SkillsHub.app"
 ```
 
 Then launch the app again from Finder. If your app is stored somewhere else, replace the path with the actual `.app` path.
@@ -99,24 +102,34 @@ Then launch the app again from Finder. If your app is stored somewhere else, rep
 | Coding | Hermes | `~/.hermes/skills/` |
 | Coding | Copilot | `~/.copilot/skills/` |
 | Coding | Aider | `~/.aider/skills/` |
-| Lobster | OpenClaw (开爪) | `~/.openclaw/skills/` |
-| Lobster | QClaw (千爪) | `~/.qclaw/skills/` |
-| Lobster | EasyClaw (简爪) | `~/.easyclaw/skills/` |
+| Lobster | OpenClaw | `~/.openclaw/skills/` |
+| Lobster | QClaw | `~/.qclaw/skills/` |
+| Lobster | EasyClaw | `~/.easyclaw/skills/` |
 | Lobster | EasyClaw V2 | `~/.easyclaw-20260322-01/skills/` |
 | Lobster | AutoClaw | `~/.openclaw-autoclaw/skills/` |
-| Lobster | WorkBuddy (打工搭子) | `~/.workbuddy/skills-marketplace/skills/` |
+| Lobster | WorkBuddy | `~/.workbuddy/skills-marketplace/skills/` |
 | Central | Central Skills | `~/.agents/skills/` |
 
-> Note: Claude Code also surfaces marketplace plugin directories under `~/.claude/plugins/marketplaces/*` as read-only rows in the Claude view. Those entries are display-only and are not managed like native skills in `~/.claude/skills/`.
+Claude Code can also surface plugin and compatibility directories as read-only rows. Those entries are display-only and are not removed from platform views by uninstall actions.
 
-Custom platforms can be added through Settings.
+Custom platforms can be added from Settings.
+
+## Storage Model
+
+SkillsHub keeps three concepts separate:
+
+1. **Resource Library** stores imported or downloaded skills for long-term management.
+2. **Central Skills** stores skills that should be shared through `~/.agents/skills/` or copied/symlinked to platforms.
+3. **Platform Directories** contain symlinks or copies created only when you install a skill to selected tools.
+
+Changing the Resource Library path does not move existing platform installs. Changing the Central Skills path keeps the old database and settings, but existing platform links may need to be reinstalled.
 
 ## Privacy & Security
 
-- **Local-first storage** — metadata, collections, scan results, settings, and cached AI explanations stay in `~/.skillsmanage/db.sqlite` or the local skill directories you manage.
-- **No telemetry** — the app does not include analytics, crash reporting, or usage tracking.
-- **Network access is feature-driven** — outbound requests only happen when you explicitly use marketplace sync/download, GitHub import, or AI explanation generation.
-- **Credentials are stored locally** — GitHub PAT and AI API keys are kept in the local SQLite settings table and are not encrypted at rest by the app.
+- **Local-first storage**: metadata, collections, scan results, settings, and cached AI explanations stay in `~/.skillsmanage/db.sqlite` or the local skill directories you manage.
+- **No telemetry**: the app does not include analytics, crash reporting, or usage tracking.
+- **Network access is feature-driven**: outbound requests only happen when you use marketplace sync/download, GitHub import, source updates, or AI explanation generation.
+- **Credentials are stored locally**: GitHub PAT and AI API keys are stored in the local SQLite settings table and are not encrypted at rest by the app.
 - Never post real secrets in issues, pull requests, screenshots, or logs.
 
 ## Tech Stack
@@ -124,23 +137,23 @@ Custom platforms can be added through Settings.
 | Layer | Technology |
 |-------|-----------|
 | Desktop framework | Tauri v2 |
-| Frontend | React 19, TypeScript, Tailwind CSS 4 |
+| Frontend | React 18, TypeScript, Tailwind CSS 4 |
 | UI components | shadcn/ui, Lucide icons |
 | State management | Zustand |
 | Markdown | react-markdown |
 | i18n | react-i18next, i18next-browser-languagedetector |
-| Theming | Catppuccin 4-flavor palette |
-| Backend | Rust (serde, sqlx, chrono, uuid) |
-| Database | SQLite via sqlx (WAL mode) |
+| Theming | Catppuccin palette |
+| Backend | Rust, serde, sqlx, chrono, uuid |
+| Database | SQLite via sqlx, WAL mode |
 | Routing | react-router-dom v7 |
 
 ## Development
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (LTS)
+- [Node.js](https://nodejs.org/) LTS
 - [pnpm](https://pnpm.io/)
-- [Rust toolchain](https://rustup.rs/) (stable)
+- [Rust toolchain](https://rustup.rs/) stable
 - Tauri v2 system dependencies: <https://v2.tauri.app/start/prerequisites/>
 
 ### Install Dependencies
@@ -167,10 +180,18 @@ cd src-tauri && cargo test
 cd src-tauri && cargo clippy -- -D warnings
 ```
 
+### Package a Release
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.6
+```
+
+The script updates version metadata, runs type and Rust compile checks unless skipped, builds the Tauri package for the current platform, and writes release assets under `release-assets/`.
+
 ## Project Structure
 
 ```text
-skills-manage/
+skillshub/
 ├── src/                        # React frontend
 │   ├── components/             # UI components
 │   ├── i18n/                   # Locale files and i18n setup
@@ -193,7 +214,7 @@ skills-manage/
 
 ## Database
 
-The SQLite database lives at `~/.skillsmanage/db.sqlite` and is initialized automatically on first launch.
+The SQLite database remains at `~/.skillsmanage/db.sqlite` for compatibility with existing installs.
 
 ## Changelog
 
@@ -204,17 +225,9 @@ The SQLite database lives at `~/.skillsmanage/db.sqlite` and is initialized auto
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, validation commands, and pull request expectations.
 
-## Community
-
-Join the Discord community: <https://discord.gg/fuGURex5fV>
-
 ## Security
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting and data-handling notes.
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=iamzhihuix/skills-manage&type=Date)](https://www.star-history.com/#iamzhihuix/skills-manage&Date)
 
 ## License
 

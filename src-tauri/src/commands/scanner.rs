@@ -738,8 +738,17 @@ pub async fn scan_all_skills(state: State<'_, AppState>) -> Result<ScanResult, S
 mod tests {
     use super::*;
     use std::fs;
-    use std::os::unix::fs::symlink;
     use tempfile::TempDir;
+
+    #[cfg(unix)]
+    fn symlink(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+        std::os::unix::fs::symlink(src, dst)
+    }
+
+    #[cfg(windows)]
+    fn symlink(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+        std::os::windows::fs::symlink_dir(src, dst)
+    }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 

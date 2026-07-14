@@ -1,4 +1,7 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
+use std::{fs, path::PathBuf, time::SystemTime};
 use tauri::State;
 
 use crate::db::{self, Collection, DbPool, Skill};
@@ -17,7 +20,26 @@ pub struct CollectionDetail {
     pub created_at: String,
     pub updated_at: String,
     /// All skills that are members of this collection.
-    pub skills: Vec<Skill>,
+    pub skills: Vec<CollectionSkill>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionSkill {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub file_path: String,
+    pub canonical_path: Option<String>,
+    pub is_central: bool,
+    pub source: Option<String>,
+    pub content: Option<String>,
+    pub scanned_at: String,
+    pub source_url: Option<String>,
+    pub source_author: Option<String>,
+    pub source_repo: Option<String>,
+    pub source_path: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 /// Export format for a collection, matching the spec in docs/desktop-design.md.
@@ -61,7 +83,7 @@ pub async fn get_collection_detail_impl(
         .await?
         .ok_or_else(|| format!("Collection '{}' not found", collection_id))?;
 
-    let skills = db::get_collection_skills(pool, collection_id).await?;
+    let skills = get_collection_skills_with_metadata(pool, collection_id).await?;
 
     Ok(CollectionDetail {
         id: collection.id,
@@ -71,6 +93,111 @@ pub async fn get_collection_detail_impl(
         updated_at: collection.updated_at,
         skills,
     })
+}
+
+async fn get_collection_skills_with_metadata(
+    pool: &DbPool,
+    collection_id: &str,
+) -> Result<Vec<CollectionSkill>, String> {
+    let rows = sqlx::query(
+        "SELECT
+             s.id,
+             s.name,
+             s.description,
+             s.file_path,
+             s.canonical_path,
+             s.is_central,
+             s.source,
+             s.content,
+             s.scanned_at,
+             ss.source_url,
+             ss.source_author,
+             ss.source_repo,
+             ss.source_path
+         FROM skills s
+         JOIN collection_skills cs ON s.id = cs.skill_id
+         LEFT JOIN skill_sources ss ON ss.skill_id = s.id
+         WHERE cs.collection_id = ?
+         ORDER BY cs.added_at",
+    )
+    .bind(collection_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    rows.into_iter()
+        .map(|row| {
+            let skill = Skill {
+                id: row.try_get("id").map_err(|e| e.to_string())?,
+                name: row.try_get("name").map_err(|e| e.to_string())?,
+                description: row.try_get("description").map_err(|e| e.to_string())?,
+                file_path: row.try_get("file_path").map_err(|e| e.to_string())?,
+                canonical_path: row.try_get("canonical_path").map_err(|e| e.to_string())?,
+                is_central: row
+                    .try_get::<i64, _>("is_central")
+                    .map_err(|e| e.to_string())?
+                    != 0,
+                source: row.try_get("source").map_err(|e| e.to_string())?,
+                content: row.try_get("content").map_err(|e| e.to_string())?,
+                scanned_at: row.try_get("scanned_at").map_err(|e| e.to_string())?,
+            };
+            let (created_at, updated_at) = collection_skill_timestamps(&skill);
+
+            Ok(CollectionSkill {
+                id: skill.id,
+                name: skill.name,
+                description: skill.description,
+                file_path: skill.file_path,
+                canonical_path: skill.canonical_path,
+                is_central: skill.is_central,
+                source: skill.source,
+                content: skill.content,
+                scanned_at: skill.scanned_at,
+                source_url: row.try_get("source_url").map_err(|e| e.to_string())?,
+                source_author: row.try_get("source_author").map_err(|e| e.to_string())?,
+                source_repo: row.try_get("source_repo").map_err(|e| e.to_string())?,
+                source_path: row.try_get("source_path").map_err(|e| e.to_string())?,
+                created_at,
+                updated_at,
+            })
+        })
+        .collect()
+}
+
+fn collection_skill_timestamps(skill: &Skill) -> (String, String) {
+    let fallback = skill.scanned_at.clone();
+    let dir = skill
+        .canonical_path
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(|| {
+            let path = PathBuf::from(&skill.file_path);
+            path.parent().map(|parent| parent.to_path_buf())
+        });
+
+    let dir_meta = dir.as_ref().and_then(|path| fs::metadata(path).ok());
+    let file_meta = fs::metadata(&skill.file_path).ok();
+
+    let created_at = dir_meta
+        .as_ref()
+        .and_then(|meta| meta.created().ok())
+        .or_else(|| file_meta.as_ref().and_then(|meta| meta.created().ok()))
+        .map(system_time_to_rfc3339)
+        .unwrap_or_else(|| fallback.clone());
+
+    let updated_at = file_meta
+        .as_ref()
+        .and_then(|meta| meta.modified().ok())
+        .or_else(|| dir_meta.as_ref().and_then(|meta| meta.modified().ok()))
+        .map(system_time_to_rfc3339)
+        .unwrap_or(fallback);
+
+    (created_at, updated_at)
+}
+
+fn system_time_to_rfc3339(time: SystemTime) -> String {
+    let datetime: DateTime<Utc> = time.into();
+    datetime.to_rfc3339()
 }
 
 /// Add a skill to a collection (idempotent).

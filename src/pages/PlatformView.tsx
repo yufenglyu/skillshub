@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Search, Blocks, FolderOpen } from "lucide-react";
+import { Search, Blocks, FolderOpen, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useSkillStore } from "@/stores/skillStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import {
@@ -19,7 +20,7 @@ import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { InstallDialog } from "@/components/central/InstallDialog";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { formatPathForDisplay } from "@/lib/path";
-import { splitSkillsByTopLevel } from "@/lib/skillFolders";
+import { getRelativePathUnderRoot, splitSkillsByTopLevel } from "@/lib/skillFolders";
 import { cn } from "@/lib/utils";
 import { ScannedSkill, SkillWithLinks } from "@/types";
 
@@ -68,6 +69,9 @@ export function PlatformView() {
   const [folderDrawerGroupPath, setFolderDrawerGroupPath] = useState<string | null>(null);
   const [isFolderDrawerOpen, setIsFolderDrawerOpen] = useState(false);
   const [returnFocusRowKey, setReturnFocusRowKey] = useState<string | null>(null);
+  const [selectedSkillKeys, setSelectedSkillKeys] = useState<Set<string>>(() => new Set());
+  const [isBulkConfirming, setIsBulkConfirming] = useState(false);
+  const [isBulkUninstalling, setIsBulkUninstalling] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const detailButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -137,6 +141,10 @@ export function PlatformView() {
     }
   }
 
+  function isBulkSelectable(skill: ScannedSkill) {
+    return !(skill.is_read_only ?? false);
+  }
+
   const isLoading = agentId ? (loadingByAgent[agentId] ?? false) : false;
 
   // Memoize skills to avoid changing dependency reference on every render
@@ -157,6 +165,7 @@ export function PlatformView() {
       splitSkillsByTopLevel({
         skills: sourceFilteredSkills,
         rootPath: agent?.global_skills_dir ?? "",
+        getRootPath: (skill) => skill.source_root ?? agent?.global_skills_dir ?? "",
         getDirPaths: (skill) => skill.dir_path,
       }),
     [agent?.global_skills_dir, sourceFilteredSkills]
@@ -221,6 +230,87 @@ export function PlatformView() {
     );
   }, [platformFolderSplit.groups, searchQuery, viewMode]);
 
+  const selectableVisibleSkills = useMemo(
+    () => filteredSkills.filter(isBulkSelectable),
+    [filteredSkills]
+  );
+  const selectableVisibleKeys = useMemo(
+    () => new Set(selectableVisibleSkills.map(getSkillRowKey)),
+    [selectableVisibleSkills]
+  );
+  const selectedSkills = useMemo(
+    () =>
+      skills.filter(
+        (skill) => isBulkSelectable(skill) && selectedSkillKeys.has(getSkillRowKey(skill))
+      ),
+    [selectedSkillKeys, skills]
+  );
+  const allVisibleSelected =
+    selectableVisibleSkills.length > 0 &&
+    selectableVisibleSkills.every((skill) => selectedSkillKeys.has(getSkillRowKey(skill)));
+
+  useEffect(() => {
+    setSelectedSkillKeys((current) => {
+      const validKeys = new Set(skills.filter(isBulkSelectable).map(getSkillRowKey));
+      const next = new Set([...current].filter((key) => validKeys.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [skills]);
+
+  useEffect(() => {
+    setSelectedSkillKeys(new Set());
+    setIsBulkConfirming(false);
+  }, [agentId, sourceFilter, viewMode]);
+
+  function toggleSkillSelection(skill: ScannedSkill) {
+    if (!isBulkSelectable(skill)) return;
+    const rowKey = getSkillRowKey(skill);
+    setSelectedSkillKeys((current) => {
+      const next = new Set(current);
+      if (next.has(rowKey)) {
+        next.delete(rowKey);
+      } else {
+        next.add(rowKey);
+      }
+      return next;
+    });
+    setIsBulkConfirming(false);
+  }
+
+  function toggleVisibleSelection() {
+    setSelectedSkillKeys((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        for (const key of selectableVisibleKeys) {
+          next.delete(key);
+        }
+      } else {
+        for (const key of selectableVisibleKeys) {
+          next.add(key);
+        }
+      }
+      return next;
+    });
+    setIsBulkConfirming(false);
+  }
+
+  async function handleBulkUninstall() {
+    if (!agentId || selectedSkills.length === 0) return;
+    setIsBulkUninstalling(true);
+    try {
+      for (const skill of selectedSkills) {
+        await uninstallSkillFromAgent(skill.id, agentId);
+      }
+      setSelectedSkillKeys(new Set());
+      setIsBulkConfirming(false);
+      await refreshCounts();
+    } catch (err) {
+      toast.error(t("detail.uninstallError", { error: String(err) }));
+    } finally {
+      setIsBulkUninstalling(false);
+    }
+  }
+
   useEffect(() => {
     if (!drawerSkill) return;
 
@@ -268,7 +358,9 @@ export function PlatformView() {
         name: skill.name,
         description: skill.description,
         path: skill.dir_path,
-        relativePath: skill.dir_path.replace(`${folderDrawerGroup?.path ?? ""}/`, ""),
+        relativePath:
+          getRelativePathUnderRoot(skill.dir_path, folderDrawerGroup?.path ?? "") ??
+          skill.dir_path,
         agentId,
         rowId: skill.row_id ?? null,
         sourceLabel:
@@ -276,6 +368,8 @@ export function PlatformView() {
             ? t("platform.originUser")
             : skill.source_kind === "plugin"
               ? t("platform.originPlugin")
+              : skill.source_kind === "compatibility"
+                ? t("platform.originCompatibility")
               : skill.link_type,
         isReadOnly: skill.is_read_only ?? false,
       })),
@@ -371,6 +465,73 @@ export function PlatformView() {
           </div>
           <SkillListModeToggle value={viewMode} onChange={setViewMode} />
         </div>
+        {(filteredSkills.length > 0 || filteredFolderGroups.length > 0) && (
+          <div
+            className="mt-3 flex flex-wrap items-center gap-2"
+            role="group"
+            aria-label={t("platform.bulkActionsLabel")}
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={selectableVisibleSkills.length === 0 || isBulkUninstalling}
+              onClick={toggleVisibleSelection}
+              className="h-8 gap-1.5"
+            >
+              {allVisibleSelected ? t("platform.deselectVisible") : t("platform.selectVisible")}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {t("platform.selectedCount", { count: selectedSkills.length })}
+            </span>
+            {selectableVisibleSkills.length === 0 && (
+              <span className="text-xs text-muted-foreground">
+                {t("platform.noUninstallableSkills")}
+              </span>
+            )}
+            {selectedSkills.length > 0 && (
+              <>
+                {isBulkConfirming ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={isBulkUninstalling}
+                      onClick={() => void handleBulkUninstall()}
+                      className="h-8 gap-1.5"
+                    >
+                      <Trash2 className="size-3.5" />
+                      {t("platform.confirmUninstall")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={isBulkUninstalling}
+                      onClick={() => setIsBulkConfirming(false)}
+                      className="h-8 gap-1.5"
+                    >
+                      <X className="size-3.5" />
+                      {t("common.cancel")}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setIsBulkConfirming(true)}
+                    className="h-8 gap-1.5"
+                  >
+                    <Trash2 className="size-3.5" />
+                    {t("platform.uninstallSelected")}
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -432,9 +593,24 @@ export function PlatformView() {
                       key={getSkillRowKey(skill)}
                       name={skill.name}
                       description={skill.description}
+                      checkbox={
+                        isBulkSelectable(skill)
+                          ? {
+                              checked: selectedSkillKeys.has(getSkillRowKey(skill)),
+                              onChange: () => toggleSkillSelection(skill),
+                              ariaLabel: t("platform.selectSkillLabel", {
+                                name: skill.name,
+                              }),
+                            }
+                          : undefined
+                      }
                       sourceType={skill.link_type as "symlink" | "copy" | "native"}
                       originKind={skill.source_kind ?? null}
                       isReadOnly={skill.is_read_only ?? false}
+                      sourceAuthor={skill.source_author}
+                      sourceRepo={skill.source_repo}
+                      sourceUrl={skill.source_url}
+                      createdAt={skill.created_at}
                       isLoading={
                         agentId
                           ? (pendingSkillActionKeys[`${agentId}::${skill.id}`] ?? false)

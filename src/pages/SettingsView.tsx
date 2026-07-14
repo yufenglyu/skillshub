@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Palette, Droplets, Bot, ChevronDown, ChevronRight, KeyRound } from "lucide-react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Palette, Droplets, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -18,6 +18,8 @@ import { Switch } from "@/components/ui/switch";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useThemeStore, CatppuccinFlavor, CatppuccinAccent, ACCENT_NAMES } from "@/stores/themeStore";
 import { usePlatformStore } from "@/stores/platformStore";
+import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
+import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { AddDirectoryDialog } from "@/components/settings/AddDirectoryDialog";
 import { PlatformDialog } from "@/components/settings/PlatformDialog";
 import { Input } from "@/components/ui/input";
@@ -27,7 +29,7 @@ import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/p
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.9.1";
+const APP_VERSION = "0.10.6";
 const DB_PATH_FALLBACK = "~/.skillsmanage/db.sqlite";
 
 /** Catppuccin Lavender hex per flavor — used for visual preview dots on flavor buttons (default accent). */
@@ -175,6 +177,12 @@ export function SettingsView() {
   const addCustomAgent = useSettingsStore((s) => s.addCustomAgent);
   const updateCustomAgent = useSettingsStore((s) => s.updateCustomAgent);
   const removeCustomAgent = useSettingsStore((s) => s.removeCustomAgent);
+  const updateCentralSkillsDir = useSettingsStore((s) => s.updateCentralSkillsDir);
+  const resourceLibraryDir = useSettingsStore((s) => s.resourceLibraryDir);
+  const loadResourceLibraryDir = useSettingsStore((s) => s.loadResourceLibraryDir);
+  const updateResourceLibraryDir = useSettingsStore((s) => s.updateResourceLibraryDir);
+  const exportAppBackup = useSettingsStore((s) => s.exportAppBackup);
+  const importAppBackup = useSettingsStore((s) => s.importAppBackup);
   const githubPat = useSettingsStore((s) => s.githubPat);
   const isLoadingGitHubPat = useSettingsStore((s) => s.isLoadingGitHubPat);
   const isSavingGitHubPat = useSettingsStore((s) => s.isSavingGitHubPat);
@@ -190,9 +198,12 @@ export function SettingsView() {
   const setAccent = useThemeStore((s) => s.setAccent);
   const rescan = usePlatformStore((s) => s.rescan);
   const refreshCounts = usePlatformStore((s) => s.refreshCounts);
+  const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
+  const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
 
   // Custom agents are those that are not built-in.
   const customAgents = agents.filter((a) => !a.is_builtin);
+  const centralAgent = agents.find((a) => a.id === "central");
   const homeDir = useMemo(() => {
     const candidates = [
       agents.find((agent) => agent.id === "central")?.global_skills_dir,
@@ -288,19 +299,49 @@ export function SettingsView() {
   const [platformError, setPlatformError] = useState<string | null>(null);
   const [githubPatInput, setGitHubPatInput] = useState("");
   const [githubPatMessage, setGitHubPatMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [centralPathInput, setCentralPathInput] = useState("");
+  const [isSavingCentralPath, setIsSavingCentralPath] = useState(false);
+  const [centralPathMessage, setCentralPathMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [resourcePathInput, setResourcePathInput] = useState("");
+  const [isSavingResourcePath, setIsSavingResourcePath] = useState(false);
+  const [resourcePathMessage, setResourcePathMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
+  const [isImportingBackup, setIsImportingBackup] = useState(false);
+  const backupInputRef = useRef<HTMLInputElement | null>(null);
 
   // ── Load on mount ──────────────────────────────────────────────────────────
 
   useEffect(() => {
     loadScanDirectories();
     loadGitHubPat();
-  }, [loadScanDirectories, loadGitHubPat]);
+    loadResourceLibraryDir();
+  }, [loadScanDirectories, loadGitHubPat, loadResourceLibraryDir]);
 
   useEffect(() => {
     setGitHubPatInput(githubPat);
   }, [githubPat]);
 
+  useEffect(() => {
+    if (centralAgent?.global_skills_dir) {
+      setCentralPathInput(formatPathForDisplay(centralAgent.global_skills_dir));
+    }
+  }, [centralAgent?.global_skills_dir]);
+
+  useEffect(() => {
+    if (resourceLibraryDir) {
+      setResourcePathInput(formatPathForDisplay(resourceLibraryDir));
+    }
+  }, [resourceLibraryDir]);
+
   const isGitHubPatDirty = useMemo(() => githubPatInput.trim() !== githubPat, [githubPatInput, githubPat]);
+  const isCentralPathDirty = useMemo(
+    () => Boolean(centralAgent) && centralPathInput.trim() !== formatPathForDisplay(centralAgent?.global_skills_dir ?? ""),
+    [centralAgent, centralPathInput]
+  );
+  const isResourcePathDirty = useMemo(
+    () => resourcePathInput.trim() !== formatPathForDisplay(resourceLibraryDir),
+    [resourceLibraryDir, resourcePathInput]
+  );
 
   // ── Scan Directories Handlers ──────────────────────────────────────────────
 
@@ -345,6 +386,42 @@ export function SettingsView() {
     } catch (err) {
       setScanDirError(String(err));
       toast.error(String(err));
+    }
+  }
+
+  async function handleSaveCentralPath() {
+    setIsSavingCentralPath(true);
+    setCentralPathMessage(null);
+    try {
+      await updateCentralSkillsDir(centralPathInput);
+      await Promise.all([rescan(), loadScanDirectories(), loadCentralSkills()]);
+      const message = t("settings.centralPathSaved");
+      setCentralPathMessage({ type: "success", text: message });
+      toast.success(message);
+    } catch (err) {
+      const message = String(err);
+      setCentralPathMessage({ type: "error", text: message });
+      toast.error(message);
+    } finally {
+      setIsSavingCentralPath(false);
+    }
+  }
+
+  async function handleSaveResourcePath() {
+    setIsSavingResourcePath(true);
+    setResourcePathMessage(null);
+    try {
+      await updateResourceLibraryDir(resourcePathInput);
+      await loadResourceLibrary();
+      const message = t("settings.resourcePathSaved");
+      setResourcePathMessage({ type: "success", text: message });
+      toast.success(message);
+    } catch (err) {
+      const message = String(err);
+      setResourcePathMessage({ type: "error", text: message });
+      toast.error(message);
+    } finally {
+      setIsSavingResourcePath(false);
     }
   }
 
@@ -448,6 +525,50 @@ export function SettingsView() {
     }
   }
 
+  async function handleExportBackup() {
+    setIsExportingBackup(true);
+    try {
+      const json = await exportAppBackup();
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `skillshub-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(t("settings.backupExported"));
+    } catch (err) {
+      toast.error(t("settings.backupExportError", { error: String(err) }));
+    } finally {
+      setIsExportingBackup(false);
+    }
+  }
+
+  async function handleImportBackup(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsImportingBackup(true);
+    try {
+      const json = await file.text();
+      await importAppBackup(json);
+      await Promise.all([
+        rescan(),
+        loadScanDirectories(),
+        loadCentralSkills(),
+        loadResourceLibrary(),
+        loadGitHubPat(),
+      ]);
+      toast.success(t("settings.backupImported"));
+    } catch (err) {
+      toast.error(t("settings.backupImportError", { error: String(err) }));
+    } finally {
+      setIsImportingBackup(false);
+      if (backupInputRef.current) backupInputRef.current.value = "";
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -460,7 +581,149 @@ export function SettingsView() {
       {/* Content */}
       <div className="flex-1 overflow-auto p-6 space-y-6">
 
-        {/* ── Section 1: Custom Platforms ───────────────────────────────────── */}
+        {/* Section 1: Central Skills Root */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <FolderOpen className="size-5 text-muted-foreground" />
+              <div>
+                <CardTitle>{t("settings.centralPathTitle")}</CardTitle>
+                <CardDescription className="mt-1">
+                  {t("settings.centralPathDesc")}
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="central-skills-dir" className="mb-1 block text-xs text-muted-foreground">
+                  {t("settings.centralPathLabel")}
+                </label>
+                <Input
+                  id="central-skills-dir"
+                  value={centralPathInput}
+                  onChange={(event) => setCentralPathInput(event.target.value)}
+                  disabled={isSavingCentralPath}
+                  placeholder={DB_PATH_FALLBACK.replace(".skillsmanage/db.sqlite", ".skillsmanage/central-skills")}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.centralPathHint")}
+              </p>
+              {centralPathMessage ? (
+                <p
+                  className={centralPathMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
+                  role="status"
+                >
+                  {centralPathMessage.text}
+                </p>
+              ) : null}
+              <Button
+                onClick={handleSaveCentralPath}
+                disabled={isSavingCentralPath || !isCentralPathDirty || !centralPathInput.trim()}
+                aria-label={t("settings.saveCentralPath")}
+              >
+                {isSavingCentralPath ? <Loader2 className="size-4 animate-spin" /> : null}
+                <span>{t("common.save")}</span>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Section 1.5: Skill Resource Library */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Database className="size-5 text-muted-foreground" />
+              <div>
+                <CardTitle>{t("settings.resourcePathTitle")}</CardTitle>
+                <CardDescription className="mt-1">
+                  {t("settings.resourcePathDesc")}
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="skill-resource-library-dir" className="mb-1 block text-xs text-muted-foreground">
+                  {t("settings.resourcePathLabel")}
+                </label>
+                <Input
+                  id="skill-resource-library-dir"
+                  value={resourcePathInput}
+                  onChange={(event) => setResourcePathInput(event.target.value)}
+                  disabled={isSavingResourcePath}
+                  placeholder={DB_PATH_FALLBACK.replace("db.sqlite", "library")}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.resourcePathHint")}
+              </p>
+              {resourcePathMessage ? (
+                <p
+                  className={resourcePathMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
+                  role="status"
+                >
+                  {resourcePathMessage.text}
+                </p>
+              ) : null}
+              <Button
+                onClick={handleSaveResourcePath}
+                disabled={isSavingResourcePath || !isResourcePathDirty || !resourcePathInput.trim()}
+                aria-label={t("settings.saveResourcePath")}
+              >
+                {isSavingResourcePath ? <Loader2 className="size-4 animate-spin" /> : null}
+                <span>{t("common.save")}</span>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Section 2: Backup and migration */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Database className="size-5 text-muted-foreground" />
+              <div>
+                <CardTitle>{t("settings.backupTitle")}</CardTitle>
+                <CardDescription className="mt-1">
+                  {t("settings.backupDesc")}
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" onClick={handleExportBackup} disabled={isExportingBackup || isImportingBackup}>
+                {isExportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                <span>{t("settings.exportBackup")}</span>
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => backupInputRef.current?.click()}
+                disabled={isExportingBackup || isImportingBackup}
+              >
+                {isImportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+                <span>{t("settings.importBackup")}</span>
+              </Button>
+              <input
+                ref={backupInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={handleImportBackup}
+                aria-label={t("settings.importBackup")}
+              />
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              {t("settings.backupHint")}
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Section 3: Custom Platforms */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -768,7 +1031,7 @@ export function SettingsView() {
                 <Info className="size-4 text-muted-foreground shrink-0" />
                 <div>
                   <div className="text-xs text-muted-foreground">{t("settings.appVersion")}</div>
-                  <div className="text-sm font-medium">skills-manage v{APP_VERSION}</div>
+                  <div className="text-sm font-medium">SkillsHub v{APP_VERSION}</div>
                 </div>
               </div>
               <div className="flex items-center gap-3">

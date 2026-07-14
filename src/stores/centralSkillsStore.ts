@@ -76,6 +76,7 @@ interface CentralSkillsState {
   isInstalling: boolean;
   deletingSkillId: string | null;
   deletingBundlePath: string | null;
+  isUpdatingSources: boolean;
   /** Agent ID currently being toggled (null = idle). */
   togglingAgentId: string | null;
   error: string | null;
@@ -103,6 +104,9 @@ interface CentralSkillsState {
   ) => Promise<DeleteCentralSkillBundleResult>;
   clearBundleDeletePreview: () => void;
   togglePlatformLink: (skillId: string, agentId: string) => Promise<void>;
+  uninstallSkillsFromAgent: (skillIds: string[], agentId: string) => Promise<void>;
+  updateSourceBackedSkills: () => Promise<string[]>;
+  updateSourceBackedSkill: (skillId: string) => Promise<string>;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -119,6 +123,7 @@ export const useCentralSkillsStore = create<CentralSkillsState>((set, get) => ({
   isInstalling: false,
   deletingSkillId: null,
   deletingBundlePath: null,
+  isUpdatingSources: false,
   togglingAgentId: null,
   error: null,
 
@@ -365,6 +370,69 @@ export const useCentralSkillsStore = create<CentralSkillsState>((set, get) => ({
       set({ skills, togglingAgentId: null });
     } catch (err) {
       set({ error: String(err), togglingAgentId: null });
+      throw err;
+    }
+  },
+
+  uninstallSkillsFromAgent: async (skillIds, agentId) => {
+    set({ togglingAgentId: agentId, error: null });
+    if (!isTauriRuntime()) {
+      set((state) => ({
+        skills: state.skills.map((skill) =>
+          skillIds.includes(skill.id)
+            ? {
+                ...skill,
+                linked_agents: skill.linked_agents.filter((id) => id !== agentId),
+              }
+            : skill
+        ),
+        togglingAgentId: null,
+      }));
+      return;
+    }
+
+    try {
+      for (const skillId of skillIds) {
+        await invoke("uninstall_skill_from_agent", { skillId, agentId });
+      }
+      const skills = await invoke<SkillWithLinks[]>("get_central_skills");
+      set({ skills, togglingAgentId: null });
+    } catch (err) {
+      set({ error: String(err), togglingAgentId: null });
+      throw err;
+    }
+  },
+
+  updateSourceBackedSkills: async () => {
+    set({ isUpdatingSources: true, error: null });
+    if (!isTauriRuntime()) {
+      set({ isUpdatingSources: false });
+      return [];
+    }
+    try {
+      const updated = await invoke<string[]>("update_source_backed_central_skills");
+      const skills = await invoke<SkillWithLinks[]>("get_central_skills");
+      set({ skills, isUpdatingSources: false });
+      return updated ?? [];
+    } catch (err) {
+      set({ error: String(err), isUpdatingSources: false });
+      throw err;
+    }
+  },
+
+  updateSourceBackedSkill: async (skillId) => {
+    set({ isUpdatingSources: true, error: null });
+    if (!isTauriRuntime()) {
+      set({ isUpdatingSources: false });
+      return skillId;
+    }
+    try {
+      const updated = await invoke<string>("update_source_backed_central_skill", { skillId });
+      const skills = await invoke<SkillWithLinks[]>("get_central_skills");
+      set({ skills, isUpdatingSources: false });
+      return updated;
+    } catch (err) {
+      set({ error: String(err), isUpdatingSources: false });
       throw err;
     }
   },

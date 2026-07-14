@@ -90,7 +90,7 @@ interface GitHubRepoImportWizardProps {
   onAfterImportSuccess?: (
     result: GitHubRepoImportResult,
   ) => Promise<void> | void;
-  onOpenCentral?: () => void;
+  onOpenResourceLibrary?: () => void;
 }
 
 function buildInitialSelections(
@@ -139,7 +139,7 @@ export function GitHubRepoImportWizard({
   installableSkills = [],
   onInstallImportedSkill,
   onAfterImportSuccess,
-  onOpenCentral,
+  onOpenResourceLibrary,
 }: GitHubRepoImportWizardProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -573,10 +573,10 @@ export function GitHubRepoImportWizard({
     setStep("input");
   }
 
-  function handleOpenCentralClick() {
-    onOpenCentral?.();
+  function handleOpenResourceLibraryClick() {
+    onOpenResourceLibrary?.();
     handleClose(false);
-    navigate("/central");
+    navigate("/resources");
   }
 
   function renderUrlInputBlock() {
@@ -908,9 +908,9 @@ export function GitHubRepoImportWizard({
                   <Button
                     variant="outline"
                     className="justify-between"
-                    onClick={handleOpenCentralClick}
+                    onClick={handleOpenResourceLibraryClick}
                   >
-                    <span>{t("marketplace.githubImportResultActionCentral")}</span>
+                    <span>{t("marketplace.githubImportResultActionResource")}</span>
                     <ArrowRight className="size-4" />
                   </Button>
                   <Button

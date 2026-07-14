@@ -49,11 +49,14 @@ pub fn run() {
             commands::agents::remove_custom_agent,
             // Linker
             commands::linker::install_skill_to_agent,
+            commands::linker::add_resource_skill_to_central,
             commands::linker::uninstall_skill_from_agent,
             commands::linker::batch_install_to_agents,
             // Skills
             commands::skills::get_skills_by_agent,
             commands::skills::get_central_skills,
+            commands::skills::get_resource_library_skills,
+            commands::skills::update_skill_metadata,
             commands::skills::get_central_skill_bundles,
             commands::skills::get_central_skill_bundle_detail,
             commands::skills::preview_delete_central_skill_bundle,
@@ -64,6 +67,9 @@ pub fn run() {
             commands::skills::read_file_by_path,
             commands::skills::list_skill_directory,
             commands::skills::open_in_file_manager,
+            // Backup
+            commands::backup::export_app_backup,
+            commands::backup::import_app_backup,
             // Collections
             commands::collections::create_collection,
             commands::collections::get_collections,
@@ -82,6 +88,9 @@ pub fn run() {
             commands::settings::set_scan_directory_active,
             commands::settings::get_setting,
             commands::settings::set_setting,
+            commands::settings::update_central_skills_dir,
+            commands::settings::get_skill_resource_library_dir,
+            commands::settings::update_skill_resource_library_dir,
             // Discover
             commands::discover::discover_scan_roots,
             commands::discover::get_scan_roots,
@@ -105,6 +114,9 @@ pub fn run() {
             commands::marketplace::sync_registry_with_options,
             commands::marketplace::search_marketplace_skills,
             commands::marketplace::install_marketplace_skill,
+            commands::marketplace::install_remote_skill_from_url,
+            commands::marketplace::update_source_backed_central_skills,
+            commands::marketplace::update_source_backed_central_skill,
             commands::marketplace::explain_skill,
             commands::marketplace::get_skill_explanation,
             commands::marketplace::explain_skill_stream,

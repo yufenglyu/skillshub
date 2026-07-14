@@ -6,6 +6,7 @@ import { GlobalSearchDialog } from "./GlobalSearchDialog";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useDiscoverStore } from "@/stores/discoverStore";
+import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 
 /**
  * Top-level app shell: TopBar + icon sidebar + scrollable main content area.
@@ -19,6 +20,7 @@ export function AppShell() {
   const initialize = usePlatformStore((s) => s.initialize);
   const rescan = usePlatformStore((s) => s.rescan);
   const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
+  const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
   const rescanDiscoverFromDisk = useDiscoverStore((s) => s.rescanFromDisk);
 
   useEffect(() => {
@@ -35,6 +37,7 @@ export function AppShell() {
     await rescan();
     await Promise.allSettled([
       loadCentralSkills(),
+      loadResourceLibrary(),
       rescanDiscoverFromDisk(),
     ]);
   }
@@ -49,7 +52,7 @@ export function AppShell() {
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
-      <TopBar onSearchClick={() => setIsSearchOpen(true)} />
+      <TopBar onSearchClick={() => setIsSearchOpen(true)} onRescan={() => void handleGlobalRescan()} />
       <div className="flex flex-1 min-h-0">
         <Sidebar />
         <main ref={mainRef} className="flex-1 min-h-0 min-w-0 overflow-hidden">

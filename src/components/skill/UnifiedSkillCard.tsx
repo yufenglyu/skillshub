@@ -12,6 +12,9 @@ import {
   Loader2,
   Lock,
   Trash2,
+  Calendar,
+  GitBranch,
+  RefreshCw,
 } from "lucide-react";
 import type { MouseEventHandler, Ref } from "react";
 import { useTranslation } from "react-i18next";
@@ -90,7 +93,7 @@ export interface UnifiedSkillCardProps {
   onClick?: () => void;
 
   // ── discover variant ──
-  checkbox?: { checked: boolean; onChange: () => void };
+  checkbox?: { checked: boolean; onChange: () => void; ariaLabel?: string };
   isCentral?: boolean;
   platformBadge?: { id: string; name: string };
   projectBadge?: string;
@@ -115,17 +118,25 @@ export interface UnifiedSkillCardProps {
   isInstalled?: boolean;
   tags?: { key: string; label: string }[];
   publisher?: string;
+  sourceAuthor?: string | null;
+  sourceRepo?: string | null;
+  sourceUrl?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 
   // ── actions (pass only the ones relevant to the context) ──
   onDetail?: MouseEventHandler<HTMLButtonElement>;
   onInstallTo?: () => void;
   onInstallToCentral?: () => void;
+  installToCentralLabel?: string;
   onInstallToPlatform?: () => void;
   onUninstallFromPlatform?: () => void;
   uninstallFromLabel?: string;
   onDeleteFromCentral?: () => void;
   deleteFromCentralLabel?: string;
   deleteFromCentralRequiresDialog?: boolean;
+  onUpdateFromSource?: () => void;
+  updateFromSourceLabel?: string;
   onInstall?: () => void;
   onRemove?: () => void;
   isLoading?: boolean;
@@ -152,15 +163,23 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
     isInstalled,
     tags,
     publisher,
+    sourceAuthor,
+    sourceRepo,
+    sourceUrl,
+    createdAt,
+    updatedAt,
     onDetail,
     onInstallTo,
     onInstallToCentral,
+    installToCentralLabel,
     onInstallToPlatform,
     onUninstallFromPlatform,
     uninstallFromLabel,
     onDeleteFromCentral,
     deleteFromCentralLabel,
     deleteFromCentralRequiresDialog,
+    onUpdateFromSource,
+    updateFromSourceLabel,
     onInstall,
     onRemove,
     isLoading,
@@ -177,6 +196,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
     onInstallToPlatform ||
     onUninstallFromPlatform ||
     onDeleteFromCentral ||
+    onUpdateFromSource ||
     onInstall ||
     onRemove
   );
@@ -192,6 +212,8 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
     .filter((agent): agent is AgentWithStatus => !!agent);
   const featuredCodingAgentIds = new Set(featuredCodingAgents.map((agent) => agent.id));
   const hiddenCodingCount = codingAgents.filter((agent) => !featuredCodingAgentIds.has(agent.id)).length;
+  const sourceLabel = sourceRepo ?? sourceAuthor;
+  const dateLabel = formatDateLabel(createdAt ?? updatedAt ?? null);
 
   // ── Platform variant: clickable card style ──
   if (onClick && !hasActions && !hasCheckbox && !hasPlatformIcons) {
@@ -238,7 +260,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
             <Checkbox
               checked={checkbox.checked}
               onCheckedChange={checkbox.onChange}
-              aria-label={t("discover.selectSkill")}
+              aria-label={checkbox.ariaLabel ?? t("discover.selectSkill")}
             />
           </div>
         )}
@@ -282,8 +304,8 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
                   <button
                     onClick={onInstallToCentral}
                     disabled={isLoading}
-                    title={t("discover.installToCentral")}
-                    aria-label={t("discover.installToCentral")}
+                    title={installToCentralLabel ?? t("discover.installToCentral")}
+                    aria-label={installToCentralLabel ?? t("discover.installToCentral")}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:cursor-default"
                   >
                     {isLoading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUpRight className="size-4" />}
@@ -335,6 +357,18 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
                       icon={<Trash2 className="size-4" />}
                     />
                   ))}
+
+                {onUpdateFromSource && (
+                  <button
+                    onClick={onUpdateFromSource}
+                    disabled={isLoading}
+                    title={updateFromSourceLabel ?? t("central.updateFromSource")}
+                    aria-label={updateFromSourceLabel ?? t("central.updateFromSource")}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:cursor-default"
+                  >
+                    {isLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                  </button>
+                )}
 
                 {/* Marketplace installed indicator (disabled Check icon) */}
                 {onInstall && isInstalled && (
@@ -403,6 +437,26 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
             {/* Publisher (marketplace recommended) */}
             {publisher && (
               <span className="text-[10px] text-muted-foreground truncate">{publisher}</span>
+            )}
+
+            {sourceLabel && (
+              <span
+                className="inline-flex max-w-full items-center gap-1 truncate rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                title={sourceUrl ?? sourceLabel}
+              >
+                <GitBranch className="size-3 shrink-0" />
+                <span className="truncate">{sourceLabel}</span>
+              </span>
+            )}
+
+            {dateLabel && (
+              <span
+                className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                title={createdAt ?? updatedAt ?? undefined}
+              >
+                <Calendar className="size-3 shrink-0" />
+                <span>{dateLabel}</span>
+              </span>
             )}
 
             {/* Tags (marketplace recommended) */}
@@ -501,6 +555,13 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
   );
 }
 
+function formatDateLabel(value: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  return date.toISOString().slice(0, 10);
+}
+
 // ─── Source Indicator (internal) ──────────────────────────────────────────────
 
 function SourceIndicator({ sourceType }: { sourceType: string }) {
@@ -556,7 +617,9 @@ function SourceOriginBadge({ originKind }: { originKind: ClaudeSourceKind }) {
           })
         : isCompatibility
           ? t("platform.originCompatibility", {
-              defaultValue: i18n.language.startsWith("zh") ? "兼容来源" : "Compatibility source",
+              defaultValue: i18n.language.startsWith("zh")
+                ? "中央库兼容可见"
+                : "Visible from Central",
             })
         : t("platform.originUser", {
             defaultValue: i18n.language.startsWith("zh") ? "用户来源" : "User source",
@@ -567,13 +630,23 @@ function SourceOriginBadge({ originKind }: { originKind: ClaudeSourceKind }) {
 
 function ReadOnlyBadge() {
   const { t, i18n } = useTranslation();
+  const label = t("platform.readOnly", {
+    defaultValue: i18n.language.startsWith("zh") ? "只读" : "Read-only",
+  });
+  const description = t("platform.readOnlyHint", {
+    defaultValue: i18n.language.startsWith("zh")
+      ? "来自中央库或插件缓存的只读可见项，不是当前平台的可删除安装。"
+      : "Visible from Central or a plugin cache; this is not a removable install in the current platform.",
+  });
 
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/70">
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/70"
+      title={description}
+      aria-label={`${label}: ${description}`}
+    >
       <Lock className="size-3 shrink-0" />
-      {t("platform.readOnly", {
-        defaultValue: i18n.language.startsWith("zh") ? "只读" : "Read-only",
-      })}
+      {label}
     </span>
   );
 }

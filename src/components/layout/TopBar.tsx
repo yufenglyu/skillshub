@@ -1,16 +1,18 @@
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Blocks, Search, Settings } from "lucide-react";
+import { Blocks, Database, RefreshCw, Search, Settings, Store } from "lucide-react";
 
 import { usePlatformStore } from "@/stores/platformStore";
 import { useDiscoverStore } from "@/stores/discoverStore";
+import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { cn } from "@/lib/utils";
 
 interface TopBarProps {
   onSearchClick: () => void;
+  onRescan?: () => void;
 }
 
-export function TopBar({ onSearchClick }: TopBarProps) {
+export function TopBar({ onSearchClick, onRescan }: TopBarProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -19,10 +21,14 @@ export function TopBar({ onSearchClick }: TopBarProps) {
   const skillsByAgent = usePlatformStore((s) => s.skillsByAgent);
   const totalDiscovered = useDiscoverStore((s) => s.totalSkillsFound);
   const isScanning = useDiscoverStore((s) => s.isScanning);
+  const resourceSkillsCount = useResourceLibraryStore((s) => s.skills.length);
 
   // Determine current view label and count
   const viewInfo = (() => {
-    if (pathname === "/central" || pathname === "/") {
+    if (pathname === "/resources" || pathname === "/") {
+      return { label: t("sidebar.resourceLibrary"), count: resourceSkillsCount };
+    }
+    if (pathname === "/central") {
       const count = skillsByAgent["central"] ?? 0;
       return { label: t("sidebar.centralSkills"), count };
     }
@@ -60,13 +66,58 @@ export function TopBar({ onSearchClick }: TopBarProps) {
     <header className="relative flex items-center h-12 px-4 border-b border-border bg-sidebar text-sidebar-foreground shrink-0">
       {/* App icon */}
       <button
-        onClick={() => navigate("/central")}
-        className="z-10 p-1.5 rounded-md transition-colors cursor-pointer text-sidebar-primary hover:bg-muted/60 shrink-0"
-        aria-label={t("app.name")}
-        title={t("app.name")}
+        onClick={() => navigate("/resources")}
+        className={cn(
+          "z-10 p-1.5 rounded-md transition-colors cursor-pointer shrink-0",
+          pathname === "/resources" || pathname === "/"
+            ? "bg-muted/60 text-sidebar-primary"
+            : "text-sidebar-primary hover:bg-muted/60"
+        )}
+        aria-label={t("sidebar.resourceLibrary")}
+        title={t("sidebar.resourceLibrary")}
       >
-        <Blocks className="size-4" />
+        <Database className="size-4" />
       </button>
+
+      <div className="z-10 ml-1 hidden items-center gap-1 sm:flex">
+        <button
+          onClick={() => navigate("/central")}
+          className={cn(
+            "p-1.5 rounded-md transition-colors cursor-pointer shrink-0",
+            "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+            pathname === "/central" && "bg-muted/60 text-foreground"
+          )}
+          aria-label={t("sidebar.centralSkills")}
+          title={t("sidebar.centralSkills")}
+        >
+          <Blocks className="size-4" />
+        </button>
+        <button
+          onClick={() => navigate("/marketplace")}
+          className={cn(
+            "p-1.5 rounded-md transition-colors cursor-pointer shrink-0",
+            "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+            pathname === "/marketplace" && "bg-muted/60 text-foreground"
+          )}
+          aria-label={t("marketplace.title")}
+          title={t("marketplace.title")}
+        >
+          <Store className="size-4" />
+        </button>
+        {onRescan && (
+          <button
+            onClick={onRescan}
+            className={cn(
+              "p-1.5 rounded-md transition-colors cursor-pointer shrink-0",
+              "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+            )}
+            aria-label={t("topBar.rescan")}
+            title={t("topBar.rescan")}
+          >
+            <RefreshCw className="size-4" />
+          </button>
+        )}
+      </div>
 
       <div className="flex-1" />
 

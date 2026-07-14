@@ -72,7 +72,7 @@ First public release.
 
 ### Features
 
-- Launch `skills-manage` as a Tauri desktop app for managing AI agent skills across built-in and custom platforms from one place.
+- Launch SkillsHub as a Tauri desktop app for managing AI agent skills across built-in and custom platforms from one place.
 - Add platform and central skill views with install, uninstall, symlink-aware status, and canonical skill management.
 - Add a full skill detail experience with markdown preview, in-place drawer navigation, install actions, and collection-aware workflows.
 - Add collections management, custom platform settings, configurable scan roots, onboarding, toast feedback, and a responsive sidebar.

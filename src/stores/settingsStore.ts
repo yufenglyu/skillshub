@@ -11,6 +11,8 @@ interface SettingsState {
   githubPat: string;
   isLoadingGitHubPat: boolean;
   isSavingGitHubPat: boolean;
+  resourceLibraryDir: string;
+  isLoadingResourceLibraryDir: boolean;
 
   // Actions — scan directories
   loadScanDirectories: () => Promise<void>;
@@ -27,6 +29,11 @@ interface SettingsState {
   addCustomAgent: (config: CustomAgentConfig) => Promise<AgentWithStatus>;
   updateCustomAgent: (agentId: string, config: UpdateCustomAgentConfig) => Promise<AgentWithStatus>;
   removeCustomAgent: (agentId: string) => Promise<void>;
+  updateCentralSkillsDir: (path: string) => Promise<AgentWithStatus>;
+  loadResourceLibraryDir: () => Promise<void>;
+  updateResourceLibraryDir: (path: string) => Promise<string>;
+  exportAppBackup: () => Promise<string>;
+  importAppBackup: (json: string) => Promise<void>;
 
   clearError: () => void;
 }
@@ -40,6 +47,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   githubPat: "",
   isLoadingGitHubPat: false,
   isSavingGitHubPat: false,
+  resourceLibraryDir: "",
+  isLoadingResourceLibraryDir: false,
 
   // ── Scan Directories ───────────────────────────────────────────────────────
 
@@ -175,6 +184,34 @@ export const useSettingsStore = create<SettingsState>((set) => ({
    */
   removeCustomAgent: async (agentId: string) => {
     await invoke<void>("remove_custom_agent", { agentId });
+  },
+
+  updateCentralSkillsDir: async (path: string) => {
+    return await invoke<AgentWithStatus>("update_central_skills_dir", { path });
+  },
+
+  loadResourceLibraryDir: async () => {
+    set({ isLoadingResourceLibraryDir: true, error: null });
+    try {
+      const path = await invoke<string>("get_skill_resource_library_dir");
+      set({ resourceLibraryDir: path, isLoadingResourceLibraryDir: false });
+    } catch (err) {
+      set({ error: String(err), isLoadingResourceLibraryDir: false });
+    }
+  },
+
+  updateResourceLibraryDir: async (path: string) => {
+    const updated = await invoke<string>("update_skill_resource_library_dir", { path });
+    set({ resourceLibraryDir: updated });
+    return updated;
+  },
+
+  exportAppBackup: async () => {
+    return await invoke<string>("export_app_backup");
+  },
+
+  importAppBackup: async (json: string) => {
+    await invoke<void>("import_app_backup", { json });
   },
 
   // ── Misc ───────────────────────────────────────────────────────────────────

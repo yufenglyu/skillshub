@@ -1,4 +1,4 @@
-# skills-manage Desktop 应用设计方案
+# SkillsHub Desktop 应用设计方案
 
 > 版本：v0.1 | 日期：2026-04-09
 
@@ -6,7 +6,7 @@
 
 ## 一、产品定位
 
-**skills-manage** 是一个跨平台 AI Agent Skills 管理工具，以桌面应用为核心形态。
+**SkillsHub** 是一个跨平台 AI Agent Skills 管理工具，以桌面应用为核心形态。
 
 **核心价值**：
 - 一个界面管理所有 AI 工具（Claude Code、Codex、Cursor、Gemini CLI、Trae、Factory Droid、OpenClaw、QClaw 等）的 skills
@@ -100,7 +100,7 @@ sequenceDiagram
 ## 四、项目结构
 
 ```
-skills-manage/
+SkillsHub/
 ├── src-tauri/                  # Tauri Rust 后端
 │   ├── src/
 │   │   ├── main.rs             # 入口
@@ -169,7 +169,7 @@ skills-manage/
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  skills-manage                                 ─ □ ✕   │
+│  SkillsHub                                 ─ □ ✕   │
 ├────────────┬────────────────────────────────────────────┤
 │            │                                            │
 │  Sidebar   │  Main Content Area                         │
@@ -377,7 +377,7 @@ skills-manage/
     "css-architecture"
   ],
   "createdAt": "2026-04-09T00:00:00.000Z",
-  "exportedFrom": "skills-manage"
+  "exportedFrom": "SkillsHub"
 }
 ```
 
@@ -411,7 +411,7 @@ skills-manage/
 │ [+ 添加平台]                                │
 │                                             │
 │ ── 关于 ──────────────────────────────────  │
-│ skills-manage v0.8.0                        │
+│ SkillsHub v0.8.0                        │
 │ 数据库: ~/.skillsmanage/db.sqlite           │
 └─────────────────────────────────────────────┘
 ```
@@ -684,7 +684,7 @@ install_skill_to_agent("frontend-design", "claude-code", "symlink")
 
 ## 十、与竞品的差异化
 
-| 维度 | npx skills | SkillsGate | **skills-manage** |
+| 维度 | npx skills | SkillsGate | **SkillsHub** |
 |------|-----------|------------|------------------|
 | 真实源 | `~/.agents/skills/` | `~/.agents/skills/` | `~/.agents/skills/` |
 | 软链策略 | Skill 级（有 bug） | Skill 级 | Skill 级 + doctor 诊断 |

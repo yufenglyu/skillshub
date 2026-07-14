@@ -392,6 +392,9 @@ export function CollectionView() {
                 key={skill.id}
                 name={skill.name}
                 description={skill.description}
+                sourceAuthor={skill.source_author}
+                sourceRepo={skill.source_repo}
+                sourceUrl={skill.source_url}
                 onDetail={() =>
                   navigate(`/skill/${skill.id}`, {
                     state: {

@@ -266,7 +266,7 @@ packages/
 **优点**：极简，任何新 skill 自动对所有 agent 生效
 **缺点**：无法精细控制哪个 agent 用哪些 skills
 
-**skills-manage 选择**：Skill 级软链（更灵活），但提供 `doctor` 命令诊断孤立软链。
+**SkillsHub 选择**：Skill 级软链（更灵活），但提供 `doctor` 命令诊断孤立软链。
 
 ---
 

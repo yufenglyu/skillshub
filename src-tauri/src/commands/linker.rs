@@ -1,9 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::db::{self, DbPool, SkillInstallation};
+use crate::path_utils::remove_symlink_path;
 use crate::AppState;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -26,6 +27,12 @@ pub struct BatchInstallResult {
 pub struct FailedInstall {
     pub agent_id: String,
     pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddResourceSkillToCentralResult {
+    pub skill_id: String,
+    pub central_path: String,
 }
 
 // ─── Path Utilities ───────────────────────────────────────────────────────────
@@ -99,6 +106,72 @@ pub fn symlink_target_path(from_dir: &Path, to_path: &Path) -> PathBuf {
     make_relative_path(from_dir, to_path)
 }
 
+fn relative_skill_path_under_central(
+    central_root: &Path,
+    canonical_dir: &Path,
+    skill_id: &str,
+) -> PathBuf {
+    let Ok(relative) = canonical_dir.strip_prefix(central_root) else {
+        return PathBuf::from(skill_id);
+    };
+
+    if relative.as_os_str().is_empty() {
+        return PathBuf::from(skill_id);
+    }
+
+    if relative
+        .components()
+        .all(|component| matches!(component, Component::Normal(_)))
+    {
+        relative.to_path_buf()
+    } else {
+        PathBuf::from(skill_id)
+    }
+}
+
+fn cleanup_replaced_installation_path(
+    installation: &SkillInstallation,
+    next_path: &Path,
+) -> Result<(), String> {
+    let previous_path = PathBuf::from(&installation.installed_path);
+    if previous_path == next_path || !previous_path.exists() {
+        return Ok(());
+    }
+
+    let metadata = std::fs::symlink_metadata(&previous_path).map_err(|e| {
+        format!(
+            "Failed to inspect previous installation '{}': {}",
+            previous_path.display(),
+            e
+        )
+    })?;
+
+    if metadata.file_type().is_symlink() {
+        remove_symlink_path(&previous_path).map_err(|e| {
+            format!(
+                "Failed to remove previous symlink installation '{}': {}",
+                previous_path.display(),
+                e
+            )
+        })?;
+    } else if metadata.is_dir() && installation.link_type == "copy" {
+        std::fs::remove_dir_all(&previous_path).map_err(|e| {
+            format!(
+                "Failed to remove previous copied installation '{}': {}",
+                previous_path.display(),
+                e
+            )
+        })?;
+    } else {
+        return Err(format!(
+            "Previous installation path '{}' is not safely removable",
+            previous_path.display()
+        ));
+    }
+
+    Ok(())
+}
+
 // ─── Recursive Directory Copy ─────────────────────────────────────────────────
 
 /// Recursively copy a directory tree from `src` to `dst`.
@@ -140,6 +213,94 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn safe_relative_resource_path(
+    source_dir: &Path,
+    resource_root: &Path,
+    skill_id: &str,
+) -> PathBuf {
+    let Ok(relative) = source_dir.strip_prefix(resource_root) else {
+        return PathBuf::from(skill_id);
+    };
+
+    if relative.as_os_str().is_empty()
+        || !relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return PathBuf::from(skill_id);
+    }
+
+    relative.to_path_buf()
+}
+
+fn skill_dir_from_file_path(file_path: &str) -> String {
+    Path::new(file_path)
+        .parent()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file_path.to_string())
+}
+
+pub async fn add_resource_skill_to_central_impl(
+    pool: &DbPool,
+    skill_id: &str,
+) -> Result<AddResourceSkillToCentralResult, String> {
+    let mut skill = db::get_skill_by_id(pool, skill_id)
+        .await?
+        .ok_or_else(|| format!("Skill '{}' not found in database", skill_id))?;
+
+    if skill.is_central {
+        let central_path = skill
+            .canonical_path
+            .clone()
+            .unwrap_or_else(|| skill_dir_from_file_path(&skill.file_path));
+        return Ok(AddResourceSkillToCentralResult {
+            skill_id: skill_id.to_string(),
+            central_path,
+        });
+    }
+
+    let central_agent = db::get_agent_by_id(pool, "central")
+        .await?
+        .ok_or_else(|| "Central Skills agent not found".to_string())?;
+    let central_root = PathBuf::from(central_agent.global_skills_dir);
+    let resource_root = db::get_skill_resource_library_dir(pool).await?;
+
+    let source_dir = skill
+        .canonical_path
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(skill_dir_from_file_path(&skill.file_path)));
+    if !source_dir.join("SKILL.md").exists() {
+        return Err(format!(
+            "Skill source '{}' does not contain SKILL.md",
+            source_dir.display()
+        ));
+    }
+
+    let relative_path = safe_relative_resource_path(&source_dir, &resource_root, skill_id);
+    let central_dir = central_root.join(relative_path);
+    if central_dir != source_dir && central_dir.exists() {
+        return Err(format!(
+            "Central skill target already exists: {}",
+            central_dir.display()
+        ));
+    }
+
+    if central_dir != source_dir {
+        copy_dir_all(&source_dir, &central_dir)?;
+    }
+
+    skill.canonical_path = Some(central_dir.to_string_lossy().into_owned());
+    skill.file_path = central_dir.join("SKILL.md").to_string_lossy().into_owned();
+    skill.is_central = true;
+    db::upsert_skill(pool, &skill).await?;
+
+    Ok(AddResourceSkillToCentralResult {
+        skill_id: skill_id.to_string(),
+        central_path: central_dir.to_string_lossy().into_owned(),
+    })
 }
 
 // ─── Auto-centralize ─────────────────────────────────────────────────────────
@@ -216,11 +377,20 @@ async fn existing_install_path_for_agent(
     skill_id: &str,
     agent_id: &str,
 ) -> Result<Option<String>, String> {
+    Ok(existing_installation_for_agent(pool, skill_id, agent_id)
+        .await?
+        .map(|installation| installation.installed_path))
+}
+
+async fn existing_installation_for_agent(
+    pool: &DbPool,
+    skill_id: &str,
+    agent_id: &str,
+) -> Result<Option<SkillInstallation>, String> {
     Ok(db::get_skill_installations(pool, skill_id)
         .await?
         .into_iter()
-        .find(|installation| installation.agent_id == agent_id)
-        .map(|installation| installation.installed_path))
+        .find(|installation| installation.agent_id == agent_id))
 }
 
 async fn universal_available_install_result(
@@ -228,8 +398,12 @@ async fn universal_available_install_result(
     skill_id: &str,
     agent_id: &str,
     canonical_dir: &Path,
+    central_root: &Path,
 ) -> Result<Option<InstallResult>, String> {
     if !db::agent_supports_universal_agents_skills(agent_id) {
+        return Ok(None);
+    }
+    if !canonical_dir.starts_with(central_root) {
         return Ok(None);
     }
 
@@ -277,25 +451,39 @@ pub async fn install_skill_to_agent_impl(
     // 3. Ensure the skill exists in central (auto-centralize if needed).
     ensure_centralized(pool, skill_id, &canonical_dir).await?;
 
-    if let Some(result) =
-        universal_available_install_result(pool, skill_id, agent_id, &canonical_dir).await?
+    if let Some(result) = universal_available_install_result(
+        pool,
+        skill_id,
+        agent_id,
+        &canonical_dir,
+        &central_root,
+    )
+    .await?
     {
         return Ok(result);
     }
 
     // 4. Compute symlink location.
     let agent_dir = PathBuf::from(&agent.global_skills_dir);
-    let symlink_path = agent_dir.join(skill_id);
+    let relative_skill_path =
+        relative_skill_path_under_central(&central_root, &canonical_dir, skill_id);
+    let symlink_path = agent_dir.join(relative_skill_path);
 
-    // 5. Ensure the agent's skills directory exists.
-    std::fs::create_dir_all(&agent_dir)
-        .map_err(|e| format!("Failed to create agent skills directory: {}", e))?;
+    // 5. Ensure the target parent directory exists.
+    if let Some(parent) = symlink_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create agent skills directory: {}", e))?;
+    }
+
+    if let Some(existing) = existing_installation_for_agent(pool, skill_id, agent_id).await? {
+        cleanup_replaced_installation_path(&existing, &symlink_path)?;
+    }
 
     // 6. Handle any existing entry at the symlink path.
     match std::fs::symlink_metadata(&symlink_path) {
         Ok(meta) if meta.file_type().is_symlink() => {
             // Remove stale symlink so we can replace it.
-            std::fs::remove_file(&symlink_path)
+            remove_symlink_path(&symlink_path)
                 .map_err(|e| format!("Failed to remove existing symlink: {}", e))?;
         }
         Ok(meta) if meta.is_dir() => {
@@ -314,7 +502,8 @@ pub async fn install_skill_to_agent_impl(
     }
 
     // 7. Compute the relative path from the agent directory to the canonical dir.
-    let relative_target = symlink_target_path(&agent_dir, &canonical_dir);
+    let symlink_parent = symlink_path.parent().unwrap_or(&agent_dir);
+    let relative_target = symlink_target_path(symlink_parent, &canonical_dir);
 
     // 8. Create the symlink.
     create_symlink(&relative_target, &symlink_path)?;
@@ -390,25 +579,39 @@ pub async fn install_skill_to_agent_copy_impl(
     // 3. Ensure the skill exists in central (auto-centralize if needed).
     ensure_centralized(pool, skill_id, &canonical_dir).await?;
 
-    if let Some(result) =
-        universal_available_install_result(pool, skill_id, agent_id, &canonical_dir).await?
+    if let Some(result) = universal_available_install_result(
+        pool,
+        skill_id,
+        agent_id,
+        &canonical_dir,
+        &central_root,
+    )
+    .await?
     {
         return Ok(result);
     }
 
     // 4. Compute target location.
     let agent_dir = PathBuf::from(&agent.global_skills_dir);
-    let target_path = agent_dir.join(skill_id);
+    let relative_skill_path =
+        relative_skill_path_under_central(&central_root, &canonical_dir, skill_id);
+    let target_path = agent_dir.join(relative_skill_path);
 
-    // 5. Ensure the agent's skills directory exists.
-    std::fs::create_dir_all(&agent_dir)
-        .map_err(|e| format!("Failed to create agent skills directory: {}", e))?;
+    // 5. Ensure the target parent directory exists.
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create agent skills directory: {}", e))?;
+    }
+
+    if let Some(existing) = existing_installation_for_agent(pool, skill_id, agent_id).await? {
+        cleanup_replaced_installation_path(&existing, &target_path)?;
+    }
 
     // 6. Handle any existing entry at the target path.
     match std::fs::symlink_metadata(&target_path) {
         Ok(meta) if meta.file_type().is_symlink() => {
             // Remove stale symlink so we can replace it with a real copy.
-            std::fs::remove_file(&target_path)
+            remove_symlink_path(&target_path)
                 .map_err(|e| format!("Failed to remove existing symlink: {}", e))?;
         }
         Ok(meta) if meta.is_dir() => {
@@ -478,7 +681,7 @@ pub async fn uninstall_skill_from_agent_impl(
     match std::fs::symlink_metadata(&install_path) {
         Ok(meta) if meta.file_type().is_symlink() => {
             // Always safe to remove symlinks.
-            std::fs::remove_file(&install_path)
+            remove_symlink_path(&install_path)
                 .map_err(|e| format!("Failed to remove symlink: {}", e))?;
         }
         Ok(meta) if meta.is_dir() => {
@@ -525,6 +728,14 @@ pub async fn install_skill_to_agent(
         "symlink" => install_skill_to_agent_impl(&state.db, &skill_id, &agent_id).await,
         _ => install_skill_to_agent_auto_impl(&state.db, &skill_id, &agent_id).await,
     }
+}
+
+#[tauri::command]
+pub async fn add_resource_skill_to_central(
+    state: State<'_, AppState>,
+    skill_id: String,
+) -> Result<AddResourceSkillToCentralResult, String> {
+    add_resource_skill_to_central_impl(&state.db, &skill_id).await
 }
 
 /// Tauri command: remove a skill's symlink from an agent.
@@ -618,6 +829,23 @@ mod tests {
             ),
         )
         .unwrap();
+        skill_dir
+    }
+
+    async fn create_resource_skill(pool: &DbPool, resource_dir: &Path, skill_id: &str) -> PathBuf {
+        let skill_dir = create_central_skill(resource_dir, skill_id);
+        let skill = db::Skill {
+            id: skill_id.to_string(),
+            name: skill_id.to_string(),
+            description: Some("Resource library skill".to_string()),
+            file_path: skill_dir.join("SKILL.md").to_string_lossy().into_owned(),
+            canonical_path: Some(skill_dir.to_string_lossy().into_owned()),
+            is_central: false,
+            source: Some("resource-library".to_string()),
+            content: None,
+            scanned_at: chrono::Utc::now().to_rfc3339(),
+        };
+        db::upsert_skill(pool, &skill).await.unwrap();
         skill_dir
     }
 
@@ -793,6 +1021,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_install_resource_skill_to_universal_agent_creates_platform_link() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join(".agents").join("skills");
+        let cursor_dir = tmp.path().join(".cursor").join("skills");
+        let resource_dir = tmp.path().join("resource-library");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&cursor_dir).unwrap();
+        fs::create_dir_all(&resource_dir).unwrap();
+
+        let pool = setup_db(&central_dir, &tmp.path().join("claude")).await;
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'cursor'")
+            .bind(cursor_dir.to_string_lossy().into_owned())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let source_dir = create_resource_skill(&pool, &resource_dir, "resource-only").await;
+
+        install_skill_to_agent_impl(&pool, "resource-only", "cursor")
+            .await
+            .unwrap();
+
+        let installed_path = cursor_dir.join("resource-only");
+        assert!(
+            fs::symlink_metadata(&installed_path).is_ok(),
+            "resource skill should be explicitly installed into the selected platform"
+        );
+        assert!(
+            !central_dir.join("resource-only").exists(),
+            "installing a resource skill to a platform must not copy it into the central library"
+        );
+
+        let installations = db::get_skill_installations(&pool, "resource-only")
+            .await
+            .unwrap();
+        assert_eq!(installations.len(), 1);
+        assert_eq!(installations[0].agent_id, "cursor");
+        assert_eq!(
+            installations[0].symlink_target.as_deref(),
+            Some(source_dir.to_string_lossy().as_ref())
+        );
+
+        let skill = db::get_skill_by_id(&pool, "resource-only")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            !skill.is_central,
+            "resource library installs must not mark the skill as central"
+        );
+    }
+
+    #[tokio::test]
     async fn test_install_uses_nested_canonical_path_from_db() {
         let tmp = TempDir::new().unwrap();
         let central_dir = tmp.path().join("central");
@@ -830,19 +1111,270 @@ mod tests {
             .await
             .unwrap();
 
-        let symlink_path = agent_dir.join("using-superpowers");
+        let symlink_path = agent_dir.join("superpowers").join("using-superpowers");
         assert!(symlink_path.join("SKILL.md").exists());
+        assert!(
+            !agent_dir.join("using-superpowers").exists(),
+            "nested canonical skill must not be flattened at the platform root"
+        );
         assert!(
             !central_dir.join("using-superpowers").exists(),
             "nested canonical skill must not be copied to the central root"
         );
         let link_target = fs::read_link(&symlink_path).unwrap();
         assert!(
-            link_target
-                .to_string_lossy()
-                .contains("superpowers/using-superpowers"),
+            link_target.components().collect::<Vec<_>>().windows(2).any(|pair| {
+                pair[0].as_os_str() == "superpowers"
+                    && pair[1].as_os_str() == "using-superpowers"
+            }),
             "symlink should point at nested canonical path, got {:?}",
             link_target
+        );
+    }
+
+    #[tokio::test]
+    async fn test_install_preserves_nested_canonical_relative_path() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let agent_dir = tmp.path().join("claude");
+        let nested_skill_dir = central_dir
+            .join("anthropics")
+            .join("skills")
+            .join("brand-guidelines");
+        fs::create_dir_all(&nested_skill_dir).unwrap();
+        fs::write(
+            nested_skill_dir.join("SKILL.md"),
+            "---\nname: brand-guidelines\ndescription: Brand rules\n---\n",
+        )
+        .unwrap();
+
+        let pool = setup_db(&central_dir, &agent_dir).await;
+        db::upsert_skill(
+            &pool,
+            &db::Skill {
+                id: "brand-guidelines".to_string(),
+                name: "brand-guidelines".to_string(),
+                description: Some("Brand rules".to_string()),
+                file_path: nested_skill_dir
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(nested_skill_dir.to_string_lossy().into_owned()),
+                is_central: true,
+                source: Some("github:anthropics/skills".to_string()),
+                content: None,
+                scanned_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        install_skill_to_agent_impl(&pool, "brand-guidelines", "claude-code")
+            .await
+            .unwrap();
+
+        let nested_link = agent_dir
+            .join("anthropics")
+            .join("skills")
+            .join("brand-guidelines");
+        assert!(
+            nested_link.join("SKILL.md").exists(),
+            "platform install should keep the central author/repo grouping"
+        );
+        assert!(
+            !agent_dir.join("brand-guidelines").exists(),
+            "nested canonical skills should not be flattened at the platform root"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_copy_install_preserves_nested_canonical_relative_path() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let agent_dir = tmp.path().join("claude");
+        let nested_skill_dir = central_dir
+            .join("anthropics")
+            .join("skills")
+            .join("copy-guidelines");
+        fs::create_dir_all(&nested_skill_dir).unwrap();
+        fs::write(
+            nested_skill_dir.join("SKILL.md"),
+            "---\nname: copy-guidelines\ndescription: Copy rules\n---\n",
+        )
+        .unwrap();
+
+        let pool = setup_db(&central_dir, &agent_dir).await;
+        db::upsert_skill(
+            &pool,
+            &db::Skill {
+                id: "copy-guidelines".to_string(),
+                name: "copy-guidelines".to_string(),
+                description: Some("Copy rules".to_string()),
+                file_path: nested_skill_dir
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(nested_skill_dir.to_string_lossy().into_owned()),
+                is_central: true,
+                source: Some("github:anthropics/skills".to_string()),
+                content: None,
+                scanned_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        install_skill_to_agent_copy_impl(&pool, "copy-guidelines", "claude-code")
+            .await
+            .unwrap();
+
+        let nested_copy = agent_dir
+            .join("anthropics")
+            .join("skills")
+            .join("copy-guidelines");
+        assert!(
+            nested_copy.join("SKILL.md").exists(),
+            "copy install should keep the central author/repo grouping"
+        );
+        assert!(
+            !agent_dir.join("copy-guidelines").exists(),
+            "nested canonical copies should not be flattened at the platform root"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_nested_symlink_install_removes_previous_flat_installation() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let agent_dir = tmp.path().join("claude");
+        let nested_skill_dir = central_dir
+            .join("anthropics")
+            .join("skills")
+            .join("migrated-link");
+        fs::create_dir_all(&nested_skill_dir).unwrap();
+        fs::write(
+            nested_skill_dir.join("SKILL.md"),
+            "---\nname: migrated-link\ndescription: Migrated link\n---\n",
+        )
+        .unwrap();
+
+        let pool = setup_db(&central_dir, &agent_dir).await;
+        db::upsert_skill(
+            &pool,
+            &db::Skill {
+                id: "migrated-link".to_string(),
+                name: "migrated-link".to_string(),
+                description: Some("Migrated link".to_string()),
+                file_path: nested_skill_dir
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(nested_skill_dir.to_string_lossy().into_owned()),
+                is_central: true,
+                source: Some("github:anthropics/skills".to_string()),
+                content: None,
+                scanned_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+        fs::create_dir_all(&agent_dir).unwrap();
+        let old_flat_path = agent_dir.join("migrated-link");
+        create_symlink(&nested_skill_dir, &old_flat_path).unwrap();
+        db::upsert_skill_installation(
+            &pool,
+            &SkillInstallation {
+                skill_id: "migrated-link".to_string(),
+                agent_id: "claude-code".to_string(),
+                installed_path: old_flat_path.to_string_lossy().into_owned(),
+                link_type: "symlink".to_string(),
+                symlink_target: Some(nested_skill_dir.to_string_lossy().into_owned()),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        install_skill_to_agent_impl(&pool, "migrated-link", "claude-code")
+            .await
+            .unwrap();
+
+        assert!(!old_flat_path.exists(), "old flat symlink should be removed");
+        assert!(
+            agent_dir
+                .join("anthropics")
+                .join("skills")
+                .join("migrated-link")
+                .join("SKILL.md")
+                .exists()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_nested_copy_install_removes_previous_flat_installation() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let agent_dir = tmp.path().join("claude");
+        let nested_skill_dir = central_dir
+            .join("anthropics")
+            .join("skills")
+            .join("migrated-copy");
+        fs::create_dir_all(&nested_skill_dir).unwrap();
+        fs::write(
+            nested_skill_dir.join("SKILL.md"),
+            "---\nname: migrated-copy\ndescription: Migrated copy\n---\n",
+        )
+        .unwrap();
+
+        let pool = setup_db(&central_dir, &agent_dir).await;
+        db::upsert_skill(
+            &pool,
+            &db::Skill {
+                id: "migrated-copy".to_string(),
+                name: "migrated-copy".to_string(),
+                description: Some("Migrated copy".to_string()),
+                file_path: nested_skill_dir
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(nested_skill_dir.to_string_lossy().into_owned()),
+                is_central: true,
+                source: Some("github:anthropics/skills".to_string()),
+                content: None,
+                scanned_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+        let old_flat_path = agent_dir.join("migrated-copy");
+        fs::create_dir_all(&old_flat_path).unwrap();
+        fs::write(old_flat_path.join("SKILL.md"), "---\nname: old\n---\n").unwrap();
+        db::upsert_skill_installation(
+            &pool,
+            &SkillInstallation {
+                skill_id: "migrated-copy".to_string(),
+                agent_id: "claude-code".to_string(),
+                installed_path: old_flat_path.to_string_lossy().into_owned(),
+                link_type: "copy".to_string(),
+                symlink_target: None,
+                created_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        install_skill_to_agent_copy_impl(&pool, "migrated-copy", "claude-code")
+            .await
+            .unwrap();
+
+        assert!(!old_flat_path.exists(), "old flat copy should be removed");
+        assert!(
+            agent_dir
+                .join("anthropics")
+                .join("skills")
+                .join("migrated-copy")
+                .join("SKILL.md")
+                .exists()
         );
     }
 
@@ -1292,6 +1824,42 @@ mod tests {
         assert!(
             result.is_err(),
             "copy install to 'central' should be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_add_resource_skill_to_central_preserves_source_group_path() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let agent_dir = tmp.path().join("claude");
+        let resource_dir = tmp.path().join("resource");
+        let grouped_resource_dir = resource_dir.join("owner").join("repo");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::create_dir_all(&grouped_resource_dir).unwrap();
+
+        let pool = setup_db(&central_dir, &agent_dir).await;
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+        create_resource_skill(&pool, &grouped_resource_dir, "resource-only").await;
+
+        let result = add_resource_skill_to_central_impl(&pool, "resource-only")
+            .await
+            .unwrap();
+
+        let expected_dir = central_dir.join("owner").join("repo").join("resource-only");
+        assert_eq!(PathBuf::from(result.central_path), expected_dir);
+        assert!(expected_dir.join("SKILL.md").exists());
+
+        let skill = db::get_skill_by_id(&pool, "resource-only")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(skill.is_central);
+        assert_eq!(
+            skill.canonical_path.as_deref(),
+            Some(expected_dir.to_string_lossy().as_ref())
         );
     }
 

@@ -171,6 +171,35 @@ const mockNestedPlatformSkills: ScannedSkill[] = [
   },
 ];
 
+const mockCompatibilityCentralSkills: ScannedSkill[] = [
+  {
+    id: "algorithmic-art",
+    row_id: "amp::compatibility::algorithmic-art",
+    name: "algorithmic-art",
+    description: "Creating algorithmic art",
+    file_path: "/Users/test/.agents/skills/anthropics/algorithmic-art/SKILL.md",
+    dir_path: "/Users/test/.agents/skills/anthropics/algorithmic-art",
+    link_type: "copy",
+    is_central: true,
+    source_kind: "compatibility",
+    source_root: "/Users/test/.agents/skills",
+    is_read_only: true,
+  },
+  {
+    id: "defuddle",
+    row_id: "amp::compatibility::defuddle",
+    name: "defuddle",
+    description: "Extract clean markdown",
+    file_path: "/Users/test/.agents/skills/kepano/defuddle/SKILL.md",
+    dir_path: "/Users/test/.agents/skills/kepano/defuddle",
+    link_type: "copy",
+    is_central: true,
+    source_kind: "compatibility",
+    source_root: "/Users/test/.agents/skills",
+    is_read_only: true,
+  },
+];
+
 const mockDuplicateClaudeSkills: ScannedSkill[] = [
   {
     id: "shared-skill",
@@ -425,6 +454,51 @@ describe("PlatformView", () => {
     expect(
       screen.queryByRole("button", { name: /查看 nested-helper 的详情/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("groups read-only central compatibility skills by their central source root", () => {
+    window.localStorage.setItem("skills-manage.skillListViewMode.platform", "folders");
+    mockUseSkillStore.mockImplementation((selector?: unknown) => {
+      const state = buildSkillStoreState({
+        skillsByAgent: { "claude-code": mockCompatibilityCentralSkills },
+      });
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+
+    renderPlatformView();
+
+    expect(screen.getByText("anthropics")).toBeInTheDocument();
+    expect(screen.getByText("kepano")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /查看 algorithmic-art 的详情/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("switches between all and folders mode from the platform toolbar", () => {
+    mockUseSkillStore.mockImplementation((selector?: unknown) => {
+      const state = buildSkillStoreState({
+        skillsByAgent: { "claude-code": mockNestedPlatformSkills },
+      });
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+
+    renderPlatformView();
+
+    expect(screen.getByText("nested-helper")).toBeInTheDocument();
+    expect(screen.queryByText("toolkit")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /目录|Folders/i }));
+
+    expect(screen.getByText("toolkit")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /查看 nested-helper 的详情/i })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^全部$|^All$/i }));
+
+    expect(screen.getByText("nested-helper")).toBeInTheDocument();
   });
 
   it("opens a platform folder drawer for nested skills", () => {
@@ -750,6 +824,54 @@ describe("PlatformView", () => {
       expect(screen.queryByRole("button", { name: /确认删除/i })).not.toBeInTheDocument();
     });
     expect(mockUninstallSkillFromAgent).not.toHaveBeenCalled();
+  });
+
+  it("bulk uninstalls selected writable platform skills", async () => {
+    mockUninstallSkillFromAgent.mockResolvedValue(undefined);
+    renderPlatformView();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /选择 frontend-design/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /选择 code-reviewer/i }));
+
+    expect(screen.getByText(/已选择 2 个/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /卸载所选/i }));
+    fireEvent.click(screen.getByRole("button", { name: /确认卸载/i }));
+
+    await waitFor(() => {
+      expect(mockUninstallSkillFromAgent).toHaveBeenCalledWith(
+        "frontend-design",
+        "claude-code"
+      );
+      expect(mockUninstallSkillFromAgent).toHaveBeenCalledWith(
+        "code-reviewer",
+        "claude-code"
+      );
+    });
+    expect(mockRefreshCounts).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not offer bulk selection for read-only platform skills", () => {
+    mockUseSkillStore.mockImplementation((selector?: unknown) => {
+      const state = buildSkillStoreState({
+        skillsByAgent: { "claude-code": mockDuplicateClaudeSkills },
+      });
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+
+    renderPlatformView();
+
+    expect(
+      screen.getByRole("checkbox", { name: /选择 shared-skill/i })
+    ).toBeInTheDocument();
+    const pluginCard = screen
+      .getByText("Plugin copy")
+      .closest(".rounded-xl");
+    expect(
+      within(pluginCard as HTMLElement).queryByRole("checkbox", {
+        name: /选择 shared-skill/i,
+      })
+    ).not.toBeInTheDocument();
   });
 
   it("shows Claude-only source tabs with 全部 selected by default", () => {

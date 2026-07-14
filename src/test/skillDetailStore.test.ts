@@ -350,6 +350,46 @@ describe("skillDetailStore", () => {
     });
   });
 
+  it("updates local notes and tags through update_skill_metadata", async () => {
+    useSkillDetailStore.setState({
+      detail: mockDetail,
+      content: mockContent,
+      isLoading: false,
+      installingAgentId: null,
+      error: null,
+      explanation: null,
+      isExplanationLoading: false,
+      isExplanationStreaming: false,
+      explanationError: null,
+      explanationErrorInfo: null,
+    });
+    vi.mocked(invoke).mockResolvedValueOnce({
+      skill_id: "frontend-design",
+      notes: "Use for UI work",
+      tags: ["frontend", "dashboard"],
+      updated_at: "2026-07-14T00:00:00Z",
+    });
+
+    await useSkillDetailStore.getState().updateMetadata("frontend-design", {
+      notes: "Use for UI work",
+      tags: ["frontend", "dashboard"],
+    });
+
+    expect(invoke).toHaveBeenCalledWith("update_skill_metadata", {
+      skillId: "frontend-design",
+      metadata: {
+        notes: "Use for UI work",
+        tags: ["frontend", "dashboard"],
+      },
+    });
+    expect(useSkillDetailStore.getState().detail).toEqual(
+      expect.objectContaining({
+        notes: "Use for UI work",
+        tags: ["frontend", "dashboard"],
+      })
+    );
+  });
+
   it("reloads install mutations against the active Claude row identity", async () => {
     vi.mocked(invoke)
       .mockResolvedValueOnce(mockDetail)

@@ -145,6 +145,7 @@ describe("centralSkillsStore", () => {
       isInstalling: false,
       deletingSkillId: null,
       deletingBundlePath: null,
+      isUpdatingSources: false,
       togglingAgentId: null,
       error: null,
     });
@@ -166,6 +167,7 @@ describe("centralSkillsStore", () => {
     expect(state.togglingAgentId).toBeNull();
     expect(state.deletingSkillId).toBeNull();
     expect(state.deletingBundlePath).toBeNull();
+    expect(state.isUpdatingSources).toBe(false);
     expect(state.error).toBeNull();
   });
 
@@ -515,5 +517,30 @@ describe("centralSkillsStore", () => {
     const state = useCentralSkillsStore.getState();
     expect(state.error).toContain("toggle failed");
     expect(state.togglingAgentId).toBeNull();
+  });
+
+  it("updates one source-backed central skill then refreshes central skills", async () => {
+    const updatedSkills = [
+      {
+        ...mockSkills[0],
+        updated_at: "2026-07-14T00:00:00Z",
+      },
+      mockSkills[1],
+    ];
+    vi.mocked(invoke)
+      .mockResolvedValueOnce("frontend-design")
+      .mockResolvedValueOnce(updatedSkills);
+
+    const result = await useCentralSkillsStore
+      .getState()
+      .updateSourceBackedSkill("frontend-design");
+
+    expect(invoke).toHaveBeenCalledWith("update_source_backed_central_skill", {
+      skillId: "frontend-design",
+    });
+    expect(invoke).toHaveBeenCalledWith("get_central_skills");
+    expect(result).toBe("frontend-design");
+    expect(useCentralSkillsStore.getState().skills).toEqual(updatedSkills);
+    expect(useCentralSkillsStore.getState().isUpdatingSources).toBe(false);
   });
 });

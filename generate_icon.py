@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate skills-manage app icon as 1024x1024 PNG with macOS styling.
+"""Generate SkillsHub app icon as 1024x1024 PNG with macOS styling.
 
 Design: "Skill Blocks" — 3 colorful blocks in L-shape + sparkle.
 Follows macOS HIG: 824x824 squircle in 1024 canvas, with drop shadow
