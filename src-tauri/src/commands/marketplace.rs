@@ -790,7 +790,7 @@ pub async fn install_marketplace_skill(
 
     // Download SKILL.md content
     let client = reqwest::Client::builder()
-        .user_agent("SkillsHub/0.10.6")
+        .user_agent("SkillsHub/0.10.7")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -821,7 +821,7 @@ pub async fn install_remote_skill_from_url(
     source_label: Option<String>,
 ) -> Result<(), String> {
     let client = reqwest::Client::builder()
-        .user_agent("SkillsHub/0.10.6")
+        .user_agent("SkillsHub/0.10.7")
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client
@@ -854,7 +854,7 @@ pub async fn update_source_backed_central_skills(
 ) -> Result<Vec<String>, String> {
     let sources = db::get_all_skill_sources(&state.db).await?;
     let client = reqwest::Client::builder()
-        .user_agent("SkillsHub/0.10.6")
+        .user_agent("SkillsHub/0.10.7")
         .build()
         .map_err(|e| e.to_string())?;
     let mut updated = Vec::new();
@@ -907,7 +907,7 @@ pub async fn update_source_backed_central_skill(
         .await?
         .ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
     let client = reqwest::Client::builder()
-        .user_agent("SkillsHub/0.10.6")
+        .user_agent("SkillsHub/0.10.7")
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client
@@ -1116,7 +1116,7 @@ pub async fn explain_skill(state: State<'_, AppState>, content: String) -> Resul
         .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string());
 
     let client = reqwest::Client::builder()
-        .user_agent("SkillsHub/0.10.6")
+        .user_agent("SkillsHub/0.10.7")
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(60))
         .build()
@@ -1471,7 +1471,7 @@ async fn do_explain_skill_stream(
 
     // Streaming: only connect_timeout (total `.timeout()` would kill long streams).
     let client = reqwest::Client::builder()
-        .user_agent("SkillsHub/0.10.6")
+        .user_agent("SkillsHub/0.10.7")
         .connect_timeout(Duration::from_secs(10))
         .pool_idle_timeout(Duration::from_secs(90))
         .build()

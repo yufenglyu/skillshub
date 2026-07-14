@@ -180,7 +180,7 @@
   },
   "resource": {
     "title": "Skill Resource Library",
-    "path": "~/.skillsmanage/library",
+    "path": "~/.skillshub/library",
     "searchPlaceholder": "Search resource library...",
     "loading": "Loading resource library skills...",
     "noSkills": "No skills in the resource library yet. Import from Marketplace or GitHub.",

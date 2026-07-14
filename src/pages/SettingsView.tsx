@@ -29,8 +29,8 @@ import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/p
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.10.6";
-const DB_PATH_FALLBACK = "~/.skillsmanage/db.sqlite";
+const APP_VERSION = "0.10.7";
+const DB_PATH_FALLBACK = "~/.skillshub/db.sqlite";
 
 /** Catppuccin Lavender hex per flavor — used for visual preview dots on flavor buttons (default accent). */
 const FLAVOR_COLORS: Record<CatppuccinFlavor, string> = {
@@ -216,7 +216,7 @@ export function SettingsView() {
       .find((candidate): candidate is string => Boolean(candidate));
   }, [agents, scanDirectories]);
   const dbPathDisplay = useMemo(
-    () => (homeDir ? joinPathForDisplay(homeDir, ".skillsmanage/db.sqlite") : DB_PATH_FALLBACK),
+    () => (homeDir ? joinPathForDisplay(homeDir, ".skillshub/db.sqlite") : DB_PATH_FALLBACK),
     [homeDir]
   );
 
@@ -605,7 +605,7 @@ export function SettingsView() {
                   value={centralPathInput}
                   onChange={(event) => setCentralPathInput(event.target.value)}
                   disabled={isSavingCentralPath}
-                  placeholder={DB_PATH_FALLBACK.replace(".skillsmanage/db.sqlite", ".skillsmanage/central-skills")}
+                  placeholder={DB_PATH_FALLBACK.replace(".skillshub/db.sqlite", ".skillshub/central-skills")}
                 />
               </div>
               <p className="text-xs text-muted-foreground">

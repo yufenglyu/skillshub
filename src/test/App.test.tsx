@@ -72,7 +72,7 @@ vi.mock("../stores/resourceLibraryStore", () => ({
     const state = {
       skills: [],
       agents: [],
-      resourceLibraryDir: "~/.skillsmanage/library",
+      resourceLibraryDir: "~/.skillshub/library",
       isLoading: false,
       isUpdatingSources: false,
       togglingAgentId: null,

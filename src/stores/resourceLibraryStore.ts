@@ -8,8 +8,8 @@ const BROWSER_RESOURCE_SKILLS: SkillWithLinks[] = [
     id: "fixture-resource-skill",
     name: "fixture-resource-skill",
     description: "Browser validation fixture for the Skill Resource Library.",
-    file_path: "~/.skillsmanage/library/example/skills/fixture-resource-skill/SKILL.md",
-    canonical_path: "~/.skillsmanage/library/example/skills/fixture-resource-skill",
+    file_path: "~/.skillshub/library/example/skills/fixture-resource-skill/SKILL.md",
+    canonical_path: "~/.skillshub/library/example/skills/fixture-resource-skill",
     is_central: false,
     source: "browser-fixture",
     source_author: "example",
@@ -60,7 +60,7 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
       set({
         skills: BROWSER_RESOURCE_SKILLS,
         agents: BROWSER_FIXTURE_AGENTS,
-        resourceLibraryDir: "~/.skillsmanage/library",
+        resourceLibraryDir: "~/.skillshub/library",
         isLoading: false,
       });
       return;

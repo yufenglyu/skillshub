@@ -180,7 +180,7 @@
   },
   "resource": {
     "title": "技能资源库",
-    "path": "~/.skillsmanage/library",
+    "path": "~/.skillshub/library",
     "searchPlaceholder": "搜索技能资源库...",
     "loading": "正在加载资源库技能...",
     "noSkills": "技能资源库中暂无技能。请从技能市场或 GitHub 导入。",

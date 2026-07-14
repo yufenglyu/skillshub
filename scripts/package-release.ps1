@@ -114,8 +114,8 @@ function Assert-Compatible-AppIdentity {
 
   $pathUtils = Read-TextFile (Join-Path $Root "src-tauri/src/path_utils.rs")
   $lib = Read-TextFile (Join-Path $Root "src-tauri/src/lib.rs")
-  if ($pathUtils -notmatch 'join\("\.skillsmanage"\)' -or $lib -notmatch 'db\.sqlite') {
-    throw "Refusing to package: app data location changed. Keep ~/.skillsmanage/db.sqlite for old configuration compatibility."
+  if ($pathUtils -notmatch 'join\("\.skillshub"\)' -or $pathUtils -notmatch 'legacy_app_data_dir' -or $lib -notmatch 'migrate_legacy_app_data_if_needed') {
+    throw "Refusing to package: app data must default to ~/.skillshub and keep legacy ~/.skillsmanage migration support."
   }
 }
 
@@ -164,11 +164,11 @@ function Update-VersionFiles {
       "### Improvements",
       "",
       "- Add a local release packaging script that produces assets matching the upstream GitHub Release naming pattern.",
-      "- Keep application identity, Windows MSI upgrade code, and local database location stable for upgrades from older versions.",
+      "- Keep application identity and Windows MSI upgrade code stable for upgrades from older versions.",
       "",
       "### Fixes",
       "",
-      '- Preserve compatibility with existing `~/.skillsmanage/db.sqlite` data and existing MSI upgrade paths.',
+      '- Store app data under `~/.skillshub/db.sqlite` while preserving first-run migration from `~/.skillsmanage/db.sqlite`.',
       "",
       "---",
       "",

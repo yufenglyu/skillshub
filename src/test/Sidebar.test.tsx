@@ -124,7 +124,7 @@ const defaultObsidianState = {
 const defaultResourceLibraryState = {
   skills: [],
   agents: [],
-  resourceLibraryDir: "~/.skillsmanage/library",
+  resourceLibraryDir: "~/.skillshub/library",
   isLoading: false,
   isUpdatingSources: false,
   togglingAgentId: null,

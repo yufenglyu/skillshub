@@ -4,11 +4,41 @@ pub mod path_utils;
 
 use db::DbPool;
 use std::fs;
+use std::path::Path;
 use tauri::Manager;
 
 /// Application state shared across Tauri commands.
 pub struct AppState {
     pub db: DbPool,
+}
+
+fn migrate_legacy_app_data_if_needed(new_dir: &Path, legacy_dir: &Path) -> Result<(), String> {
+    let new_db = new_dir.join("db.sqlite");
+    let legacy_db = legacy_dir.join("db.sqlite");
+    if new_db.exists() || !legacy_db.exists() {
+        return Ok(());
+    }
+
+    fs::create_dir_all(new_dir).map_err(|e| {
+        format!(
+            "Failed to create ~/.skillshub directory for legacy data migration: {}",
+            e
+        )
+    })?;
+
+    for filename in ["db.sqlite", "db.sqlite-wal", "db.sqlite-shm"] {
+        let source = legacy_dir.join(filename);
+        if source.exists() {
+            fs::copy(&source, new_dir.join(filename)).map_err(|e| {
+                format!(
+                    "Failed to migrate legacy app data file '{}': {}",
+                    filename, e
+                )
+            })?;
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -20,7 +50,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let db_dir = path_utils::app_data_dir();
-            fs::create_dir_all(&db_dir).expect("Failed to create ~/.skillsmanage directory");
+            let legacy_db_dir = path_utils::legacy_app_data_dir();
+            migrate_legacy_app_data_if_needed(&db_dir, &legacy_db_dir)
+                .expect("Failed to migrate legacy ~/.skillsmanage data");
+            fs::create_dir_all(&db_dir).expect("Failed to create ~/.skillshub directory");
             let db_path = path_utils::path_to_string(&db_dir.join("db.sqlite"));
 
             // Create pool and initialize schema
@@ -124,4 +157,42 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::migrate_legacy_app_data_if_needed;
+    use std::fs;
+
+    #[test]
+    fn migrate_legacy_app_data_copies_existing_database_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let legacy_dir = dir.path().join(".skillsmanage");
+        let new_dir = dir.path().join(".skillshub");
+        fs::create_dir_all(&legacy_dir).expect("legacy dir");
+        fs::write(legacy_dir.join("db.sqlite"), "main-db").expect("legacy db");
+        fs::write(legacy_dir.join("db.sqlite-wal"), "wal").expect("legacy wal");
+        fs::write(legacy_dir.join("db.sqlite-shm"), "shm").expect("legacy shm");
+
+        migrate_legacy_app_data_if_needed(&new_dir, &legacy_dir).expect("migration");
+
+        assert_eq!(fs::read_to_string(new_dir.join("db.sqlite")).unwrap(), "main-db");
+        assert_eq!(fs::read_to_string(new_dir.join("db.sqlite-wal")).unwrap(), "wal");
+        assert_eq!(fs::read_to_string(new_dir.join("db.sqlite-shm")).unwrap(), "shm");
+    }
+
+    #[test]
+    fn migrate_legacy_app_data_does_not_overwrite_new_database() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let legacy_dir = dir.path().join(".skillsmanage");
+        let new_dir = dir.path().join(".skillshub");
+        fs::create_dir_all(&legacy_dir).expect("legacy dir");
+        fs::create_dir_all(&new_dir).expect("new dir");
+        fs::write(legacy_dir.join("db.sqlite"), "legacy-db").expect("legacy db");
+        fs::write(new_dir.join("db.sqlite"), "new-db").expect("new db");
+
+        migrate_legacy_app_data_if_needed(&new_dir, &legacy_dir).expect("migration");
+
+        assert_eq!(fs::read_to_string(new_dir.join("db.sqlite")).unwrap(), "new-db");
+    }
 }

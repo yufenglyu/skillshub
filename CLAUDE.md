@@ -42,7 +42,7 @@ React 前端 (src/)  ──Tauri IPC──▶  Rust 后端 (src-tauri/src/)  ─
 
 - **前端**：React 18 + TypeScript + Tailwind CSS 4 + shadcn/ui，Zustand 状态管理，React Router v7 路由
 - **后端**：Rust，通过 `#[tauri::command]` 宏暴露 40+ 个 IPC 命令，前端用 `invoke()` 调用
-- **数据库**：SQLite（WAL 模式），位于 `~/.skillsmanage/db.sqlite`，SQLx 异步驱动，schema 在 `db.rs` 中定义并自动迁移
+- **数据库**：SQLite（WAL 模式），位于 `~/.skillshub/db.sqlite`，SQLx 异步驱动，schema 在 `db.rs` 中定义并自动迁移
 - **HTTP**：`reqwest` 用于 GitHub API 调用（Marketplace 源同步）和 AI API 调用（技能解释）
 
 ### 核心业务模型

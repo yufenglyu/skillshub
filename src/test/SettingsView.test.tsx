@@ -92,7 +92,7 @@ function setupMocks({
   githubPat = "",
   isLoadingGitHubPat = false,
   isSavingGitHubPat = false,
-  resourceLibraryDir = "~/.skillsmanage/library",
+  resourceLibraryDir = "~/.skillshub/library",
   isLoadingResourceLibraryDir = false,
   loadGitHubPat = vi.fn(),
   saveGitHubPat = vi.fn(),
@@ -488,13 +488,13 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.10.6")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.10.7")).toBeTruthy();
   });
 
   it("shows the database path in the about section", () => {
     setupMocks({ scanDirs: [mockBuiltinDir], agents: [mockBuiltinAgent] });
     renderSettingsView();
-    expect(screen.getByText("/Users/test/.skillsmanage/db.sqlite")).toBeTruthy();
+    expect(screen.getByText("/Users/test/.skillshub/db.sqlite")).toBeTruthy();
   });
 
   it("shows version label", () => {

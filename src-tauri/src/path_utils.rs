@@ -39,6 +39,10 @@ pub fn resolve_home_dir() -> PathBuf {
 }
 
 pub fn app_data_dir() -> PathBuf {
+    resolve_home_dir().join(".skillshub")
+}
+
+pub fn legacy_app_data_dir() -> PathBuf {
     resolve_home_dir().join(".skillsmanage")
 }
 

@@ -16,7 +16,7 @@ SkillsHub 将长期存储和平台安装拆开处理：
 - **中央技能库** 通常是 `~/.agents/skills/`，用于兼容支持该目录的平台，也用于把资源库中的技能分发到指定平台。
 - **平台视图** 展示每个工具实际可见的 skills，支持单个或批量卸载平台安装，同时保留资源库或中央库中的原始技能。
 
-为兼容旧版本，应用数据仍保存在 `~/.skillsmanage/db.sqlite`。
+应用数据保存在 `~/.skillshub/db.sqlite`。从旧版本升级时，如果新目录还没有数据库，SkillsHub 会在首次启动时把已有的 `~/.skillsmanage/db.sqlite` 复制到新目录。
 
 ## 核心能力
 
@@ -126,7 +126,7 @@ SkillsHub 将三个概念分开：
 
 ## 隐私与安全
 
-- **本地优先**：元数据、集合、扫描结果、设置和 AI explanation 缓存都保存在 `~/.skillsmanage/db.sqlite` 或你自己管理的本地 skill 目录中。
+- **本地优先**：元数据、集合、扫描结果、设置和 AI explanation 缓存都保存在 `~/.skillshub/db.sqlite` 或你自己管理的本地 skill 目录中。
 - **无遥测**：应用不包含分析、崩溃上报或使用追踪。
 - **网络访问由功能触发**：只有在你使用市场同步/下载、GitHub 导入、来源更新或 AI explanation 时才会发起外部请求。
 - **凭据仅本地存储**：GitHub PAT 和 AI API key 会保存在本地 SQLite settings 表中，应用本身不提供静态加密。
@@ -183,7 +183,7 @@ cd src-tauri && cargo clippy -- -D warnings
 ### 打包发布
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.6
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7
 ```
 
 脚本会更新版本元数据，默认执行 TypeScript 与 Rust 编译检查，按当前平台构建 Tauri 安装包，并把产物写入 `release-assets/`。
@@ -214,7 +214,7 @@ skillshub/
 
 ## 数据库
 
-SQLite 数据库仍位于 `~/.skillsmanage/db.sqlite`，用于兼容旧版本安装。
+SQLite 数据库位于 `~/.skillshub/db.sqlite`。如果检测到旧的 `~/.skillsmanage/db.sqlite` 且新数据库不存在，首次启动会自动迁移旧数据。
 
 ## 更新日志
 
