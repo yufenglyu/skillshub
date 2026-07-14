@@ -203,7 +203,7 @@ powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.
 powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms windows,linux,macos
 ```
 
-`-Platforms all` expands to Windows, Linux, and macOS. Each target still requires the corresponding Tauri toolchain and OS packaging dependencies; macOS packages should be built on macOS, Linux bundles on Linux, and Windows MSI packages on Windows.
+`-Platforms all` expands to Windows, Linux, and macOS. The macOS target builds two packages: `macos_x64` for Intel Macs and `macos_arm64` for Apple Silicon / M-series Macs. Each target still requires the corresponding Tauri toolchain and OS packaging dependencies; macOS packages should be built on macOS, Linux bundles on Linux, and Windows MSI packages on Windows.
 
 ## Project Structure
 

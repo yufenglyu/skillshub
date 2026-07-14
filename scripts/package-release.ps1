@@ -265,7 +265,8 @@ function Build-App {
         Run $tauriCmd @("build", "--target", "x86_64-pc-windows-msvc", "--bundles", "msi", "--no-sign", "--ci", "--config", $skipBeforeBuildPath)
       }
       "macos" {
-        Run $tauriCmd @("build", "--target", "universal-apple-darwin", "--bundles", "app,dmg", "--no-sign", "--ci", "--config", $skipBeforeBuildPath)
+        Run $tauriCmd @("build", "--target", "x86_64-apple-darwin", "--bundles", "app,dmg", "--no-sign", "--ci", "--config", $skipBeforeBuildPath)
+        Run $tauriCmd @("build", "--target", "aarch64-apple-darwin", "--bundles", "app,dmg", "--no-sign", "--ci", "--config", $skipBeforeBuildPath)
       }
       "linux" {
         Run $tauriCmd @("build", "--bundles", "deb,rpm,appimage", "--no-sign", "--ci", "--config", $skipBeforeBuildPath)
@@ -293,15 +294,22 @@ function Copy-WindowsAssets {
 
 function Copy-MacosAssets {
   param([string]$Root, [string]$NextVersion, [string]$OutDir)
-  $bundleRoot = Join-Path $Root "src-tauri/target/universal-apple-darwin/release/bundle"
-  $app = Get-ChildItem -Path (Join-Path $bundleRoot "macos") -Directory -Filter *.app -ErrorAction SilentlyContinue | Select-Object -First 1
-  $dmg = Get-ChildItem -Path (Join-Path $bundleRoot "dmg") -File -Filter *.dmg -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($null -eq $app) { throw "macOS .app bundle not found under $bundleRoot." }
-  if ($null -eq $dmg) { throw "macOS .dmg bundle not found under $bundleRoot." }
+  $macTargets = @(
+    @{ Triple = "x86_64-apple-darwin"; Suffix = "macos_x64" },
+    @{ Triple = "aarch64-apple-darwin"; Suffix = "macos_arm64" }
+  )
 
-  Copy-Item $dmg.FullName (Join-Path $OutDir "skillshub_${NextVersion}_macos_universal.dmg") -Force
-  Run "ditto" @("-c", "-k", "--keepParent", $app.FullName, (Join-Path $OutDir "skillshub_${NextVersion}_macos_universal.zip"))
-  Run "tar" @("-C", $app.Parent.FullName, "-czf", (Join-Path $OutDir "skillshub_${NextVersion}_macos_universal.tar.gz"), $app.Name)
+  foreach ($macTarget in $macTargets) {
+    $bundleRoot = Join-Path $Root "src-tauri/target/$($macTarget.Triple)/release/bundle"
+    $app = Get-ChildItem -Path (Join-Path $bundleRoot "macos") -Directory -Filter *.app -ErrorAction SilentlyContinue | Select-Object -First 1
+    $dmg = Get-ChildItem -Path (Join-Path $bundleRoot "dmg") -File -Filter *.dmg -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $app) { throw "macOS .app bundle not found under $bundleRoot." }
+    if ($null -eq $dmg) { throw "macOS .dmg bundle not found under $bundleRoot." }
+
+    Copy-Item $dmg.FullName (Join-Path $OutDir "skillshub_${NextVersion}_$($macTarget.Suffix).dmg") -Force
+    Run "ditto" @("-c", "-k", "--keepParent", $app.FullName, (Join-Path $OutDir "skillshub_${NextVersion}_$($macTarget.Suffix).zip"))
+    Run "tar" @("-C", $app.Parent.FullName, "-czf", (Join-Path $OutDir "skillshub_${NextVersion}_$($macTarget.Suffix).tar.gz"), $app.Name)
+  }
 }
 
 function Copy-LinuxAssets {

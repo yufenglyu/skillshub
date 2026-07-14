@@ -203,7 +203,7 @@ powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.
 powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms windows,linux,macos
 ```
 
-`-Platforms all` 会展开为 Windows、Linux 和 macOS。每个目标仍需要对应的 Tauri 工具链和系统打包依赖：macOS 安装包应在 macOS 上构建，Linux 包应在 Linux 上构建，Windows MSI 应在 Windows 上构建。
+`-Platforms all` 会展开为 Windows、Linux 和 macOS。macOS 目标会构建两个安装包：`macos_x64` 用于 Intel Mac，`macos_arm64` 用于 Apple Silicon / M 系列 Mac。每个目标仍需要对应的 Tauri 工具链和系统打包依赖：macOS 安装包应在 macOS 上构建，Linux 包应在 Linux 上构建，Windows MSI 应在 Windows 上构建。
 
 ## 项目结构
 
