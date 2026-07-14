@@ -115,6 +115,21 @@ pub struct DeleteCentralSkillResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DeleteResourceSkillOptions {
+    pub cascade_uninstall: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteResourceSkillResult {
+    pub skill_id: String,
+    pub removed_canonical_path: String,
+    pub uninstalled_agents: Vec<String>,
+    pub skipped_read_only_agents: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CentralSkillBundle {
     pub name: String,
     pub relative_path: String,
@@ -245,11 +260,28 @@ fn canonical_delete_dir(skill: &db::Skill, central_root: &Path) -> PathBuf {
         .unwrap_or_else(|| central_root.join(&skill.id))
 }
 
+fn resource_delete_dir(skill: &db::Skill) -> PathBuf {
+    skill
+        .canonical_path
+        .as_deref()
+        .map(PathBuf::from)
+        .or_else(|| Path::new(&skill.file_path).parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from(&skill.file_path))
+}
+
 fn ensure_under_central_root(path: &Path, central_root: &Path) -> Result<(), String> {
     if path.starts_with(central_root) && path != central_root {
         Ok(())
     } else {
         Err("Canonical path is outside Central Skills root".to_string())
+    }
+}
+
+fn ensure_under_resource_root(path: &Path, resource_root: &Path) -> Result<(), String> {
+    if path.starts_with(resource_root) && path != resource_root {
+        Ok(())
+    } else {
+        Err("Canonical path is outside Skill Resource Library".to_string())
     }
 }
 
@@ -310,6 +342,73 @@ fn validate_central_delete_target(
     Ok(resolved)
 }
 
+fn validate_resource_delete_target(
+    canonical_dir: &Path,
+    resource_root: &Path,
+) -> Result<PathBuf, String> {
+    let metadata = std::fs::symlink_metadata(canonical_dir).map_err(|e| {
+        format!(
+            "Failed to read resource skill path '{}': {}",
+            canonical_dir.display(),
+            e
+        )
+    })?;
+
+    if metadata.file_type().is_symlink() {
+        let parent = canonical_dir
+            .parent()
+            .ok_or_else(|| "Resource skill path has no parent directory".to_string())?
+            .canonicalize()
+            .map_err(|e| {
+                format!(
+                    "Failed to resolve resource skill parent '{}': {}",
+                    canonical_dir.display(),
+                    e
+                )
+            })?;
+        let file_name = canonical_dir
+            .file_name()
+            .ok_or_else(|| "Resource skill path has no directory name".to_string())?;
+        ensure_under_resource_root(&parent.join(file_name), resource_root).map_err(|_| {
+            format!(
+                "Refusing to delete resource skill outside Skill Resource Library: {}",
+                canonical_dir.display()
+            )
+        })?;
+        return Ok(canonical_dir.to_path_buf());
+    }
+
+    if !metadata.is_dir() {
+        return Err(format!(
+            "Resource skill path '{}' is not a skill directory",
+            canonical_dir.display()
+        ));
+    }
+
+    let resolved = canonical_dir.canonicalize().map_err(|e| {
+        format!(
+            "Failed to resolve resource skill path '{}': {}",
+            canonical_dir.display(),
+            e
+        )
+    })?;
+    ensure_under_resource_root(&resolved, resource_root).map_err(|_| {
+        format!(
+            "Refusing to delete resource skill outside Skill Resource Library: {}",
+            resolved.display()
+        )
+    })?;
+
+    if !resolved.join("SKILL.md").exists() {
+        return Err(format!(
+            "Resource skill directory '{}' does not contain SKILL.md",
+            resolved.display()
+        ));
+    }
+
+    Ok(resolved)
+}
+
 fn remove_central_skill_dir(target: &Path) -> Result<(), String> {
     let metadata = std::fs::symlink_metadata(target).map_err(|e| {
         format!(
@@ -328,6 +427,29 @@ fn remove_central_skill_dir(target: &Path) -> Result<(), String> {
     } else {
         Err(format!(
             "Canonical path '{}' is not a removable skill directory",
+            target.display()
+        ))
+    }
+}
+
+fn remove_resource_skill_dir(target: &Path) -> Result<(), String> {
+    let metadata = std::fs::symlink_metadata(target).map_err(|e| {
+        format!(
+            "Failed to read resource skill path '{}': {}",
+            target.display(),
+            e
+        )
+    })?;
+
+    if metadata.file_type().is_symlink() {
+        remove_symlink_path(target)
+            .map_err(|e| format!("Failed to remove resource skill symlink: {}", e))
+    } else if metadata.is_dir() {
+        std::fs::remove_dir_all(target)
+            .map_err(|e| format!("Failed to remove resource skill directory: {}", e))
+    } else {
+        Err(format!(
+            "Resource skill path '{}' is not a removable skill directory",
             target.display()
         ))
     }
@@ -1340,6 +1462,76 @@ pub async fn delete_central_skill(
     .await
 }
 
+pub async fn delete_resource_skill_impl(
+    pool: &DbPool,
+    skill_id: &str,
+    options: DeleteResourceSkillOptions,
+) -> Result<DeleteResourceSkillResult, String> {
+    let skill = db::get_skill_by_id(pool, skill_id)
+        .await?
+        .ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
+
+    if skill.is_central {
+        return Err(format!(
+            "Skill '{}' is central; use Central Skills deletion",
+            skill_id
+        ));
+    }
+
+    let resource_root = db::get_skill_resource_library_dir(pool)
+        .await?
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve Skill Resource Library root: {}", e))?;
+    let delete_target =
+        validate_resource_delete_target(&resource_delete_dir(&skill), &resource_root)?;
+
+    let installations = db::get_skill_installations(pool, skill_id).await?;
+    if !options.cascade_uninstall && !installations.is_empty() {
+        let agents = installations
+            .iter()
+            .map(|installation| installation.agent_id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!("Skill is installed on agents: {}", agents));
+    }
+
+    let skipped_read_only_agents = read_only_agent_ids_for_skill(pool, skill_id, false).await?;
+    let mut uninstalled_agents = Vec::new();
+
+    if options.cascade_uninstall {
+        for installation in &installations {
+            uninstall_skill_from_agent_impl(pool, skill_id, &installation.agent_id).await?;
+            uninstalled_agents.push(installation.agent_id.clone());
+        }
+    }
+
+    remove_resource_skill_dir(&delete_target)?;
+    db::delete_skill_owned_records(pool, skill_id, &skill.name).await?;
+
+    Ok(DeleteResourceSkillResult {
+        skill_id: skill_id.to_string(),
+        removed_canonical_path: delete_target.to_string_lossy().into_owned(),
+        uninstalled_agents,
+        skipped_read_only_agents,
+    })
+}
+
+#[tauri::command]
+pub async fn delete_resource_skill(
+    state: State<'_, AppState>,
+    skill_id: String,
+    options: Option<DeleteResourceSkillOptions>,
+) -> Result<DeleteResourceSkillResult, String> {
+    delete_resource_skill_impl(
+        &state.db,
+        &skill_id,
+        options.unwrap_or(DeleteResourceSkillOptions {
+            cascade_uninstall: false,
+        }),
+    )
+    .await
+}
+
 /// Tauri command: return detailed information about a skill, including all
 /// installation records across agents. Each installation includes `installed_at`
 /// (the `created_at` timestamp from the DB, renamed for frontend clarity).
@@ -1471,6 +1663,26 @@ mod tests {
             } else {
                 Some("copy".to_string())
             },
+            content: None,
+            scanned_at: Utc::now().to_rfc3339(),
+        }
+    }
+
+    fn make_skill_with_path(
+        id: &str,
+        name: &str,
+        file_path: &Path,
+        canonical_path: &Path,
+        is_central: bool,
+    ) -> Skill {
+        Skill {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: Some(format!("Desc for {}", name)),
+            file_path: file_path.to_string_lossy().into_owned(),
+            canonical_path: Some(canonical_path.to_string_lossy().into_owned()),
+            is_central,
+            source: Some(if is_central { "native" } else { "resource" }.to_string()),
             content: None,
             scanned_at: Utc::now().to_rfc3339(),
         }
@@ -1634,7 +1846,10 @@ mod tests {
         let pool = setup_test_db().await;
         let tmp = TempDir::new().unwrap();
         let resource_root = tmp.path().join("resource-library");
-        let skill_dir = resource_root.join("author").join("repo").join("source-skill");
+        let skill_dir = resource_root
+            .join("author")
+            .join("repo")
+            .join("source-skill");
         let skill_md_path = skill_dir.join("SKILL.md");
         fs::create_dir_all(&skill_dir).unwrap();
         fs::write(
@@ -2099,6 +2314,193 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    // ── delete_resource_skill ─────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_delete_resource_skill_removes_files_and_related_rows() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("library");
+        let skill_dir = resource_root.join("openai").join("skills").join("demo");
+        fs::create_dir_all(&skill_dir).unwrap();
+        let skill_file = skill_dir.join("SKILL.md");
+        fs::write(&skill_file, "---\nname: demo\n---\nDemo").unwrap();
+        db::set_skill_resource_library_dir(&pool, resource_root.to_str().unwrap())
+            .await
+            .unwrap();
+
+        let skill = make_skill_with_path("demo", "Demo", &skill_file, &skill_dir, false);
+        db::upsert_skill(&pool, &skill).await.unwrap();
+        db::upsert_skill_source(
+            &pool,
+            &db::SkillSource {
+                skill_id: "demo".to_string(),
+                source_type: "raw".to_string(),
+                source_url: Some("https://example.com/demo/SKILL.md".to_string()),
+                source_author: Some("openai".to_string()),
+                source_repo: Some("openai/skills".to_string()),
+                source_path: Some("skills/demo/SKILL.md".to_string()),
+                updated_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let result = delete_resource_skill_impl(
+            &pool,
+            "demo",
+            DeleteResourceSkillOptions {
+                cascade_uninstall: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.skill_id, "demo");
+        assert!(!skill_dir.exists());
+        assert!(db::get_skill_by_id(&pool, "demo").await.unwrap().is_none());
+        let source_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM skill_sources WHERE skill_id = ?")
+                .bind("demo")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(source_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_delete_resource_skill_refuses_linked_without_cascade() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("library");
+        let skill_dir = resource_root.join("demo");
+        fs::create_dir_all(&skill_dir).unwrap();
+        let skill_file = skill_dir.join("SKILL.md");
+        fs::write(&skill_file, "---\nname: demo\n---\nDemo").unwrap();
+        db::set_skill_resource_library_dir(&pool, resource_root.to_str().unwrap())
+            .await
+            .unwrap();
+
+        let skill = make_skill_with_path("demo", "Demo", &skill_file, &skill_dir, false);
+        db::upsert_skill(&pool, &skill).await.unwrap();
+        db::upsert_skill_installation(
+            &pool,
+            &SkillInstallation {
+                skill_id: "demo".to_string(),
+                agent_id: "cursor".to_string(),
+                installed_path: tmp
+                    .path()
+                    .join("cursor")
+                    .join("demo")
+                    .to_string_lossy()
+                    .into_owned(),
+                link_type: "copy".to_string(),
+                symlink_target: None,
+                created_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let err = delete_resource_skill_impl(
+            &pool,
+            "demo",
+            DeleteResourceSkillOptions {
+                cascade_uninstall: false,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.contains("Skill is installed on agents"));
+        assert!(skill_dir.exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_resource_skill_cascades_platform_copy() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("library");
+        let cursor_root = tmp.path().join("cursor");
+        let skill_dir = resource_root.join("demo");
+        let installed_dir = cursor_root.join("demo");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::create_dir_all(&installed_dir).unwrap();
+        let skill_file = skill_dir.join("SKILL.md");
+        fs::write(&skill_file, "---\nname: demo\n---\nDemo").unwrap();
+        fs::write(installed_dir.join("SKILL.md"), "---\nname: demo\n---\nDemo").unwrap();
+        db::set_skill_resource_library_dir(&pool, resource_root.to_str().unwrap())
+            .await
+            .unwrap();
+        set_agent_dir(&pool, "cursor", &cursor_root).await;
+
+        let skill = make_skill_with_path("demo", "Demo", &skill_file, &skill_dir, false);
+        db::upsert_skill(&pool, &skill).await.unwrap();
+        db::upsert_skill_installation(
+            &pool,
+            &SkillInstallation {
+                skill_id: "demo".to_string(),
+                agent_id: "cursor".to_string(),
+                installed_path: installed_dir.to_string_lossy().into_owned(),
+                link_type: "copy".to_string(),
+                symlink_target: None,
+                created_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let result = delete_resource_skill_impl(
+            &pool,
+            "demo",
+            DeleteResourceSkillOptions {
+                cascade_uninstall: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.uninstalled_agents, vec!["cursor".to_string()]);
+        assert!(!skill_dir.exists());
+        assert!(!installed_dir.exists());
+        assert!(db::get_skill_installations(&pool, "demo")
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(db::get_skill_by_id(&pool, "demo").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_resource_skill_rejects_path_outside_resource_root() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("library");
+        let outside_dir = tmp.path().join("outside").join("demo");
+        fs::create_dir_all(&resource_root).unwrap();
+        fs::create_dir_all(&outside_dir).unwrap();
+        let skill_file = outside_dir.join("SKILL.md");
+        fs::write(&skill_file, "---\nname: demo\n---\nDemo").unwrap();
+        db::set_skill_resource_library_dir(&pool, resource_root.to_str().unwrap())
+            .await
+            .unwrap();
+
+        let skill = make_skill_with_path("demo", "Demo", &skill_file, &outside_dir, false);
+        db::upsert_skill(&pool, &skill).await.unwrap();
+
+        let err = delete_resource_skill_impl(
+            &pool,
+            "demo",
+            DeleteResourceSkillOptions {
+                cascade_uninstall: false,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.contains("outside Skill Resource Library"));
+        assert!(outside_dir.exists());
     }
 
     #[tokio::test]

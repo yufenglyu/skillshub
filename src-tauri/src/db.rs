@@ -1641,6 +1641,60 @@ pub async fn delete_central_skill_records(
         .map_err(|e| e.to_string())
 }
 
+/// Delete all local database state owned by a Skill Resource Library removal.
+///
+/// This keeps discovery rows for the same reason as central deletion: discovery
+/// reflects project-level files and recomputes central/resource status later.
+pub async fn delete_skill_owned_records(
+    pool: &DbPool,
+    skill_id: &str,
+    skill_name: &str,
+) -> Result<(), String> {
+    sqlx::query("DELETE FROM skill_installations WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM collection_skills WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skill_explanations WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skill_sources WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skill_metadata WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query(
+        "UPDATE marketplace_skills
+         SET is_installed = 0
+         WHERE name = ? OR name = ? OR id = ? OR id LIKE ?",
+    )
+    .bind(skill_name)
+    .bind(skill_id)
+    .bind(skill_id)
+    .bind(format!("%::{}", skill_id))
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skills WHERE id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 // ─── Skill Installations ──────────────────────────────────────────────────────
 
 /// Insert or update a skill installation record.

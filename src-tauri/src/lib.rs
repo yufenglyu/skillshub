@@ -95,6 +95,7 @@ pub fn run() {
             commands::skills::preview_delete_central_skill_bundle,
             commands::skills::delete_central_skill_bundle,
             commands::skills::delete_central_skill,
+            commands::skills::delete_resource_skill,
             commands::skills::get_skill_detail,
             commands::skills::read_skill_content,
             commands::skills::read_file_by_path,
@@ -176,9 +177,18 @@ mod tests {
 
         migrate_legacy_app_data_if_needed(&new_dir, &legacy_dir).expect("migration");
 
-        assert_eq!(fs::read_to_string(new_dir.join("db.sqlite")).unwrap(), "main-db");
-        assert_eq!(fs::read_to_string(new_dir.join("db.sqlite-wal")).unwrap(), "wal");
-        assert_eq!(fs::read_to_string(new_dir.join("db.sqlite-shm")).unwrap(), "shm");
+        assert_eq!(
+            fs::read_to_string(new_dir.join("db.sqlite")).unwrap(),
+            "main-db"
+        );
+        assert_eq!(
+            fs::read_to_string(new_dir.join("db.sqlite-wal")).unwrap(),
+            "wal"
+        );
+        assert_eq!(
+            fs::read_to_string(new_dir.join("db.sqlite-shm")).unwrap(),
+            "shm"
+        );
     }
 
     #[test]
@@ -193,6 +203,9 @@ mod tests {
 
         migrate_legacy_app_data_if_needed(&new_dir, &legacy_dir).expect("migration");
 
-        assert_eq!(fs::read_to_string(new_dir.join("db.sqlite")).unwrap(), "new-db");
+        assert_eq!(
+            fs::read_to_string(new_dir.join("db.sqlite")).unwrap(),
+            "new-db"
+        );
     }
 }
