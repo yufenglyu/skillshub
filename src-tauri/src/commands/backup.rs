@@ -880,14 +880,6 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         .map_err(|e| e.to_string())?;
     }
 
-    for skill in backup
-        .marketplace_skills
-        .into_iter()
-        .filter(|skill| is_safe_backup_url(&skill.download_url))
-    {
-        upsert_marketplace_skill_backup(pool, &skill).await?;
-    }
-
     Ok(())
 }
 
@@ -1295,13 +1287,14 @@ async fn upsert_registry_backup(
            cache_updated_at = excluded.cache_updated_at,
            cache_expires_at = excluded.cache_expires_at,
            etag = excluded.etag,
-           last_modified = excluded.last_modified",
+           last_modified = excluded.last_modified
+         WHERE skill_registries.is_builtin = 0",
     )
     .bind(&registry.id)
     .bind(&registry.name)
     .bind(&registry.source_type)
     .bind(&registry.url)
-    .bind(registry.is_builtin)
+    .bind(false)
     .bind(registry.is_enabled)
     .bind(&registry.last_synced)
     .bind(&registry.last_attempted_sync)
@@ -1312,37 +1305,6 @@ async fn upsert_registry_backup(
     .bind(&registry.etag)
     .bind(&registry.last_modified)
     .bind(&registry.created_at)
-    .execute(pool)
-    .await
-    .map(|_| ())
-    .map_err(|e| e.to_string())
-}
-
-async fn upsert_marketplace_skill_backup(
-    pool: &DbPool,
-    skill: &MarketplaceSkillBackup,
-) -> Result<(), String> {
-    sqlx::query(
-        "INSERT INTO marketplace_skills
-         (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           registry_id = excluded.registry_id,
-           name = excluded.name,
-           description = excluded.description,
-           download_url = excluded.download_url,
-           is_installed = excluded.is_installed,
-           synced_at = excluded.synced_at,
-           cache_updated_at = excluded.cache_updated_at",
-    )
-    .bind(&skill.id)
-    .bind(&skill.registry_id)
-    .bind(&skill.name)
-    .bind(&skill.description)
-    .bind(&skill.download_url)
-    .bind(skill.is_installed)
-    .bind(&skill.synced_at)
-    .bind(&skill.cache_updated_at)
     .execute(pool)
     .await
     .map(|_| ())
@@ -1397,6 +1359,10 @@ fn sanitize_registry_backup(mut registry: SkillRegistryBackup) -> Option<SkillRe
     if !is_safe_backup_url(&registry.url) {
         return None;
     }
+    if !matches!(registry.source_type.as_str(), "github" | "http_json") {
+        return None;
+    }
+    registry.is_builtin = false;
     registry.last_sync_error = None;
     Some(registry)
 }
@@ -1434,14 +1400,49 @@ fn is_safe_backup_url(value: &str) -> bool {
 }
 
 fn sanitize_skill_origin(source: Option<String>) -> Option<String> {
-    let source = source?;
+    let source = source?.trim().to_string();
+    if source.is_empty() {
+        return None;
+    }
     if Url::parse(&source).is_ok() {
-        is_safe_backup_url(&source).then_some(source)
-    } else if source.contains("://") {
+        return is_safe_backup_url(&source).then_some(source);
+    }
+    if source.contains("://")
+        || source.starts_with('/')
+        || source.starts_with('\\')
+        || source.contains('\\')
+    {
+        return None;
+    }
+    let bytes = source.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return None;
+    }
+    if let Some(repo) = source.strip_prefix("github:") {
+        is_portable_github_repo(repo).then_some(source)
+    } else if source.contains(':') || source.contains('/') {
         None
     } else {
-        Some(source)
+        is_simple_source_label(&source).then_some(source)
     }
+}
+
+fn is_portable_github_repo(value: &str) -> bool {
+    let mut parts = value.split('/');
+    let Some(owner) = parts.next() else {
+        return false;
+    };
+    let Some(repo) = parts.next() else {
+        return false;
+    };
+    parts.next().is_none() && is_simple_source_label(owner) && is_simple_source_label(repo)
+}
+
+fn is_simple_source_label(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 fn is_portable_backup_path(value: &str) -> bool {
@@ -2078,6 +2079,220 @@ mod tests {
         .await
         .expect("marketplace lookup")
         .is_none());
+    }
+
+    #[tokio::test]
+    async fn import_does_not_poison_builtin_registries_or_marketplace_cache() {
+        let (pool, _dir) = setup_test_db().await;
+        sqlx::query(
+            "INSERT INTO skill_registries
+             (id, name, source_type, url, is_builtin, is_enabled, created_at)
+             VALUES (?, ?, ?, ?, 1, 1, ?)",
+        )
+        .bind("official-registry")
+        .bind("Official Registry")
+        .bind("github")
+        .bind("https://github.com/openai/skills")
+        .bind("2026-01-01T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("official registry");
+        sqlx::query(
+            "INSERT INTO marketplace_skills
+             (id, registry_id, name, download_url, is_installed, synced_at)
+             VALUES (?, ?, ?, ?, 0, ?)",
+        )
+        .bind("official-skill")
+        .bind("official-registry")
+        .bind("Official Skill")
+        .bind("https://github.com/openai/skills/raw/main/SKILL.md")
+        .bind("2026-01-01T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("official marketplace skill");
+
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [
+                {
+                    "id": "official-registry",
+                    "name": "Poisoned Official",
+                    "source_type": "http_json",
+                    "url": "https://example.com/poisoned.json",
+                    "is_builtin": false,
+                    "is_enabled": false,
+                    "last_synced": null,
+                    "last_attempted_sync": null,
+                    "last_sync_status": "success",
+                    "last_sync_error": null,
+                    "cache_updated_at": null,
+                    "cache_expires_at": null,
+                    "etag": null,
+                    "last_modified": null,
+                    "created_at": "2026-01-01T00:00:00Z"
+                },
+                {
+                    "id": "backup-built-in",
+                    "name": "Backup Built In",
+                    "source_type": "github",
+                    "url": "https://github.com/example/skills",
+                    "is_builtin": true,
+                    "is_enabled": true,
+                    "last_synced": null,
+                    "last_attempted_sync": null,
+                    "last_sync_status": "never",
+                    "last_sync_error": null,
+                    "cache_updated_at": null,
+                    "cache_expires_at": null,
+                    "etag": null,
+                    "last_modified": null,
+                    "created_at": "2026-01-01T00:00:00Z"
+                }
+            ],
+            "marketplace_skills": [
+                {
+                    "id": "official-skill",
+                    "registry_id": "official-registry",
+                    "name": "Poisoned Skill",
+                    "description": null,
+                    "download_url": "https://example.com/poisoned/SKILL.md",
+                    "is_installed": false,
+                    "synced_at": "2026-01-01T00:00:00Z",
+                    "cache_updated_at": null
+                },
+                {
+                    "id": "new-cache",
+                    "registry_id": "backup-built-in",
+                    "name": "New Cache",
+                    "description": null,
+                    "download_url": "https://example.com/new/SKILL.md",
+                    "is_installed": false,
+                    "synced_at": "2026-01-01T00:00:00Z",
+                    "cache_updated_at": null
+                }
+            ],
+            "skill_installations": []
+        });
+
+        import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect("import");
+
+        let official: (String, String, bool) = sqlx::query_as(
+            "SELECT name, url, is_enabled FROM skill_registries WHERE id = 'official-registry'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("official registry lookup");
+        assert_eq!(
+            official,
+            (
+                "Official Registry".to_string(),
+                "https://github.com/openai/skills".to_string(),
+                true,
+            )
+        );
+        let imported_is_builtin: bool = sqlx::query_scalar(
+            "SELECT is_builtin FROM skill_registries WHERE id = 'backup-built-in'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("imported registry lookup");
+        assert!(!imported_is_builtin);
+        let cached_url: String = sqlx::query_scalar(
+            "SELECT download_url FROM marketplace_skills WHERE id = 'official-skill'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("cache lookup");
+        assert_eq!(
+            cached_url,
+            "https://github.com/openai/skills/raw/main/SKILL.md"
+        );
+        assert!(sqlx::query_scalar::<_, String>(
+            "SELECT id FROM marketplace_skills WHERE id = 'new-cache'"
+        )
+        .fetch_optional(&pool)
+        .await
+        .expect("new cache lookup")
+        .is_none());
+    }
+
+    #[tokio::test]
+    async fn backup_and_import_drop_local_skill_origin_paths() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let skill_dir = central.join("local-origin-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: Local Origin\n---\n")
+            .expect("skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "local-origin-demo".to_string(),
+                name: "Local Origin".to_string(),
+                description: None,
+                file_path: path_to_string(&skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&skill_dir)),
+                is_central: true,
+                source: Some(r"C:\Users\secret\skill".to_string()),
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+
+        let json = export_app_backup_impl(&pool, BackupOptions::default())
+            .await
+            .expect("export");
+        assert!(!json.contains(r"C:\Users\secret"));
+
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [{
+                "skill": {
+                    "id": "import-local-origin",
+                    "name": "Import Local Origin",
+                    "description": null,
+                    "file_path": "",
+                    "canonical_path": null,
+                    "is_central": true,
+                    "source": "/Users/secret/skill",
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "storage_kind": "central",
+                "relative_dir": "import-local-origin",
+                "files": [{"relative_path": "SKILL.md", "content_base64": "LS0tCm5hbWU6IERlbW8KLS0tCg=="}]
+            }],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": []
+        });
+        import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect("import");
+        let restored = db::get_skill_by_id(&pool, "import-local-origin")
+            .await
+            .expect("skill")
+            .expect("skill row");
+        assert_eq!(restored.source, None);
     }
 
     #[tokio::test]
