@@ -104,6 +104,9 @@ pub fn run() {
             // Backup
             commands::backup::export_app_backup,
             commands::backup::import_app_backup,
+            commands::backup::list_webdav_backups,
+            commands::backup::upload_webdav_backup,
+            commands::backup::download_webdav_backup,
             // Collections
             commands::collections::create_collection,
             commands::collections::get_collections,

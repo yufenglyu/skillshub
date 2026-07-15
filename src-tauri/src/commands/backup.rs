@@ -1,5 +1,7 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::Utc;
+use quick_xml::events::Event;
+use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::path::{Component, Path, PathBuf};
@@ -34,6 +36,24 @@ impl Default for BackupOptions {
             include_installations: true,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebDavConfig {
+    pub base_url: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub remote_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WebDavBackupFile {
+    pub name: String,
+    pub remote_path: String,
+    pub size: Option<u64>,
+    pub modified_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -127,6 +147,263 @@ pub async fn export_app_backup(
 #[tauri::command]
 pub async fn import_app_backup(state: State<'_, AppState>, json: String) -> Result<(), String> {
     import_app_backup_impl(&state.db, &json).await
+}
+
+#[tauri::command]
+pub async fn list_webdav_backups(config: WebDavConfig) -> Result<Vec<WebDavBackupFile>, String> {
+    list_webdav_backups_impl(config).await
+}
+
+#[tauri::command]
+pub async fn upload_webdav_backup(
+    state: State<'_, AppState>,
+    config: WebDavConfig,
+    options: Option<BackupOptions>,
+) -> Result<WebDavBackupFile, String> {
+    let json = export_app_backup_impl(&state.db, options.unwrap_or_default()).await?;
+    upload_webdav_backup_impl(config, json).await
+}
+
+#[tauri::command]
+pub async fn download_webdav_backup(
+    config: WebDavConfig,
+    remote_path: String,
+) -> Result<String, String> {
+    download_webdav_backup_impl(config, &remote_path).await
+}
+
+fn normalize_webdav_base_url(value: &str) -> Result<String, String> {
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("WebDAV URL cannot be empty".to_string());
+    }
+    let url = Url::parse(trimmed).map_err(|_| "WebDAV URL is invalid".to_string())?;
+    match url.scheme() {
+        "http" | "https" => Ok(trimmed.to_string()),
+        _ => Err("WebDAV URL must use http or https".to_string()),
+    }
+}
+
+fn normalize_webdav_remote_path(value: &str) -> Result<String, String> {
+    let trimmed = value.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return Err("WebDAV remote path cannot be empty".to_string());
+    }
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return Err("WebDAV remote path must be relative".to_string());
+    }
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_string_lossy().to_string()),
+            _ => return Err("WebDAV remote path contains unsafe traversal".to_string()),
+        }
+    }
+    if parts.is_empty() {
+        return Err("WebDAV remote path cannot be empty".to_string());
+    }
+    Ok(parts.join("/"))
+}
+
+fn build_webdav_url(config: &WebDavConfig, remote_path: &str) -> Result<String, String> {
+    let base = normalize_webdav_base_url(&config.base_url)?;
+    let remote_dir = normalize_webdav_remote_path(&config.remote_dir)?;
+    let remote_path = normalize_webdav_remote_path(remote_path)?;
+    Ok(format!("{}/{}/{}", base, remote_dir, remote_path))
+}
+
+fn apply_webdav_auth(
+    builder: reqwest::RequestBuilder,
+    config: &WebDavConfig,
+) -> reqwest::RequestBuilder {
+    match (config.username.as_deref(), config.password.as_deref()) {
+        (Some(username), Some(password)) if !username.is_empty() || !password.is_empty() => {
+            builder.basic_auth(username.to_string(), Some(password.to_string()))
+        }
+        _ => builder,
+    }
+}
+
+async fn upload_webdav_backup_impl(
+    config: WebDavConfig,
+    json: String,
+) -> Result<WebDavBackupFile, String> {
+    let filename = format!(
+        "skillshub-backup-{}.json",
+        Utc::now().format("%Y-%m-%d-%H%M%S")
+    );
+    let url = build_webdav_url(&config, &filename)?;
+    let client = Client::new();
+    let response = apply_webdav_auth(
+        client
+            .put(&url)
+            .header("Content-Type", "application/json")
+            .body(json.clone()),
+        &config,
+    )
+    .send()
+    .await
+    .map_err(|e| format!("WebDAV upload failed: {}", sanitize_webdav_error(e)))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "WebDAV upload failed with status {}",
+            response.status()
+        ));
+    }
+    Ok(WebDavBackupFile {
+        name: filename.clone(),
+        remote_path: filename,
+        size: Some(json.len() as u64),
+        modified_at: Some(Utc::now().to_rfc3339()),
+    })
+}
+
+async fn download_webdav_backup_impl(
+    config: WebDavConfig,
+    remote_path: &str,
+) -> Result<String, String> {
+    let url = build_webdav_url(&config, remote_path)?;
+    let client = Client::new();
+    let response = apply_webdav_auth(client.get(&url), &config)
+        .send()
+        .await
+        .map_err(|e| format!("WebDAV download failed: {}", sanitize_webdav_error(e)))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "WebDAV download failed with status {}",
+            response.status()
+        ));
+    }
+    response
+        .text()
+        .await
+        .map_err(|e| format!("WebDAV download failed: {}", sanitize_webdav_error(e)))
+}
+
+async fn list_webdav_backups_impl(config: WebDavConfig) -> Result<Vec<WebDavBackupFile>, String> {
+    let base = normalize_webdav_base_url(&config.base_url)?;
+    let remote_dir = normalize_webdav_remote_path(&config.remote_dir)?;
+    let url = format!("{}/{}", base, remote_dir);
+    let method = Method::from_bytes(b"PROPFIND").map_err(|e| e.to_string())?;
+    let client = Client::new();
+    let response = apply_webdav_auth(client.request(method, &url).header("Depth", "1"), &config)
+        .send()
+        .await
+        .map_err(|e| format!("WebDAV list failed: {}", sanitize_webdav_error(e)))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "WebDAV list failed with status {}",
+            response.status()
+        ));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("WebDAV list failed: {}", sanitize_webdav_error(e)))?;
+    parse_webdav_backup_files(&body)
+}
+
+#[derive(Default)]
+struct WebDavResponseEntry {
+    href: Option<String>,
+    content_length: Option<u64>,
+    last_modified: Option<String>,
+}
+
+fn parse_webdav_backup_files(xml: &str) -> Result<Vec<WebDavBackupFile>, String> {
+    let mut reader = quick_xml::Reader::from_str(xml);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
+    let mut files = Vec::new();
+    let mut current = WebDavResponseEntry::default();
+    let mut in_response = false;
+    let mut active_tag: Option<String> = None;
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(event)) => {
+                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                if name.ends_with("response") {
+                    in_response = true;
+                    current = WebDavResponseEntry::default();
+                } else if in_response {
+                    active_tag = Some(name);
+                }
+            }
+            Ok(Event::Text(text)) if in_response => {
+                let value = text
+                    .unescape()
+                    .map_err(|e| format!("Invalid WebDAV XML: {}", e))?
+                    .to_string();
+                match active_tag.as_deref() {
+                    Some(tag) if tag.ends_with("href") => current.href = Some(value),
+                    Some(tag) if tag.ends_with("getcontentlength") => {
+                        current.content_length = value.parse::<u64>().ok();
+                    }
+                    Some(tag) if tag.ends_with("getlastmodified") => {
+                        current.last_modified = Some(value);
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(event)) => {
+                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                if name.ends_with("response") {
+                    if let Some(file) = webdav_entry_to_backup_file(&current)? {
+                        files.push(file);
+                    }
+                    in_response = false;
+                    active_tag = None;
+                } else if in_response {
+                    active_tag = None;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(error) => return Err(format!("Invalid WebDAV XML: {}", error)),
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    files.sort_by(|a, b| {
+        b.modified_at
+            .cmp(&a.modified_at)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    Ok(files)
+}
+
+fn webdav_entry_to_backup_file(
+    entry: &WebDavResponseEntry,
+) -> Result<Option<WebDavBackupFile>, String> {
+    let Some(href) = entry.href.as_deref() else {
+        return Ok(None);
+    };
+    let decoded = href.trim_end_matches('/');
+    if !decoded.ends_with(".json") {
+        return Ok(None);
+    }
+    let name = decoded.rsplit('/').next().unwrap_or(decoded).to_string();
+    if name.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(WebDavBackupFile {
+        name: name.clone(),
+        remote_path: normalize_webdav_remote_path(&name)?,
+        size: entry.content_length,
+        modified_at: entry.last_modified.clone(),
+    }))
+}
+
+fn sanitize_webdav_error(error: reqwest::Error) -> String {
+    if error.is_timeout() {
+        "request timed out".to_string()
+    } else if error.is_connect() {
+        "connection failed".to_string()
+    } else {
+        error.without_url().to_string()
+    }
 }
 
 pub async fn export_app_backup_impl(
@@ -1068,5 +1345,30 @@ mod tests {
             .skills
             .iter()
             .any(|skill| skill.skill.id == "resource-only-demo"));
+    }
+
+    #[test]
+    fn webdav_normalize_remote_path_rejects_traversal() {
+        let result = normalize_webdav_remote_path("../secret.json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn webdav_normalize_remote_path_accepts_nested_json_backup() {
+        let result =
+            normalize_webdav_remote_path("backups/skillshub-backup.json").expect("normalized path");
+        assert_eq!(result, "backups/skillshub-backup.json");
+    }
+
+    #[test]
+    fn webdav_normalize_base_url_rejects_non_http_urls() {
+        let result = normalize_webdav_base_url("file:///tmp/backups");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn webdav_normalize_base_url_trims_trailing_slash() {
+        let result = normalize_webdav_base_url("https://example.com/dav/").expect("normalized url");
+        assert_eq!(result, "https://example.com/dav");
     }
 }

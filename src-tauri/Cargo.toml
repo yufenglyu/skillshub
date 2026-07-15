@@ -30,6 +30,7 @@ futures-util = "0.3"
 flate2 = "1"
 tar = "0.4"
 base64 = "0.22"
+quick-xml = "0.37"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
