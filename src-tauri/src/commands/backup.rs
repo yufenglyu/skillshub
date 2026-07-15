@@ -178,10 +178,22 @@ fn normalize_webdav_base_url(value: &str) -> Result<String, String> {
         return Err("WebDAV URL cannot be empty".to_string());
     }
     let url = Url::parse(trimmed).map_err(|_| "WebDAV URL is invalid".to_string())?;
-    match url.scheme() {
-        "http" | "https" => Ok(trimmed.to_string()),
-        _ => Err("WebDAV URL must use http or https".to_string()),
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("WebDAV URL must use http or https".to_string());
     }
+    let authority = trimmed
+        .split_once("://")
+        .map(|(_, rest)| rest.split('/').next().unwrap_or(rest))
+        .unwrap_or_default();
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || authority.contains('@')
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("WebDAV URL must not include query, fragment, or userinfo".to_string());
+    }
+    Ok(trimmed.to_string())
 }
 
 fn normalize_webdav_remote_path(value: &str) -> Result<String, String> {
@@ -210,7 +222,28 @@ fn build_webdav_url(config: &WebDavConfig, remote_path: &str) -> Result<String, 
     let base = normalize_webdav_base_url(&config.base_url)?;
     let remote_dir = normalize_webdav_remote_path(&config.remote_dir)?;
     let remote_path = normalize_webdav_remote_path(remote_path)?;
-    Ok(format!("{}/{}/{}", base, remote_dir, remote_path))
+    let mut url = Url::parse(&base).map_err(|_| "WebDAV URL is invalid".to_string())?;
+    append_webdav_path_segments(&mut url, &remote_dir)?;
+    append_webdav_path_segments(&mut url, &remote_path)?;
+    Ok(url.to_string())
+}
+
+fn build_webdav_directory_url(config: &WebDavConfig) -> Result<String, String> {
+    let base = normalize_webdav_base_url(&config.base_url)?;
+    let remote_dir = normalize_webdav_remote_path(&config.remote_dir)?;
+    let mut url = Url::parse(&base).map_err(|_| "WebDAV URL is invalid".to_string())?;
+    append_webdav_path_segments(&mut url, &remote_dir)?;
+    Ok(url.to_string())
+}
+
+fn append_webdav_path_segments(url: &mut Url, path: &str) -> Result<(), String> {
+    let mut segments = url
+        .path_segments_mut()
+        .map_err(|_| "WebDAV URL cannot accept path segments".to_string())?;
+    for segment in path.split('/') {
+        segments.push(segment);
+    }
+    Ok(())
 }
 
 fn apply_webdav_auth(
@@ -282,9 +315,7 @@ async fn download_webdav_backup_impl(
 }
 
 async fn list_webdav_backups_impl(config: WebDavConfig) -> Result<Vec<WebDavBackupFile>, String> {
-    let base = normalize_webdav_base_url(&config.base_url)?;
-    let remote_dir = normalize_webdav_remote_path(&config.remote_dir)?;
-    let url = format!("{}/{}", base, remote_dir);
+    let url = build_webdav_directory_url(&config)?;
     let method = Method::from_bytes(b"PROPFIND").map_err(|e| e.to_string())?;
     let client = Client::new();
     let response = apply_webdav_auth(client.request(method, &url).header("Depth", "1"), &config)
@@ -1370,5 +1401,95 @@ mod tests {
     fn webdav_normalize_base_url_trims_trailing_slash() {
         let result = normalize_webdav_base_url("https://example.com/dav/").expect("normalized url");
         assert_eq!(result, "https://example.com/dav");
+    }
+
+    #[test]
+    fn webdav_normalize_base_url_rejects_query_fragment_and_userinfo() {
+        for value in [
+            "https://example.com/dav?scope=backups",
+            "https://example.com/dav#backups",
+            "https://user@example.com/dav",
+        ] {
+            let error = normalize_webdav_base_url(value).expect_err("unsafe URL accepted");
+            assert!(!error.contains("example.com"));
+        }
+    }
+
+    #[test]
+    fn webdav_build_url_encodes_each_path_segment() {
+        let config = WebDavConfig {
+            base_url: "https://example.com/dav".to_string(),
+            username: None,
+            password: None,
+            remote_dir: "nested folder".to_string(),
+        };
+
+        let url = build_webdav_url(&config, "backup name%2e%2e?x#frag.json").expect("WebDAV URL");
+        assert!(url.contains("/dav/nested%20folder/"));
+        assert!(url.contains("backup%20name%252e%252e%3Fx%23frag.json"));
+        let parsed = Url::parse(&url).expect("encoded URL");
+        assert_eq!(parsed.query(), None);
+        assert_eq!(parsed.fragment(), None);
+        assert_eq!(
+            parsed
+                .path_segments()
+                .expect("path segments")
+                .collect::<Vec<_>>(),
+            vec![
+                "dav",
+                "nested%20folder",
+                "backup%20name%252e%252e%3Fx%23frag.json"
+            ]
+        );
+    }
+
+    #[test]
+    fn webdav_build_url_keeps_encoded_delimiters_inside_remote_dir() {
+        let config = WebDavConfig {
+            base_url: "https://example.com/dav".to_string(),
+            username: None,
+            password: None,
+            remote_dir: "safe".to_string(),
+        };
+
+        let url = build_webdav_url(&config, "%2e%2e/%2f/backup.json").expect("WebDAV URL");
+        assert_eq!(
+            url,
+            "https://example.com/dav/safe/%252e%252e/%252f/backup.json"
+        );
+    }
+
+    #[test]
+    fn webdav_parse_namespaced_propfind_xml() {
+        let xml = r#"
+            <d:multistatus xmlns:d="DAV:">
+              <d:response>
+                <d:href>/dav/backups/</d:href>
+                <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat>
+              </d:response>
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup.json</d:href>
+                <d:propstat>
+                  <d:prop>
+                    <d:getcontentlength>42</d:getcontentlength>
+                    <d:getlastmodified>Wed, 15 Jul 2026 08:00:00 GMT</d:getlastmodified>
+                  </d:prop>
+                  <d:status>HTTP/1.1 200 OK</d:status>
+                </d:propstat>
+              </d:response>
+              <d:response><d:href>/dav/backups/readme.txt</d:href></d:response>
+            </d:multistatus>
+        "#;
+
+        let files = parse_webdav_backup_files(xml).expect("PROPFIND XML");
+        assert_eq!(
+            files,
+            vec![WebDavBackupFile {
+                name: "skillshub-backup.json".to_string(),
+                remote_path: "skillshub-backup.json".to_string(),
+                size: Some(42),
+                modified_at: Some("Wed, 15 Jul 2026 08:00:00 GMT".to_string()),
+            }]
+        );
     }
 }
