@@ -202,16 +202,17 @@ describe("SkillDetailPage", () => {
 
   // ── Delegation to SkillDetailView ────────────────────────────────────────
 
-  it("renders the shared SkillDetailView (title, metadata, tabs)", () => {
+  it("renders the shared SkillDetailView (title, metadata, tabs, notes)", () => {
     renderPage();
     // The view's h1 title
     expect(
       screen.getByRole("heading", { name: /frontend-design/i })
     ).toBeInTheDocument();
     // The view's TabToggle
-    expect(screen.getByRole("tab", { name: /Markdown/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /预览模式/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /原始源码/i })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /AI 解释/i })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /AI 解释/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /AI 备注/i })).toBeInTheDocument();
     // The view's metadata section
     expect(screen.getByRole("region", { name: /技能基本信息/i })).toBeInTheDocument();
   });

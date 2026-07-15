@@ -21,6 +21,9 @@ interface SettingsState {
   isSavingGitHubPat: boolean;
   resourceLibraryDir: string;
   isLoadingResourceLibraryDir: boolean;
+  webDavConfig: WebDavConfig;
+  isLoadingWebDavConfig: boolean;
+  isSavingWebDavConfig: boolean;
 
   // Actions — scan directories
   loadScanDirectories: () => Promise<void>;
@@ -33,6 +36,10 @@ interface SettingsState {
   saveGitHubPat: (value: string) => Promise<void>;
   clearGitHubPat: () => Promise<void>;
 
+  // Actions — WebDAV connection
+  loadWebDavConfig: () => Promise<void>;
+  saveWebDavConfig: (config: WebDavConfig) => Promise<void>;
+
   // Actions — custom agents
   addCustomAgent: (config: CustomAgentConfig) => Promise<AgentWithStatus>;
   updateCustomAgent: (agentId: string, config: UpdateCustomAgentConfig) => Promise<AgentWithStatus>;
@@ -40,13 +47,33 @@ interface SettingsState {
   updateCentralSkillsDir: (path: string) => Promise<AgentWithStatus>;
   loadResourceLibraryDir: () => Promise<void>;
   updateResourceLibraryDir: (path: string) => Promise<string>;
-  exportAppBackup: (options?: BackupOptions) => Promise<string>;
-  importAppBackup: (json: string) => Promise<void>;
+  exportAppBackup: (options?: BackupOptions) => Promise<Uint8Array>;
+  importAppBackup: (backup: Uint8Array) => Promise<void>;
   listWebDavBackups: (config: WebDavConfig) => Promise<WebDavBackupFile[]>;
   uploadWebDavBackup: (config: WebDavConfig, options?: BackupOptions) => Promise<WebDavBackupFile>;
-  downloadWebDavBackup: (config: WebDavConfig, remotePath: string) => Promise<string>;
+  downloadWebDavBackup: (config: WebDavConfig, remotePath: string) => Promise<Uint8Array>;
 
   clearError: () => void;
+}
+
+function toBackupBytes(value: number[] | Uint8Array): Uint8Array {
+  return value instanceof Uint8Array ? value : new Uint8Array(value);
+}
+
+const DEFAULT_WEBDAV_CONFIG: WebDavConfig = {
+  baseUrl: "",
+  username: "",
+  password: "",
+  remoteDir: "skillshub",
+};
+
+function normalizeWebDavConfig(config: WebDavConfig): WebDavConfig {
+  return {
+    baseUrl: config.baseUrl.trim(),
+    username: config.username ?? "",
+    password: config.password ?? "",
+    remoteDir: config.remoteDir.trim() || DEFAULT_WEBDAV_CONFIG.remoteDir,
+  };
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -60,6 +87,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   isSavingGitHubPat: false,
   resourceLibraryDir: "",
   isLoadingResourceLibraryDir: false,
+  webDavConfig: DEFAULT_WEBDAV_CONFIG,
+  isLoadingWebDavConfig: false,
+  isSavingWebDavConfig: false,
 
   // ── Scan Directories ───────────────────────────────────────────────────────
 
@@ -167,6 +197,54 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     }
   },
 
+  // ── WebDAV Connection ────────────────────────────────────────────────────
+
+  loadWebDavConfig: async () => {
+    set({ isLoadingWebDavConfig: true, error: null });
+    try {
+      const [baseUrl, username, password, remoteDir] = await Promise.all([
+        invoke<string | null>("get_setting", { key: "webdav_base_url" }),
+        invoke<string | null>("get_setting", { key: "webdav_username" }),
+        invoke<string | null>("get_setting", { key: "webdav_password" }),
+        invoke<string | null>("get_setting", { key: "webdav_remote_dir" }),
+      ]);
+      set({
+        webDavConfig: {
+          baseUrl: baseUrl ?? "",
+          username: username ?? "",
+          password: password ?? "",
+          remoteDir: remoteDir || DEFAULT_WEBDAV_CONFIG.remoteDir,
+        },
+        isLoadingWebDavConfig: false,
+      });
+    } catch (err) {
+      set({ error: String(err), isLoadingWebDavConfig: false });
+    }
+  },
+
+  saveWebDavConfig: async (config) => {
+    const normalized = normalizeWebDavConfig(config);
+    set({ isSavingWebDavConfig: true, error: null });
+    try {
+      await Promise.all([
+        invoke("set_setting", { key: "webdav_base_url", value: normalized.baseUrl }),
+        invoke("set_setting", { key: "webdav_username", value: normalized.username ?? "" }),
+        invoke("set_setting", { key: "webdav_password", value: normalized.password ?? "" }),
+        invoke("set_setting", { key: "webdav_remote_dir", value: normalized.remoteDir }),
+      ]);
+      set({
+        webDavConfig: normalized,
+        isSavingWebDavConfig: false,
+      });
+    } catch (err) {
+      set({
+        error: String(err),
+        isSavingWebDavConfig: false,
+      });
+      throw err;
+    }
+  },
+
   // ── Custom Agents ──────────────────────────────────────────────────────────
 
   /**
@@ -218,11 +296,14 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
 
   exportAppBackup: async (options) => {
-    return await invoke<string>("export_app_backup", { options: options ?? null });
+    const backup = await invoke<number[] | Uint8Array>("export_app_backup", {
+      options: options ?? null,
+    });
+    return toBackupBytes(backup);
   },
 
-  importAppBackup: async (json: string) => {
-    await invoke<void>("import_app_backup", { json });
+  importAppBackup: async (backup: Uint8Array) => {
+    await invoke<void>("import_app_backup", { backup: Array.from(backup) });
   },
 
   listWebDavBackups: async (config) => {
@@ -237,7 +318,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
 
   downloadWebDavBackup: async (config, remotePath) => {
-    return await invoke<string>("download_webdav_backup", { config, remotePath });
+    const backup = await invoke<number[] | Uint8Array>("download_webdav_backup", {
+      config,
+      remotePath,
+    });
+    return toBackupBytes(backup);
   },
 
   // ── Misc ───────────────────────────────────────────────────────────────────

@@ -18,15 +18,6 @@ vi.mock("../stores/centralSkillsStore", () => ({
   useCentralSkillsStore: vi.fn(),
 }));
 
-vi.mock("../stores/themeStore", () => ({
-  useThemeStore: vi.fn(),
-  ACCENT_NAMES: [
-    "rosewater", "flamingo", "pink", "mauve", "red", "maroon",
-    "peach", "yellow", "green", "teal", "sky", "sapphire",
-    "blue", "lavender",
-  ],
-}));
-
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
@@ -41,7 +32,6 @@ vi.mock("sonner", () => ({
 import { useSettingsStore } from "../stores/settingsStore";
 import { usePlatformStore } from "../stores/platformStore";
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
-import { useThemeStore } from "../stores/themeStore";
 import { toast } from "sonner";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -113,13 +103,19 @@ function setupMocks({
   listWebDavBackups = vi.fn(),
   uploadWebDavBackup = vi.fn(),
   downloadWebDavBackup = vi.fn(),
+  webDavConfig = {
+    baseUrl: "",
+    username: "",
+    password: "",
+    remoteDir: "skillshub",
+  },
+  isLoadingWebDavConfig = false,
+  isSavingWebDavConfig = false,
+  loadWebDavConfig = vi.fn(),
+  saveWebDavConfig = vi.fn(),
   loadCentralSkills = vi.fn(),
   rescan = vi.fn(),
   refreshCounts = vi.fn(),
-  flavor = "mocha" as const,
-  setFlavor = vi.fn(),
-  accent = "lavender" as const,
-  setAccent = vi.fn(),
 } = {}) {
   vi.mocked(useSettingsStore).mockImplementation((selector) =>
     selector({
@@ -149,6 +145,11 @@ function setupMocks({
       listWebDavBackups,
       uploadWebDavBackup,
       downloadWebDavBackup,
+      webDavConfig,
+      isLoadingWebDavConfig,
+      isSavingWebDavConfig,
+      loadWebDavConfig,
+      saveWebDavConfig,
       clearError: vi.fn(),
     })
   );
@@ -163,16 +164,6 @@ function setupMocks({
       initialize: vi.fn(),
       rescan,
       refreshCounts,
-    })
-  );
-
-  vi.mocked(useThemeStore).mockImplementation((selector) =>
-    selector({
-      flavor,
-      setFlavor,
-      accent,
-      setAccent,
-      init: vi.fn(),
     })
   );
 
@@ -223,6 +214,18 @@ describe("SettingsView", () => {
     expect(screen.getByText("关于")).toBeTruthy();
   });
 
+  it("groups directory settings in resource, central, scan order", () => {
+    setupMocks();
+    renderSettingsView();
+
+    const resource = screen.getByText("技能资源库目录");
+    const central = screen.getByText("中央技能库目录");
+    const scan = screen.getByText("扫描目录");
+
+    expect(resource.compareDocumentPosition(central) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(central.compareDocumentPosition(scan) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("calls loadScanDirectories on mount", () => {
     const loadScanDirectories = vi.fn();
     setupMocks({ loadScanDirectories });
@@ -235,6 +238,13 @@ describe("SettingsView", () => {
     setupMocks({ loadGitHubPat });
     renderSettingsView();
     expect(loadGitHubPat).toHaveBeenCalled();
+  });
+
+  it("calls loadWebDavConfig on mount", () => {
+    const loadWebDavConfig = vi.fn();
+    setupMocks({ loadWebDavConfig });
+    renderSettingsView();
+    expect(loadWebDavConfig).toHaveBeenCalled();
   });
 
   it("renders backup content checkboxes checked by default", () => {
@@ -254,8 +264,54 @@ describe("SettingsView", () => {
     expect(screen.getByPlaceholderText("例如 https://dav.example.com/backups")).toBeTruthy();
   });
 
+  it("renders persisted WebDAV connection settings", () => {
+    setupMocks({
+      webDavConfig: {
+        baseUrl: "https://example.com/dav",
+        username: "saved-user",
+        password: "saved-secret",
+        remoteDir: "saved-dir",
+      },
+    });
+    renderSettingsView();
+
+    expect(screen.getByLabelText("WebDAV URL")).toHaveValue("https://example.com/dav");
+    expect(screen.getByLabelText("用户名")).toHaveValue("saved-user");
+    expect(screen.getByLabelText("密码或 Token")).toHaveValue("saved-secret");
+    expect(screen.getByLabelText("远端目录")).toHaveValue("saved-dir");
+  });
+
+  it("saves WebDAV connection settings from the form", async () => {
+    const saveWebDavConfig = vi.fn().mockResolvedValue(undefined);
+    setupMocks({ saveWebDavConfig });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://example.com/dav" },
+    });
+    fireEvent.change(screen.getByLabelText("用户名"), {
+      target: { value: "saved-user" },
+    });
+    fireEvent.change(screen.getByLabelText("密码或 Token"), {
+      target: { value: "saved-secret" },
+    });
+    fireEvent.change(screen.getByLabelText("远端目录"), {
+      target: { value: "saved-dir" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存 WebDAV 配置" }));
+
+    await waitFor(() => {
+      expect(saveWebDavConfig).toHaveBeenCalledWith({
+        baseUrl: "https://example.com/dav",
+        username: "saved-user",
+        password: "saved-secret",
+        remoteDir: "saved-dir",
+      });
+    });
+  });
+
   it("local export uses selected backup options", async () => {
-    const exportAppBackup = vi.fn().mockResolvedValue("{}");
+    const exportAppBackup = vi.fn().mockResolvedValue(new Uint8Array([80, 75, 3, 4]));
     setupMocks({ exportAppBackup });
     renderSettingsView();
 
@@ -275,8 +331,8 @@ describe("SettingsView", () => {
   it("refreshes and renders WebDAV backup files", async () => {
     const listWebDavBackups = vi.fn().mockResolvedValue([
       {
-        name: "skillshub-backup-2026-07-15-120000.json",
-        remotePath: "skillshub-backup-2026-07-15-120000.json",
+        name: "skillshub-backup-2026-07-15-120000.zip",
+        remotePath: "skillshub-backup-2026-07-15-120000.zip",
         size: 42,
         modifiedAt: "2026-07-15T12:00:00Z",
       },
@@ -292,14 +348,14 @@ describe("SettingsView", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
 
-    expect(await screen.findByText("skillshub-backup-2026-07-15-120000.json")).toBeTruthy();
+    expect(await screen.findByText("skillshub-backup-2026-07-15-120000.zip")).toBeTruthy();
   });
 
   it("clears stale WebDAV selections when the connection config changes", async () => {
     const listWebDavBackups = vi.fn().mockResolvedValue([
       {
-        name: "skillshub-backup-2026-07-15-120000.json",
-        remotePath: "skillshub-backup-2026-07-15-120000.json",
+        name: "skillshub-backup-2026-07-15-120000.zip",
+        remotePath: "skillshub-backup-2026-07-15-120000.zip",
       },
     ]);
     setupMocks({ listWebDavBackups });
@@ -313,7 +369,7 @@ describe("SettingsView", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
 
-    expect(await screen.findByText("skillshub-backup-2026-07-15-120000.json")).toBeTruthy();
+    expect(await screen.findByText("skillshub-backup-2026-07-15-120000.zip")).toBeTruthy();
     expect(screen.getByRole("button", { name: "导入选中的 WebDAV 备份" })).toBeEnabled();
 
     fireEvent.change(screen.getByLabelText("WebDAV URL"), {
@@ -321,16 +377,16 @@ describe("SettingsView", () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByText("skillshub-backup-2026-07-15-120000.json")).toBeNull();
+      expect(screen.queryByText("skillshub-backup-2026-07-15-120000.zip")).toBeNull();
       expect(screen.getByRole("button", { name: "导入选中的 WebDAV 备份" })).toBeDisabled();
     });
   });
 
   it("disables all backup actions while a local export is running", async () => {
-    let resolveExport: (value: string) => void = () => undefined;
+    let resolveExport: (value: Uint8Array) => void = () => undefined;
     const exportAppBackup = vi.fn(
       () =>
-        new Promise<string>((resolve) => {
+        new Promise<Uint8Array>((resolve) => {
           resolveExport = resolve;
         })
     );
@@ -346,7 +402,7 @@ describe("SettingsView", () => {
       expect(screen.getByRole("button", { name: "上传到 WebDAV" })).toBeDisabled();
     });
 
-    resolveExport("{}");
+    resolveExport(new Uint8Array([80, 75, 3, 4]));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "导出备份" })).toBeEnabled();
@@ -357,8 +413,8 @@ describe("SettingsView", () => {
   it("uploads a WebDAV backup then refreshes the remote list", async () => {
     const listWebDavBackups = vi.fn().mockResolvedValue([]);
     const uploadWebDavBackup = vi.fn().mockResolvedValue({
-      name: "skillshub-backup.json",
-      remotePath: "skillshub-backup.json",
+      name: "skillshub-backup.zip",
+      remotePath: "skillshub-backup.zip",
     });
     setupMocks({ listWebDavBackups, uploadWebDavBackup });
     renderSettingsView();
@@ -380,8 +436,8 @@ describe("SettingsView", () => {
   it("shows a distinct localized error when refresh fails after upload", async () => {
     const listWebDavBackups = vi.fn().mockRejectedValue("WebDAV list failed: connection failed");
     const uploadWebDavBackup = vi.fn().mockResolvedValue({
-      name: "skillshub-backup.json",
-      remotePath: "skillshub-backup.json",
+      name: "skillshub-backup.zip",
+      remotePath: "skillshub-backup.zip",
     });
     setupMocks({ listWebDavBackups, uploadWebDavBackup });
     renderSettingsView();
@@ -423,15 +479,16 @@ describe("SettingsView", () => {
   });
 
   it("imports the selected WebDAV backup", async () => {
-    const downloadWebDavBackup = vi.fn().mockResolvedValue('{"schema_version":1}');
+    const downloadedBackup = new Uint8Array([80, 75, 3, 4]);
+    const downloadWebDavBackup = vi.fn().mockResolvedValue(downloadedBackup);
     const importAppBackup = vi.fn().mockResolvedValue(undefined);
     setupMocks({
       downloadWebDavBackup,
       importAppBackup,
       listWebDavBackups: vi.fn().mockResolvedValue([
         {
-          name: "skillshub-backup.json",
-          remotePath: "skillshub-backup.json",
+          name: "skillshub-backup.zip",
+          remotePath: "skillshub-backup.zip",
         },
       ]),
     });
@@ -444,17 +501,17 @@ describe("SettingsView", () => {
       target: { value: "skillshub" },
     });
     fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
-    await screen.findByText("skillshub-backup.json");
-    fireEvent.click(screen.getByRole("radio", { name: /skillshub-backup\.json/ }));
+    await screen.findByText("skillshub-backup.zip");
+    fireEvent.click(screen.getByRole("radio", { name: /skillshub-backup\.zip/ }));
     fireEvent.click(screen.getByRole("button", { name: "导入选中的 WebDAV 备份" }));
 
     await waitFor(() => {
       expect(downloadWebDavBackup).toHaveBeenCalledWith(
         expect.objectContaining({ baseUrl: "https://example.com/dav", remoteDir: "skillshub" }),
-        "skillshub-backup.json"
+        "skillshub-backup.zip"
       );
     });
-    expect(importAppBackup).toHaveBeenCalledWith('{"schema_version":1}');
+    expect(importAppBackup).toHaveBeenCalledWith(downloadedBackup);
   });
 
   it("renders the saved github pat value and explanation copy", () => {
@@ -722,7 +779,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.10.8")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.11.0")).toBeTruthy();
   });
 
   it("shows the database path in the about section", () => {
@@ -743,102 +800,13 @@ describe("SettingsView", () => {
     expect(screen.getByText("数据库路径")).toBeTruthy();
   });
 
-  // ── Flavor Switcher ──────────────────────────────────────────────────────
-
-  it("shows flavor label in about section", () => {
+  it("does not render theme flavor or accent controls in settings", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("主题风格")).toBeTruthy();
-  });
 
-  it("renders all 4 flavor buttons", () => {
-    setupMocks();
-    renderSettingsView();
-    expect(screen.getByRole("button", { name: /Mocha/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Macchiato/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Frappé/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Latte/ })).toBeTruthy();
-  });
-
-  it("active flavor button has aria-pressed=true", () => {
-    setupMocks({ flavor: "mocha" });
-    renderSettingsView();
-    const mochaBtn = screen.getByRole("button", { name: /Mocha/ });
-    expect(mochaBtn).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("inactive flavor button has aria-pressed=false", () => {
-    setupMocks({ flavor: "mocha" });
-    renderSettingsView();
-    const latteBtn = screen.getByRole("button", { name: /Latte/ });
-    expect(latteBtn).toHaveAttribute("aria-pressed", "false");
-  });
-
-  it("clicking a flavor button calls setFlavor", () => {
-    const setFlavor = vi.fn();
-    setupMocks({ flavor: "mocha", setFlavor });
-    renderSettingsView();
-    fireEvent.click(screen.getByRole("button", { name: /Latte/ }));
-    expect(setFlavor).toHaveBeenCalledWith("latte");
-  });
-
-  it("each flavor button shows a color dot", () => {
-    setupMocks();
-    renderSettingsView();
-    // Each flavor button should have a colored dot (inline span with rounded-full)
-    const buttons = [
-      screen.getByRole("button", { name: /Mocha/ }),
-      screen.getByRole("button", { name: /Macchiato/ }),
-      screen.getByRole("button", { name: /Frappé/ }),
-      screen.getByRole("button", { name: /Latte/ }),
-    ];
-    for (const btn of buttons) {
-      const dot = btn.querySelector(".rounded-full");
-      expect(dot).toBeTruthy();
-    }
-  });
-
-  // ── Accent Color Picker ──────────────────────────────────────────────────
-
-  it("shows accent color label in about section", () => {
-    setupMocks();
-    renderSettingsView();
-    expect(screen.getByText("强调色")).toBeTruthy();
-  });
-
-  it("renders 14 accent color swatches", () => {
-    setupMocks();
-    renderSettingsView();
-    const swatches = screen.getAllByRole("radio");
-    expect(swatches).toHaveLength(14);
-  });
-
-  it("active accent swatch has aria-checked=true", () => {
-    setupMocks({ accent: "lavender" });
-    renderSettingsView();
-    const lavenderSwatch = screen.getByRole("radio", { name: "薰衣草" });
-    expect(lavenderSwatch).toHaveAttribute("aria-checked", "true");
-  });
-
-  it("inactive accent swatch has aria-checked=false", () => {
-    setupMocks({ accent: "lavender" });
-    renderSettingsView();
-    const greenSwatch = screen.getByRole("radio", { name: "绿色" });
-    expect(greenSwatch).toHaveAttribute("aria-checked", "false");
-  });
-
-  it("clicking an accent swatch calls setAccent", () => {
-    const setAccent = vi.fn();
-    setupMocks({ accent: "lavender", setAccent });
-    renderSettingsView();
-    fireEvent.click(screen.getByRole("radio", { name: "绿色" }));
-    expect(setAccent).toHaveBeenCalledWith("green");
-  });
-
-  it("accent swatches use CSS custom properties for background color", () => {
-    setupMocks();
-    renderSettingsView();
-    const rosewaterSwatch = screen.getByRole("radio", { name: "玫瑰水" });
-    expect(rosewaterSwatch.style.backgroundColor).toBe("var(--ctp-rosewater)");
+    expect(screen.queryByText("主题风格")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Mocha|Macchiato|Frappé|Latte/ })).toBeNull();
+    expect(screen.queryByText("强调色")).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "强调色" })).toBeNull();
   });
 });

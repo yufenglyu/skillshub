@@ -139,6 +139,36 @@ export interface SkillDetailRequest {
   rowId?: string;
 }
 
+export interface SkillSourceMetadataUpdate {
+  sourceType: string;
+  sourceUrl?: string | null;
+  sourceAuthor?: string | null;
+  sourceRepo?: string | null;
+  sourcePath?: string | null;
+}
+
+export interface SkillSourceMetadataResponse {
+  skill_id: string;
+  source?: string | null;
+  source_type: string;
+  source_url?: string | null;
+  source_author?: string | null;
+  source_repo?: string | null;
+  source_path?: string | null;
+  updated_at: string;
+}
+
+export interface CreateManualResourceSkillInput {
+  skillId: string;
+  name: string;
+  description?: string | null;
+  body?: string | null;
+  sourceUrl?: string | null;
+  sourceAuthor?: string | null;
+  sourceRepo?: string | null;
+  sourcePath?: string | null;
+}
+
 export interface SkillWithLinks {
   id: string;
   name: string;

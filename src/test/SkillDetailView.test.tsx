@@ -223,6 +223,7 @@ const mockRescan = vi.fn();
 const mockRefreshCounts = vi.fn();
 const mockRefreshInstallations = vi.fn();
 const mockUpdateMetadata = vi.fn();
+const mockUpdateSourceMetadata = vi.fn();
 
 function buildDetailStoreState(overrides = {}) {
   return {
@@ -244,6 +245,7 @@ function buildDetailStoreState(overrides = {}) {
     uninstallSkill: mockUninstallSkill,
     refreshInstallations: mockRefreshInstallations,
     updateMetadata: mockUpdateMetadata,
+    updateSourceMetadata: mockUpdateSourceMetadata,
     cleanupExplanationListeners: mockCleanupExplanationListeners,
     reset: mockReset,
     ...overrides,
@@ -398,7 +400,60 @@ describe("SkillDetailView", () => {
     expect(screen.getByText("native")).toBeInTheDocument();
   });
 
-  it("saves editable local notes and tags", async () => {
+  it("shows GitHub repository source without exposing the basic info editor", () => {
+    applyStoreMocks({
+      detail: {
+        ...mockDetail,
+        is_central: false,
+        source: "resource-library",
+        source_repo: "owner/repo",
+        source_url: "https://github.com/owner/repo",
+      },
+    });
+    renderView("frontend-design", "page", { skipMockSetup: true });
+
+    const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
+    expect(within(metadataRegion).getByText("owner/repo")).toBeInTheDocument();
+    expect(within(metadataRegion).queryByDisplayValue("resource-library")).toBeNull();
+    expect(screen.queryByRole("button", { name: /保存基本信息/i })).toBeNull();
+  });
+
+  it("allows manual resource skills to maintain basic source info", async () => {
+    mockUpdateSourceMetadata.mockResolvedValue(undefined);
+    applyStoreMocks({
+      detail: {
+        ...mockDetail,
+        is_central: false,
+        source: "manual",
+        source_repo: null,
+        source_url: null,
+        source_author: null,
+        source_path: null,
+      },
+    });
+    renderView("frontend-design", "page", { skipMockSetup: true });
+
+    const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
+    fireEvent.change(within(metadataRegion).getByDisplayValue("manual"), {
+      target: { value: "github" },
+    });
+    fireEvent.change(within(metadataRegion).getByPlaceholderText("owner/repo"), {
+      target: { value: "example/skills" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /保存基本信息/i }));
+
+    await waitFor(() => {
+      expect(mockUpdateSourceMetadata).toHaveBeenCalledWith("frontend-design", {
+        sourceType: "github",
+        sourceUrl: null,
+        sourceAuthor: null,
+        sourceRepo: "example/skills",
+        sourcePath: null,
+      });
+    });
+  });
+
+  it("saves editable local notes without changing tags", async () => {
     mockUpdateMetadata.mockResolvedValue(undefined);
     applyStoreMocks({
       detail: {
@@ -410,20 +465,41 @@ describe("SkillDetailView", () => {
     renderView("frontend-design", "page", { skipMockSetup: true });
 
     const notesInput = screen.getByPlaceholderText(/记录此技能的用途/i);
-    const tagsInput = screen.getByPlaceholderText(/输入标签/i);
     fireEvent.change(notesInput, { target: { value: "Use for dashboard work" } });
-    fireEvent.change(tagsInput, { target: { value: "ui, dashboard, UI" } });
-    fireEvent.click(screen.getByRole("button", { name: /保存备注与标签/i }));
+    fireEvent.click(screen.getByRole("button", { name: /保存备注/i }));
 
     await waitFor(() => {
       expect(mockUpdateMetadata).toHaveBeenCalledWith("frontend-design", {
         notes: "Use for dashboard work",
+        tags: ["frontend"],
+      });
+    });
+  });
+
+  it("saves editable local tags without changing notes", async () => {
+    mockUpdateMetadata.mockResolvedValue(undefined);
+    applyStoreMocks({
+      detail: {
+        ...mockDetail,
+        notes: "Existing note",
+        tags: ["frontend"],
+      },
+    });
+    renderView("frontend-design", "page", { skipMockSetup: true });
+
+    const tagsInput = screen.getByPlaceholderText(/输入标签/i);
+    fireEvent.change(tagsInput, { target: { value: "ui, dashboard, UI" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存标签/i }));
+
+    await waitFor(() => {
+      expect(mockUpdateMetadata).toHaveBeenCalledWith("frontend-design", {
+        notes: "Existing note",
         tags: ["ui", "dashboard"],
       });
     });
   });
 
-  it("hides local notes and tags editor for read-only plugin skills", () => {
+  it("hides local notes and tags editors for read-only plugin skills", () => {
     applyStoreMocks({
       detail: mockPluginDetail,
       content: mockPluginContent,
@@ -440,7 +516,8 @@ describe("SkillDetailView", () => {
       </MemoryRouter>
     );
 
-    expect(screen.queryByRole("region", { name: /技能备注与标签/i })).toBeNull();
+    expect(screen.queryByRole("region", { name: /技能备注/i })).toBeNull();
+    expect(screen.queryByRole("region", { name: /技能标签/i })).toBeNull();
   });
 
   it("shows a read-only plugin source state and blocks management actions", () => {
@@ -702,12 +779,34 @@ describe("SkillDetailView", () => {
 
   it("shows SKILL.md preview as markdown content", () => {
     renderView();
-    expect(screen.getByRole("tabpanel", { name: /Markdown/i })).toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: /预览模式/i })).toBeInTheDocument();
   });
 
-  it("shows Markdown tab button", () => {
+  it("labels the markdown preview tab as preview mode", () => {
     renderView();
-    expect(screen.getByRole("tab", { name: /Markdown/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /预览模式/i })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Markdown/i })).toBeNull();
+  });
+
+  it("renders the right detail sidebar wider by default with a resize handle", () => {
+    renderView();
+
+    const sidebar = screen.getByTestId("skill-detail-right-sidebar");
+    expect(sidebar).toHaveStyle({ "--skill-detail-sidebar-width": "512px" });
+    expect(screen.getByRole("separator", { name: /调整详情栏宽度/i })).toBeInTheDocument();
+  });
+
+  it("resizes the right detail sidebar by dragging the handle", () => {
+    renderView();
+
+    const sidebar = screen.getByTestId("skill-detail-right-sidebar");
+    const handle = screen.getByRole("separator", { name: /调整详情栏宽度/i });
+
+    fireEvent.mouseDown(handle, { clientX: 1200 });
+    fireEvent.mouseMove(document, { clientX: 1100 });
+    fireEvent.mouseUp(document);
+
+    expect(sidebar).toHaveStyle({ "--skill-detail-sidebar-width": "612px" });
   });
 
   it("shows Raw Source tab button", () => {
@@ -715,14 +814,32 @@ describe("SkillDetailView", () => {
     expect(screen.getByRole("tab", { name: /原始源码/i })).toBeInTheDocument();
   });
 
-  it("shows AI Explanation tab button", () => {
+  it("hides AI Explanation tab and shows the AI note button in the notes region", () => {
     renderView();
-    expect(screen.getByRole("tab", { name: /AI 解释/i })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /AI 解释/i })).toBeNull();
+    const notesRegion = screen.getByRole("region", { name: /技能备注/i });
+    expect(within(notesRegion).getByRole("button", { name: /AI 备注/i })).toBeInTheDocument();
+    expect(within(notesRegion).queryByRole("button", { name: /AI 生成备注/i })).toBeNull();
+  });
+
+  it("places AI note and save note buttons in the same row with matching style", () => {
+    renderView();
+
+    const notesRegion = screen.getByRole("region", { name: /技能备注/i });
+    const aiButton = within(notesRegion).getByRole("button", { name: /AI 备注/i });
+    const saveButton = within(notesRegion).getByRole("button", { name: /保存备注/i });
+    const buttonRow = aiButton.parentElement;
+
+    expect(buttonRow).toBe(saveButton.parentElement);
+    expect(buttonRow).toHaveClass("grid-cols-2");
+    expect(aiButton.querySelector("svg")).toBeNull();
+    expect(aiButton.className).toContain("bg-primary");
+    expect(saveButton.className).toContain("bg-primary");
   });
 
   it("renders markdown content by default in Markdown tab", () => {
     renderView();
-    const markdownPane = screen.getByRole("tabpanel", { name: /Markdown/i });
+    const markdownPane = screen.getByRole("tabpanel", { name: /预览模式/i });
     expect(markdownPane).toBeInTheDocument();
     expect(screen.getByTestId("react-markdown")).toBeInTheDocument();
     expect(screen.getByTestId("react-markdown")).toHaveAttribute("data-has-remark-gfm", "true");
@@ -730,7 +847,7 @@ describe("SkillDetailView", () => {
 
   it("renders frontmatter card in Markdown tab", () => {
     renderView();
-    const markdown = screen.getByRole("tabpanel", { name: /Markdown/i });
+    const markdown = screen.getByRole("tabpanel", { name: /预览模式/i });
     expect(within(markdown).getByRole("heading", { name: /Frontmatter/i })).toBeInTheDocument();
     expect(within(markdown).getByText("frontend-design")).toBeInTheDocument();
     expect(within(markdown).getByText("Build distinctive, production-grade frontend interfaces")).toBeInTheDocument();
@@ -746,7 +863,7 @@ describe("SkillDetailView", () => {
     });
     renderView("frontend-design", "page", { skipMockSetup: true });
 
-    const markdown = screen.getByRole("tabpanel", { name: /Markdown/i });
+    const markdown = screen.getByRole("tabpanel", { name: /预览模式/i });
     expect(within(markdown).getByText("wrangler")).toBeInTheDocument();
     expect(screen.getByTestId("react-markdown")).toHaveTextContent("# Wrangler CLI");
     expect(screen.getByTestId("react-markdown")).not.toHaveTextContent("name: wrangler");
@@ -760,7 +877,7 @@ describe("SkillDetailView", () => {
     });
     renderView("frontend-design", "page", { skipMockSetup: true });
 
-    const markdown = screen.getByRole("tabpanel", { name: /Markdown/i });
+    const markdown = screen.getByRole("tabpanel", { name: /预览模式/i });
     expect(within(markdown).getByRole("heading", { name: /Frontmatter/i })).toBeInTheDocument();
     expect(within(markdown).getByText(/这段 frontmatter 无法稳定解析/i)).toBeInTheDocument();
     expect(within(markdown).getAllByText(/name: broken-skill/).length).toBeGreaterThan(0);
@@ -860,7 +977,7 @@ describe("SkillDetailView", () => {
     });
   });
 
-  it("shows cached AI explanation in AI Explanation tab", async () => {
+  it("copies cached AI explanation into the notes textarea", async () => {
     applyStoreMocks({ explanation: "这是缓存的技能解释。" });
     render(
       <MemoryRouter>
@@ -868,29 +985,22 @@ describe("SkillDetailView", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: /AI 解释/i }));
-    await waitFor(() => {
-      expect(screen.getByText("这是缓存的技能解释。")).toBeInTheDocument();
-    });
+    fireEvent.click(screen.getByRole("button", { name: /AI 备注/i }));
+    expect(screen.getByPlaceholderText(/记录此技能的用途/i)).toHaveValue("这是缓存的技能解释。");
   });
 
-  it("calls generateExplanation from empty AI Explanation tab", async () => {
+  it("calls generateExplanation from the AI note button", async () => {
     renderView();
-    fireEvent.click(screen.getByRole("tab", { name: /AI 解释/i }));
-    // Two buttons can carry the "生成解释" label (header action + empty-state
-    // CTA); both invoke `handleGenerateExplanation`, so clicking either one is
-    // equivalent. Use the first match to keep the assertion stable.
-    const generateButtons = screen.getAllByRole("button", { name: /生成解释/i });
-    fireEvent.click(generateButtons[0]);
+    fireEvent.click(screen.getByRole("button", { name: /AI 备注/i }));
     await waitFor(() => {
       expect(mockGenerateExplanation).toHaveBeenCalledWith("frontend-design", mockContent, "zh");
     });
   });
 
-  it("calls generateExplanation with the selected Claude row id", async () => {
+  it("calls generateExplanation with the resolved Claude user row id", async () => {
     applyStoreMocks({
-      detail: mockPluginDetail,
-      content: mockPluginContent,
+      detail: mockClaudeUserDetail,
+      content: mockUserContent,
     });
 
     render(
@@ -898,25 +1008,23 @@ describe("SkillDetailView", () => {
         <SkillDetailView
           skillId="frontend-design"
           agentId="claude-code"
-          rowId="claude-code::plugin::frontend-design"
           variant="page"
         />
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: /AI 解释/i }));
-    fireEvent.click(screen.getAllByRole("button", { name: /生成解释/i })[0]);
+    fireEvent.click(screen.getByRole("button", { name: /AI 备注/i }));
 
     await waitFor(() => {
       expect(mockGenerateExplanation).toHaveBeenCalledWith(
-        "claude-code::plugin::frontend-design",
-        mockPluginContent,
+        "claude-code::user::frontend-design",
+        mockUserContent,
         "zh"
       );
     });
   });
 
-  it("calls refreshExplanation when cached explanation exists", async () => {
+  it("does not regenerate when a cached explanation can fill notes directly", async () => {
     applyStoreMocks({ explanation: "这是缓存的技能解释。" });
     render(
       <MemoryRouter>
@@ -924,40 +1032,9 @@ describe("SkillDetailView", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: /AI 解释/i }));
-    fireEvent.click(screen.getByRole("button", { name: /重新生成/i }));
-    await waitFor(() => {
-      expect(mockRefreshExplanation).toHaveBeenCalledWith("frontend-design", mockContent, "zh");
-    });
-  });
-
-  it("calls refreshExplanation with the resolved Claude row id", async () => {
-    applyStoreMocks({
-      detail: mockClaudeUserDetail,
-      content: mockUserContent,
-      explanation: "这是用户来源缓存的技能解释。",
-    });
-
-    render(
-      <MemoryRouter>
-        <SkillDetailView
-          skillId="frontend-design"
-          agentId="claude-code"
-          variant="page"
-        />
-      </MemoryRouter>
-    );
-
-    fireEvent.click(screen.getByRole("tab", { name: /AI 解释/i }));
-    fireEvent.click(screen.getByRole("button", { name: /重新生成/i }));
-
-    await waitFor(() => {
-      expect(mockRefreshExplanation).toHaveBeenCalledWith(
-        "claude-code::user::frontend-design",
-        mockUserContent,
-        "zh"
-      );
-    });
+    fireEvent.click(screen.getByRole("button", { name: /AI 备注/i }));
+    expect(mockGenerateExplanation).not.toHaveBeenCalled();
+    expect(mockRefreshExplanation).not.toHaveBeenCalled();
   });
 
   it("shows explanation loading state while a request is in flight", async () => {
@@ -973,17 +1050,10 @@ describe("SkillDetailView", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: /AI 解释/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/正在加载 AI 解释/i)).toBeInTheDocument();
-    });
-    // Only the header action button is present while loading (the empty-state
-    // CTA is replaced by the loading indicator). Disable state applies to it.
-    expect(screen.getByRole("button", { name: /生成解释/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /正在加载 AI 解释/i })).toBeDisabled();
   });
 
-  it("shows streaming indicator once explanation content starts arriving", async () => {
+  it("shows streaming indicator in the notes region once explanation content starts arriving", async () => {
     applyStoreMocks({
       explanation: "第一段解释",
       isExplanationLoading: false,
@@ -996,14 +1066,11 @@ describe("SkillDetailView", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: /AI 解释/i }));
-
-    expect(screen.getByText("第一段解释")).toBeInTheDocument();
-    // Matches the current i18n string for `detail.explanationStreaming`.
-    expect(screen.getByText(/正在生成解释/i)).toBeInTheDocument();
+    const notesRegion = screen.getByRole("region", { name: /技能备注/i });
+    expect(within(notesRegion).getByText(/正在生成解释/i)).toBeInTheDocument();
   });
 
-  it("shows recoverable explanation error state without leaving stale explanation visible", async () => {
+  it("shows recoverable explanation error state in the notes region", async () => {
     applyStoreMocks({
       explanation: null,
       explanationError: "代理连接失败",
@@ -1022,19 +1089,11 @@ describe("SkillDetailView", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: /AI 解释/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText("代理连接失败")).toBeInTheDocument();
-    });
-    expect(screen.getByText(/备用端点也无法访问/i)).toBeInTheDocument();
-    expect(screen.getByText(/暂无 AI 解释/i)).toBeInTheDocument();
+    const notesRegion = screen.getByRole("region", { name: /技能备注/i });
+    expect(within(notesRegion).getByText("代理连接失败")).toBeInTheDocument();
+    expect(within(notesRegion).getByText(/备用端点也无法访问/i)).toBeInTheDocument();
     expect(screen.queryByText("这是缓存的技能解释。")).not.toBeInTheDocument();
-    // Both the header action and the empty-state CTA are enabled when an
-    // error is present but no request is in flight.
-    const generateButtons = screen.getAllByRole("button", { name: /生成解释/i });
-    expect(generateButtons.length).toBeGreaterThan(0);
-    generateButtons.forEach((btn) => expect(btn).toBeEnabled());
+    expect(within(notesRegion).getByRole("button", { name: /AI 备注/i })).toBeEnabled();
   });
 
   it("keeps retry action available after explanation failure", async () => {
@@ -1049,43 +1108,11 @@ describe("SkillDetailView", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: /AI 解释/i }));
-    // Two buttons match /生成解释/i after a failure (header + empty state).
-    // Clicking either one retries via `handleGenerateExplanation`.
-    const generateButtons = screen.getAllByRole("button", { name: /生成解释/i });
-    fireEvent.click(generateButtons[0]);
+    fireEvent.click(screen.getByRole("button", { name: /AI 备注/i }));
 
     await waitFor(() => {
       expect(mockGenerateExplanation).toHaveBeenCalledWith("frontend-design", mockContent, "zh");
     });
-  });
-
-  it("reveals structured explanation error details on demand", async () => {
-    applyStoreMocks({
-      explanation: null,
-      explanationError: "temporary failure",
-      explanationErrorInfo: {
-        message: "temporary failure",
-        details: "connect ECONNREFUSED 127.0.0.1:3000",
-        kind: "connect",
-        retryable: true,
-        fallbackTried: false,
-      },
-    });
-
-    render(
-      <MemoryRouter>
-        <SkillDetailView skillId="frontend-design" variant="page" />
-      </MemoryRouter>
-    );
-
-    fireEvent.click(screen.getByRole("tab", { name: /AI 解释/i }));
-    fireEvent.click(screen.getByRole("button", { name: /查看详情/i }));
-
-    expect(screen.getByText(/ECONNREFUSED 127.0.0.1:3000/i)).toBeInTheDocument();
-    const generateButtons = screen.getAllByRole("button", { name: /生成解释/i });
-    expect(generateButtons.length).toBeGreaterThan(0);
-    generateButtons.forEach((btn) => expect(btn).toBeEnabled());
   });
 
   // ── Loading state ─────────────────────────────────────────────────────────

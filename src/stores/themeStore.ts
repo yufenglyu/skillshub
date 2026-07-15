@@ -1,146 +1,84 @@
 import { create } from "zustand";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+export type ThemeMode = "system" | "light" | "dark";
+export type ResolvedTheme = "light" | "dark";
 
-export type CatppuccinFlavor = "mocha" | "macchiato" | "frappe" | "latte";
+const THEME_MODE_STORAGE_KEY = "skillshub-theme-mode";
+const LEGACY_FLAVOR_STORAGE_KEY = "catppuccin-flavor";
+const LEGACY_ACCENT_STORAGE_KEY = "catppuccin-accent";
 
-/** The 14 Catppuccin accent color names (same order as the Obsidian theme). */
-export type CatppuccinAccent =
-  | "rosewater"
-  | "flamingo"
-  | "pink"
-  | "mauve"
-  | "red"
-  | "maroon"
-  | "peach"
-  | "yellow"
-  | "green"
-  | "teal"
-  | "sky"
-  | "sapphire"
-  | "blue"
-  | "lavender";
-
-/** Ordered list of all accent names — used by the accent picker UI. */
-export const ACCENT_NAMES: CatppuccinAccent[] = [
-  "rosewater",
-  "flamingo",
-  "pink",
-  "mauve",
-  "red",
-  "maroon",
-  "peach",
-  "yellow",
-  "green",
-  "teal",
-  "sky",
-  "sapphire",
-  "blue",
-  "lavender",
-];
-
-const FLAVOR_STORAGE_KEY = "catppuccin-flavor";
-const ACCENT_STORAGE_KEY = "catppuccin-accent";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Detect system color-scheme preference. Returns "latte" for light, "mocha" for dark. */
-function systemFlavor(): CatppuccinFlavor {
-  if (typeof window === "undefined") return "mocha";
-  return window.matchMedia("(prefers-color-scheme: light)").matches
-    ? "latte"
-    : "mocha";
+function systemTheme(): ResolvedTheme {
+  if (typeof window === "undefined") return "dark";
+  if (typeof window.matchMedia !== "function") return "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-/** Read persisted flavor from localStorage (returns null if not set). */
-function readStoredFlavor(): CatppuccinFlavor | null {
+function isThemeMode(value: string | null): value is ThemeMode {
+  return value === "system" || value === "light" || value === "dark";
+}
+
+function readStoredMode(): ThemeMode {
   try {
-    const stored = localStorage.getItem(FLAVOR_STORAGE_KEY);
-    if (
-      stored === "mocha" ||
-      stored === "macchiato" ||
-      stored === "frappe" ||
-      stored === "latte"
-    ) {
-      return stored;
-    }
+    const stored = localStorage.getItem(THEME_MODE_STORAGE_KEY);
+    return isThemeMode(stored) ? stored : "system";
   } catch {
-    // localStorage unavailable (SSR, privacy mode, etc.)
+    return "system";
   }
-  return null;
 }
 
-/** Read persisted accent from localStorage (returns null if not set or invalid). */
-function readStoredAccent(): CatppuccinAccent | null {
-  try {
-    const stored = localStorage.getItem(ACCENT_STORAGE_KEY);
-    if (ACCENT_NAMES.includes(stored as CatppuccinAccent)) {
-      return stored as CatppuccinAccent;
-    }
-  } catch {
-    // localStorage unavailable
-  }
-  return null;
+function resolveMode(mode: ThemeMode): ResolvedTheme {
+  return mode === "system" ? systemTheme() : mode;
 }
 
-/** Apply flavor to the DOM — sets data-theme on <html> and persists to localStorage. */
-function applyFlavor(flavor: CatppuccinFlavor): void {
+function applyMode(mode: ThemeMode): ResolvedTheme {
+  const resolvedTheme = resolveMode(mode);
   if (typeof document !== "undefined") {
-    document.documentElement.dataset.theme = flavor;
+    document.documentElement.dataset.theme = resolvedTheme;
+    document.documentElement.dataset.themeMode = mode;
+    delete document.documentElement.dataset.accent;
   }
   try {
-    localStorage.setItem(FLAVOR_STORAGE_KEY, flavor);
+    localStorage.setItem(THEME_MODE_STORAGE_KEY, mode);
+    localStorage.removeItem(LEGACY_FLAVOR_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_ACCENT_STORAGE_KEY);
   } catch {
-    // Silently ignore storage errors
+    // Ignore storage failures.
   }
+  return resolvedTheme;
 }
-
-/** Apply accent to the DOM — sets data-accent on <html> and persists to localStorage. */
-function applyAccent(accent: CatppuccinAccent): void {
-  if (typeof document !== "undefined") {
-    document.documentElement.dataset.accent = accent;
-  }
-  try {
-    localStorage.setItem(ACCENT_STORAGE_KEY, accent);
-  } catch {
-    // Silently ignore storage errors
-  }
-}
-
-// ─── State ────────────────────────────────────────────────────────────────────
 
 interface ThemeState {
-  flavor: CatppuccinFlavor;
-  accent: CatppuccinAccent;
-
-  // Actions
-  setFlavor: (flavor: CatppuccinFlavor) => void;
-  setAccent: (accent: CatppuccinAccent) => void;
-  /** Initialize theme — call once before React renders to prevent flash. */
+  mode: ThemeMode;
+  resolvedTheme: ResolvedTheme;
+  setMode: (mode: ThemeMode) => void;
+  cycleMode: () => void;
   init: () => void;
 }
 
-// ─── Store ────────────────────────────────────────────────────────────────────
+function nextThemeMode(mode: ThemeMode): ThemeMode {
+  if (mode === "system") return "light";
+  if (mode === "light") return "dark";
+  return "system";
+}
 
-export const useThemeStore = create<ThemeState>((set) => ({
-  flavor: "mocha", // safe default; init() overrides
-  accent: "lavender", // safe default; init() overrides
+export const useThemeStore = create<ThemeState>((set, get) => ({
+  mode: "system",
+  resolvedTheme: "dark",
 
-  setFlavor: (flavor) => {
-    applyFlavor(flavor);
-    set({ flavor });
+  setMode: (mode) => {
+    const resolvedTheme = applyMode(mode);
+    set({ mode, resolvedTheme });
   },
 
-  setAccent: (accent) => {
-    applyAccent(accent);
-    set({ accent });
+  cycleMode: () => {
+    const mode = nextThemeMode(get().mode);
+    const resolvedTheme = applyMode(mode);
+    set({ mode, resolvedTheme });
   },
 
   init: () => {
-    const flavor = readStoredFlavor() ?? systemFlavor();
-    const accent = readStoredAccent() ?? "lavender";
-    applyFlavor(flavor);
-    applyAccent(accent);
-    set({ flavor, accent });
+    const mode = readStoredMode();
+    const resolvedTheme = applyMode(mode);
+    set({ mode, resolvedTheme });
   },
 }));

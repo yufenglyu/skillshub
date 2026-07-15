@@ -22,42 +22,43 @@ SkillsHub 将长期存储和平台安装拆开处理：
 
 - 以技能资源库为默认工作流，GitHub 导入、市场安装和下载默认进入资源库。
 - 资源库技能可一键加入中央技能库，并保留 `owner/repo/skill` 这样的来源分组路径，便于区分同名技能。
+- 技能资源库支持手动创建技能、按名称/创建时间/修改时间排序、目录视图和按目录安全删除。
 - 安装到平台时可手动选择目标平台，支持符号链接、复制安装和自动回退。
-- 中央技能库支持目录视图、批量从平台卸载、来源更新和安全删除预览。
-- 技能详情页支持 Markdown 预览、原始源码、AI 解释、来源、作者/仓库、创建/更新时间、备注和标签。
+- 中央技能库专注于管理已进入中央目录的技能，支持目录视图、批量从平台卸载和安全删除预览。
+- 技能详情页支持全宽 Markdown 预览、原始源码、基础/来源信息、安装状态、备注、标签和 AI 生成备注。
 - 搜索支持名称、描述、备注、标签和来源元信息。
 - 标签筛选与技能集合，便于整理和批量安装复用技能。
 - GitHub 仓库导入支持预览、重命名/覆盖/跳过冲突处理，并记录来源元数据。
 - 技能市场支持源同步、技能下载、按来源更新和单个来源更新。
-- 支持导入/导出应用备份，覆盖 skills、元数据、集合、设置以及资源库/中央库布局。
+- 支持本地 ZIP 备份和 WebDAV 备份/导入，可勾选技能资源库、中央技能库、软件配置和平台安装状态；WebDAV 登录配置可保存到本机设置，密钥类内容不会写入备份文件。
 - 支持扫描项目级 skills，包括 Obsidian vault 分组和本地项目 skill 目录。
-- 中英文界面、Catppuccin 主题、强调色、响应式导航和紧凑快捷按钮。
+- 中英文界面、参考 VS Code 的浅色/深色主题、跟随系统主题切换、响应式导航和紧凑快捷按钮。
 
 ## 项目截图
 
-### 技能资源库
+### 技能资源库、排序与手动创建
 
 ![技能资源库视图](images/01.png)
-
-### 查看特定平台的已安装技能
-
-![平台技能视图](images/06.png)
-
-### 扫描本地项目技能库
-
-![项目技能库发现页](images/03.png)
-
-### 浏览技能市场发布者与技能
-
-![技能市场视图](images/04.png)
 
 ### 从 GitHub 仓库导入技能
 
 ![GitHub 仓库导入向导](images/02.png)
 
+### 中央技能库
+
+![中央技能库视图](images/03.png)
+
+### 设置、备份与 WebDAV
+
+![设置与备份视图](images/04.png)
+
 ### 管理可复用技能集合
 
 ![技能集合视图](images/05.png)
+
+### 查看特定平台的已安装技能
+
+![平台技能视图](images/06.png)
 
 ## 下载
 
@@ -128,8 +129,8 @@ SkillsHub 将三个概念分开：
 
 - **本地优先**：元数据、集合、扫描结果、设置和 AI explanation 缓存都保存在 `~/.skillshub/db.sqlite` 或你自己管理的本地 skill 目录中。
 - **无遥测**：应用不包含分析、崩溃上报或使用追踪。
-- **网络访问由功能触发**：只有在你使用市场同步/下载、GitHub 导入、来源更新或 AI explanation 时才会发起外部请求。
-- **凭据仅本地存储**：GitHub PAT 和 AI API key 会保存在本地 SQLite settings 表中，应用本身不提供静态加密。
+- **网络访问由功能触发**：只有在你使用市场同步/下载、GitHub 导入、来源更新、WebDAV 备份或 AI explanation 时才会发起外部请求。
+- **凭据仅本地存储**：GitHub PAT、AI API key 和 WebDAV 连接配置会保存在本地 SQLite settings 表中，应用本身不提供静态加密；导出的备份文件不会包含密钥、Token 或密码类设置。
 - 不要在 issue、PR、截图或日志里公开真实密钥。
 
 ## 技术栈
@@ -142,7 +143,7 @@ SkillsHub 将三个概念分开：
 | 状态管理 | Zustand |
 | Markdown | react-markdown |
 | 国际化 | react-i18next、i18next-browser-languagedetector |
-| 主题 | Catppuccin 调色板 |
+| 主题 | 参考 VS Code 的浅色/深色主题 |
 | 后端 | Rust、serde、sqlx、chrono、uuid |
 | 数据库 | SQLite via sqlx（WAL 模式） |
 | 路由 | react-router-dom v7 |
@@ -183,7 +184,7 @@ cd src-tauri && cargo clippy -- -D warnings
 ### 打包发布
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0
 ```
 
 脚本会更新版本元数据，默认执行 TypeScript 与 Rust 编译检查，构建 Tauri 安装包，并把产物写入 `release-assets/`。
@@ -191,16 +192,16 @@ powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.
 打包当前系统：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms auto
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms auto
 ```
 
 指定一个或多个平台：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms windows
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms linux
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms macos
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms windows,linux,macos
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms windows
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms linux
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms macos
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms windows,linux,macos
 ```
 
 `-Platforms all` 会展开为 Windows、Linux 和 macOS。macOS 目标会构建两个安装包：`macos_x64` 用于 Intel Mac，`macos_arm64` 用于 Apple Silicon / M 系列 Mac。每个目标仍需要对应的 Tauri 工具链和系统打包依赖：macOS 安装包应在 macOS 上构建，Linux 包应在 Linux 上构建，Windows MSI 应在 Windows 上构建。

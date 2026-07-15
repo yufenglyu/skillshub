@@ -341,9 +341,10 @@ describe("CentralSkillsView", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the shared github import launcher", () => {
+  it("does not show source update or GitHub import launchers", () => {
     renderCentralSkillsView();
-    expect(screen.getByRole("button", { name: /从 GitHub 导入/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /从 GitHub 导入/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /从来源更新/i })).toBeNull();
   });
 
   it("shows a search input", () => {
@@ -353,17 +354,12 @@ describe("CentralSkillsView", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows explicit sort field and direction controls", () => {
+  it("keeps view switching but removes explicit sort controls", () => {
     renderCentralSkillsView();
 
-    expect(screen.getByRole("group", { name: "排序字段" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "名称" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "创建时间" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "修改时间" })).toBeInTheDocument();
-
-    expect(screen.getByRole("group", { name: "排序方向" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "正排" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "倒排" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "排序字段" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "排序方向" })).toBeNull();
+    expect(screen.getByRole("button", { name: /目录|Folders/i })).toBeInTheDocument();
   });
 
   // ── Skills List ───────────────────────────────────────────────────────────
@@ -405,30 +401,6 @@ describe("CentralSkillsView", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("sorts by modified time and reverses direction explicitly", async () => {
-    renderCentralSkillsView();
-
-    fireEvent.click(screen.getByRole("button", { name: "修改时间" }));
-
-    await waitFor(() => {
-      const detailButtons = screen.getAllByRole("button", {
-        name: /查看 .* 的详情/i,
-      });
-      expect(detailButtons[0]).toHaveTextContent("frontend-design");
-      expect(detailButtons[1]).toHaveTextContent("code-reviewer");
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "倒排" }));
-
-    await waitFor(() => {
-      const detailButtons = screen.getAllByRole("button", {
-        name: /查看 .* 的详情/i,
-      });
-      expect(detailButtons[0]).toHaveTextContent("code-reviewer");
-      expect(detailButtons[1]).toHaveTextContent("frontend-design");
-    });
-  });
-
   it("renders skill descriptions", () => {
     renderCentralSkillsView();
     expect(
@@ -444,7 +416,7 @@ describe("CentralSkillsView", () => {
     expect(installButtons).toHaveLength(2);
   });
 
-  it("updates one source-backed skill from its card action", async () => {
+  it("does not show source-backed update actions on central cards", async () => {
     mockUpdateSourceBackedSkill.mockResolvedValue("frontend-design");
     renderCentralSkillsView({
       skills: [
@@ -458,13 +430,7 @@ describe("CentralSkillsView", () => {
       ],
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /从来源更新 frontend-design/i })
-    );
-
-    await waitFor(() => {
-      expect(mockUpdateSourceBackedSkill).toHaveBeenCalledWith("frontend-design");
-    });
+    expect(screen.queryByRole("button", { name: /从来源更新 frontend-design/i })).toBeNull();
   });
 
   it("deletes an unlinked central skill after inline confirmation", async () => {
@@ -1050,12 +1016,11 @@ describe("CentralSkillsView", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /从 GitHub 导入/i }));
-
-    expect(await screen.findByRole("button", { name: /安装到平台/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /从 GitHub 导入/i })).toBeNull();
+    expect(screen.queryByText(/导入结果|GitHub 仓库/i)).toBeNull();
   });
 
-  it("shows the redesigned github confirm summary in the shared wizard", async () => {
+  it("does not expose the shared github wizard from the central page", async () => {
     mockUseMarketplaceStore.mockImplementation((selector?: unknown) => {
       const state = {
         githubImport: {
@@ -1108,11 +1073,8 @@ describe("CentralSkillsView", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /从 GitHub 导入/i }));
-    fireEvent.click(screen.getByRole("button", { name: /检查导入内容/i }));
-
-    expect(await screen.findByTestId("github-import-confirm-summary")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /返回预览修改/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /从 GitHub 导入/i })).toBeNull();
+    expect(screen.queryByTestId("github-import-confirm-summary")).toBeNull();
   });
 
   it("preserves search and scroll state when closing the drawer and restores focus", async () => {

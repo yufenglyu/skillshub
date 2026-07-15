@@ -469,7 +469,33 @@ describe("Sidebar", () => {
 
   it("renders show all platforms toggle", () => {
     renderSidebar();
+    expect(screen.getByText("软件平台")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "显示所有平台" })).toBeInTheDocument();
+  });
+
+  it("places the show-all platforms icon in the software platform header", () => {
+    renderSidebar();
+
+    const heading = screen.getByText("软件平台");
+    const header = heading.closest("[data-testid='software-platform-heading']");
+    expect(header).not.toBeNull();
+    expect(header).toBeInstanceOf(HTMLElement);
+    if (!header) return;
+
+    const toggle = within(header as HTMLElement).getByRole("button", { name: "显示所有平台" });
+    expect(toggle).toHaveAttribute("title", "显示所有平台");
+    expect(within(toggle).queryByText("显示所有平台")).toBeNull();
+  });
+
+  it("renders the software platform heading like a primary sidebar title with an icon", () => {
+    renderSidebar();
+
+    const heading = screen.getByText("软件平台");
+    const titleRow = heading.closest("[data-testid='software-platform-heading']");
+    expect(titleRow).toBeInTheDocument();
+    expect(titleRow?.querySelector("svg")).toBeInTheDocument();
+    expect(heading.className).toContain("text-sm");
+    expect(heading.className).toContain("font-medium");
   });
 
   it("renders Obsidian as a separate category with one deduped row per populated vault", () => {
@@ -687,7 +713,7 @@ describe("Sidebar", () => {
     );
   });
 
-  it("places the Obsidian section before ordinary platform categories and the show-all toggle", () => {
+  it("places the software platform header before Obsidian and ordinary platform categories", () => {
     const vaultPath = "/vaults/ordered";
     renderSidebar("/central", {
       platformState: {
@@ -717,15 +743,15 @@ describe("Sidebar", () => {
     });
 
     const discoverButton = screen.getByRole("button", { name: "项目技能库" });
+    const platformHeading = screen.getByText("软件平台");
     const obsidianHeading = screen.getByText("Obsidian");
     const lobsterHeading = screen.getByText("龙虾类");
     const codingHeading = screen.getByText("编程类");
-    const toggle = screen.getByRole("button", { name: "显示所有平台" });
 
-    expect(discoverButton.compareDocumentPosition(obsidianHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(discoverButton.compareDocumentPosition(platformHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(platformHeading.compareDocumentPosition(obsidianHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(obsidianHeading.compareDocumentPosition(lobsterHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(lobsterHeading.compareDocumentPosition(codingHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(codingHeading.compareDocumentPosition(toggle)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   // ── Collapse Toggle ───────────────────────────────────────────────────────

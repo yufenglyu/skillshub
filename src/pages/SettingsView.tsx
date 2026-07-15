@@ -1,5 +1,5 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Palette, Droplets, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload } from "lucide-react";
+import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -16,7 +16,6 @@ import {
 import { InlineConfirmAction } from "@/components/ui/inline-confirm-action";
 import { Switch } from "@/components/ui/switch";
 import { useSettingsStore } from "@/stores/settingsStore";
-import { useThemeStore, CatppuccinFlavor, CatppuccinAccent, ACCENT_NAMES } from "@/stores/themeStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
@@ -29,40 +28,8 @@ import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/p
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.10.8";
+const APP_VERSION = "0.11.0";
 const DB_PATH_FALLBACK = "~/.skillshub/db.sqlite";
-
-/** Catppuccin Lavender hex per flavor — used for visual preview dots on flavor buttons (default accent). */
-const FLAVOR_COLORS: Record<CatppuccinFlavor, string> = {
-  mocha: "#b4befe",
-  macchiato: "#b7bdf8",
-  frappe: "#babbf1",
-  latte: "#7287fd",
-};
-
-/**
- * Mapping of accent name → CSS custom property name.
- * These are resolved at runtime via getComputedStyle to show the
- * actual color for the current flavor.
- */
-const CTP_VAR_MAP: Record<CatppuccinAccent, string> = {
-  rosewater: "--ctp-rosewater",
-  flamingo: "--ctp-flamingo",
-  pink: "--ctp-pink",
-  mauve: "--ctp-mauve",
-  red: "--ctp-red",
-  maroon: "--ctp-maroon",
-  peach: "--ctp-peach",
-  yellow: "--ctp-yellow",
-  green: "--ctp-green",
-  teal: "--ctp-teal",
-  sky: "--ctp-sky",
-  sapphire: "--ctp-sapphire",
-  blue: "--ctp-blue",
-  lavender: "--ctp-lavender",
-};
-
-const FLAVOR_ORDER: CatppuccinFlavor[] = ["mocha", "macchiato", "frappe", "latte"];
 
 function webDavErrorDetail(t: (key: string) => string, error: unknown): string {
   const message = String(error);
@@ -187,6 +154,101 @@ function CustomPlatformRow({ agent, onEdit, onRemove, isRemoving }: CustomPlatfo
   );
 }
 
+interface ScanDirectoriesCardProps {
+  scanDirectories: ScanDirectory[];
+  scanDirError: string | null;
+  isLoadingScanDirs: boolean;
+  removingDir: string | null;
+  showBuiltinDirs: boolean;
+  onAddDirectory: () => void;
+  onRemoveDirectory: (path: string) => void;
+  onToggleDirectory: (path: string, active: boolean) => void;
+  onToggleBuiltinDirs: () => void;
+}
+
+function ScanDirectoriesCard({
+  scanDirectories,
+  scanDirError,
+  isLoadingScanDirs,
+  removingDir,
+  showBuiltinDirs,
+  onAddDirectory,
+  onRemoveDirectory,
+  onToggleDirectory,
+  onToggleBuiltinDirs,
+}: ScanDirectoriesCardProps) {
+  const { t } = useTranslation();
+  const customDirs = scanDirectories.filter((d) => !d.is_builtin);
+  const builtinDirs = scanDirectories.filter((d) => d.is_builtin);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>{t("settings.scanDirs")}</CardTitle>
+            <CardDescription className="mt-1">{t("settings.scanDirsDesc")}</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={onAddDirectory} aria-label={t("settings.addDirAriaLabel")}>
+            <Plus className="size-3.5" />
+            <span>{t("settings.addDirectory")}</span>
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {scanDirError && <p className="text-xs text-destructive mb-3" role="alert">{scanDirError}</p>}
+        {isLoadingScanDirs ? (
+          <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm justify-center">
+            <Loader2 className="size-4 animate-spin" />
+            <span>{t("settings.loading")}</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {customDirs.length > 0 && (
+              <div className="rounded-lg border border-border overflow-hidden">
+                {customDirs.map((dir) => (
+                  <ScanDirectoryRow
+                    key={dir.id}
+                    dir={dir}
+                    onRemove={() => onRemoveDirectory(dir.path)}
+                    onToggle={(active) => onToggleDirectory(dir.path, active)}
+                    isRemoving={removingDir === dir.path}
+                  />
+                ))}
+              </div>
+            )}
+            {customDirs.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-2">{t("settings.noDirs")}</p>
+            )}
+            {builtinDirs.length > 0 && (
+              <div>
+                <button
+                  onClick={onToggleBuiltinDirs}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                >
+                  <span>{showBuiltinDirs ? "▾" : "▸"}</span>
+                  <span>{t("settings.builtinDir")} ({builtinDirs.length})</span>
+                </button>
+                {showBuiltinDirs && (
+                  <div className="grid grid-cols-2 gap-1.5 mt-2">
+                    {builtinDirs.map((dir) => (
+                      <div key={dir.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/30 text-xs text-muted-foreground truncate">
+                        <FolderOpen className="size-3 shrink-0" />
+                        <span className="truncate">{formatPathForDisplay(dir.path)}</span>
+                        {dir.label && <span className="shrink-0 opacity-60">· {dir.label}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── SettingsView ─────────────────────────────────────────────────────────────
 
 export function SettingsView() {
@@ -212,6 +274,10 @@ export function SettingsView() {
   const listWebDavBackups = useSettingsStore((s) => s.listWebDavBackups);
   const uploadWebDavBackup = useSettingsStore((s) => s.uploadWebDavBackup);
   const downloadWebDavBackup = useSettingsStore((s) => s.downloadWebDavBackup);
+  const webDavConfig = useSettingsStore((s) => s.webDavConfig);
+  const isSavingWebDavConfig = useSettingsStore((s) => s.isSavingWebDavConfig);
+  const loadWebDavConfig = useSettingsStore((s) => s.loadWebDavConfig);
+  const saveWebDavConfig = useSettingsStore((s) => s.saveWebDavConfig);
   const githubPat = useSettingsStore((s) => s.githubPat);
   const isLoadingGitHubPat = useSettingsStore((s) => s.isLoadingGitHubPat);
   const isSavingGitHubPat = useSettingsStore((s) => s.isSavingGitHubPat);
@@ -221,10 +287,6 @@ export function SettingsView() {
 
   const agents = usePlatformStore((s) => s.agents);
 
-  const flavor = useThemeStore((s) => s.flavor);
-  const setFlavor = useThemeStore((s) => s.setFlavor);
-  const accent = useThemeStore((s) => s.accent);
-  const setAccent = useThemeStore((s) => s.setAccent);
   const rescan = usePlatformStore((s) => s.rescan);
   const refreshCounts = usePlatformStore((s) => s.refreshCounts);
   const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
@@ -346,13 +408,14 @@ export function SettingsView() {
   const [webDavUsername, setWebDavUsername] = useState("");
   const [webDavPassword, setWebDavPassword] = useState("");
   const [webDavRemoteDir, setWebDavRemoteDir] = useState("skillshub");
+  const [webDavConfigMessage, setWebDavConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [webDavFiles, setWebDavFiles] = useState<WebDavBackupFile[]>([]);
   const [selectedWebDavPath, setSelectedWebDavPath] = useState("");
   const [isRefreshingWebDav, setIsRefreshingWebDav] = useState(false);
   const [isUploadingWebDav, setIsUploadingWebDav] = useState(false);
   const [isImportingWebDav, setIsImportingWebDav] = useState(false);
   const backupInputRef = useRef<HTMLInputElement | null>(null);
-  const isBackupBusy = isExportingBackup || isImportingBackup || isRefreshingWebDav || isUploadingWebDav || isImportingWebDav;
+  const isBackupBusy = isExportingBackup || isImportingBackup || isRefreshingWebDav || isUploadingWebDav || isImportingWebDav || isSavingWebDavConfig;
 
   // ── Load on mount ──────────────────────────────────────────────────────────
 
@@ -360,7 +423,8 @@ export function SettingsView() {
     loadScanDirectories();
     loadGitHubPat();
     loadResourceLibraryDir();
-  }, [loadScanDirectories, loadGitHubPat, loadResourceLibraryDir]);
+    loadWebDavConfig();
+  }, [loadScanDirectories, loadGitHubPat, loadResourceLibraryDir, loadWebDavConfig]);
 
   useEffect(() => {
     setGitHubPatInput(githubPat);
@@ -379,6 +443,13 @@ export function SettingsView() {
   }, [resourceLibraryDir]);
 
   useEffect(() => {
+    setWebDavBaseUrl(webDavConfig.baseUrl);
+    setWebDavUsername(webDavConfig.username ?? "");
+    setWebDavPassword(webDavConfig.password ?? "");
+    setWebDavRemoteDir(webDavConfig.remoteDir || "skillshub");
+  }, [webDavConfig]);
+
+  useEffect(() => {
     setWebDavFiles([]);
     setSelectedWebDavPath("");
   }, [webDavBaseUrl, webDavRemoteDir, webDavUsername, webDavPassword]);
@@ -391,6 +462,14 @@ export function SettingsView() {
   const isResourcePathDirty = useMemo(
     () => resourcePathInput.trim() !== formatPathForDisplay(resourceLibraryDir),
     [resourceLibraryDir, resourcePathInput]
+  );
+  const isWebDavConfigDirty = useMemo(
+    () =>
+      webDavBaseUrl.trim() !== webDavConfig.baseUrl ||
+      webDavUsername !== (webDavConfig.username ?? "") ||
+      webDavPassword !== (webDavConfig.password ?? "") ||
+      webDavRemoteDir.trim() !== (webDavConfig.remoteDir || "skillshub"),
+    [webDavBaseUrl, webDavConfig, webDavPassword, webDavRemoteDir, webDavUsername]
   );
 
   // ── Scan Directories Handlers ──────────────────────────────────────────────
@@ -578,12 +657,12 @@ export function SettingsView() {
   async function handleExportBackup() {
     setIsExportingBackup(true);
     try {
-      const json = await exportAppBackup(backupOptions);
-      const blob = new Blob([json], { type: "application/json" });
+      const backup = await exportAppBackup(backupOptions);
+      const blob = new Blob([backup], { type: "application/zip" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `skillshub-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.download = `skillshub-backup-${new Date().toISOString().slice(0, 10)}.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -601,8 +680,8 @@ export function SettingsView() {
     if (!file) return;
     setIsImportingBackup(true);
     try {
-      const json = await file.text();
-      await importAppBackup(json);
+      const backup = new Uint8Array(await file.arrayBuffer());
+      await importAppBackup(backup);
       await Promise.all([
         rescan(),
         loadScanDirectories(),
@@ -630,6 +709,24 @@ export function SettingsView() {
       password: webDavPassword,
       remoteDir: webDavRemoteDir.trim(),
     };
+  }
+
+  async function handleSaveWebDavConfig() {
+    if (!webDavBaseUrl.trim() || !webDavRemoteDir.trim()) {
+      toast.error(t("settings.webdavMissingConfig"));
+      return;
+    }
+    setWebDavConfigMessage(null);
+    try {
+      await saveWebDavConfig(currentWebDavConfig());
+      const text = t("settings.webdavConfigSaved");
+      setWebDavConfigMessage({ type: "success", text });
+      toast.success(text);
+    } catch (err) {
+      const text = t("settings.webdavConfigSaveError", { error: String(err) });
+      setWebDavConfigMessage({ type: "error", text });
+      toast.error(text);
+    }
   }
 
   async function handleRefreshWebDavBackups() {
@@ -682,8 +779,8 @@ export function SettingsView() {
     }
     setIsImportingWebDav(true);
     try {
-      const json = await downloadWebDavBackup(currentWebDavConfig(), selectedWebDavPath);
-      await importAppBackup(json);
+      const backup = await downloadWebDavBackup(currentWebDavConfig(), selectedWebDavPath);
+      await importAppBackup(backup);
       await Promise.all([
         rescan(),
         loadScanDirectories(),
@@ -711,7 +808,57 @@ export function SettingsView() {
       {/* Content */}
       <div className="flex-1 overflow-auto p-6 space-y-6">
 
-        {/* Section 1: Central Skills Root */}
+        {/* Section 1: Skill Resource Library Root */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Database className="size-5 text-muted-foreground" />
+              <div>
+                <CardTitle>{t("settings.resourcePathTitle")}</CardTitle>
+                <CardDescription className="mt-1">
+                  {t("settings.resourcePathDesc")}
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="skill-resource-library-dir" className="mb-1 block text-xs text-muted-foreground">
+                  {t("settings.resourcePathLabel")}
+                </label>
+                <Input
+                  id="skill-resource-library-dir"
+                  value={resourcePathInput}
+                  onChange={(event) => setResourcePathInput(event.target.value)}
+                  disabled={isSavingResourcePath}
+                  placeholder={DB_PATH_FALLBACK.replace("db.sqlite", "library")}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.resourcePathHint")}
+              </p>
+              {resourcePathMessage ? (
+                <p
+                  className={resourcePathMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
+                  role="status"
+                >
+                  {resourcePathMessage.text}
+                </p>
+              ) : null}
+              <Button
+                onClick={handleSaveResourcePath}
+                disabled={isSavingResourcePath || !isResourcePathDirty || !resourcePathInput.trim()}
+                aria-label={t("settings.saveResourcePath")}
+              >
+                {isSavingResourcePath ? <Loader2 className="size-4 animate-spin" /> : null}
+                <span>{t("common.save")}</span>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Section 1.5: Central Skills Root */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -761,55 +908,17 @@ export function SettingsView() {
           </CardContent>
         </Card>
 
-        {/* Section 1.5: Skill Resource Library */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Database className="size-5 text-muted-foreground" />
-              <div>
-                <CardTitle>{t("settings.resourcePathTitle")}</CardTitle>
-                <CardDescription className="mt-1">
-                  {t("settings.resourcePathDesc")}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="skill-resource-library-dir" className="mb-1 block text-xs text-muted-foreground">
-                  {t("settings.resourcePathLabel")}
-                </label>
-                <Input
-                  id="skill-resource-library-dir"
-                  value={resourcePathInput}
-                  onChange={(event) => setResourcePathInput(event.target.value)}
-                  disabled={isSavingResourcePath}
-                  placeholder={DB_PATH_FALLBACK.replace("db.sqlite", "library")}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t("settings.resourcePathHint")}
-              </p>
-              {resourcePathMessage ? (
-                <p
-                  className={resourcePathMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
-                  role="status"
-                >
-                  {resourcePathMessage.text}
-                </p>
-              ) : null}
-              <Button
-                onClick={handleSaveResourcePath}
-                disabled={isSavingResourcePath || !isResourcePathDirty || !resourcePathInput.trim()}
-                aria-label={t("settings.saveResourcePath")}
-              >
-                {isSavingResourcePath ? <Loader2 className="size-4 animate-spin" /> : null}
-                <span>{t("common.save")}</span>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <ScanDirectoriesCard
+          scanDirectories={scanDirectories}
+          scanDirError={scanDirError}
+          isLoadingScanDirs={isLoadingScanDirs}
+          removingDir={removingDir}
+          showBuiltinDirs={showBuiltinDirs}
+          onAddDirectory={() => setIsAddDirOpen(true)}
+          onRemoveDirectory={handleRemoveDirectory}
+          onToggleDirectory={handleToggleDirectory}
+          onToggleBuiltinDirs={() => setShowBuiltinDirs((v) => !v)}
+        />
 
         {/* Section 2: Backup and migration */}
         <Card>
@@ -861,7 +970,7 @@ export function SettingsView() {
               <input
                 ref={backupInputRef}
                 type="file"
-                accept="application/json,.json"
+                accept="application/zip,.zip,application/json,.json"
                 className="hidden"
                 onChange={handleImportBackup}
                 aria-label={t("settings.importBackup")}
@@ -873,7 +982,7 @@ export function SettingsView() {
             <div className="mt-5 space-y-3 border-t border-border/60 pt-4">
               <div>
                 <div className="text-sm font-medium">{t("settings.webdavTitle")}</div>
-                <p className="mt-1 text-xs text-muted-foreground">{t("settings.webdavSessionOnlyHint")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t("settings.webdavPersistHint")}</p>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
@@ -894,6 +1003,14 @@ export function SettingsView() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleSaveWebDavConfig}
+                  disabled={isBackupBusy || !isWebDavConfigDirty || !webDavBaseUrl.trim() || !webDavRemoteDir.trim()}
+                >
+                  {isSavingWebDavConfig ? <Loader2 className="size-4 animate-spin" /> : null}
+                  <span>{t("settings.webdavSaveConfig")}</span>
+                </Button>
                 <Button variant="outline" onClick={handleRefreshWebDavBackups} disabled={isBackupBusy}>
                   {isRefreshingWebDav ? <Loader2 className="size-4 animate-spin" /> : null}
                   <span>{t("settings.webdavRefresh")}</span>
@@ -903,6 +1020,14 @@ export function SettingsView() {
                   <span>{t("settings.webdavUpload")}</span>
                 </Button>
               </div>
+              {webDavConfigMessage ? (
+                <p
+                  className={webDavConfigMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
+                  role="status"
+                >
+                  {webDavConfigMessage.text}
+                </p>
+              ) : null}
               <div className="rounded-lg border border-border/70">
                 {webDavFiles.length === 0 ? (
                   <p className="px-3 py-3 text-xs text-muted-foreground">{t("settings.webdavNoBackups")}</p>
@@ -1155,72 +1280,6 @@ export function SettingsView() {
           </CardContent>
         </Card>
 
-        {/* ── Section 4: Scan Directories (compact) ─────────────────────── */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>{t("settings.scanDirs")}</CardTitle>
-                <CardDescription className="mt-1">{t("settings.scanDirsDesc")}</CardDescription>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => setIsAddDirOpen(true)} aria-label={t("settings.addDirAriaLabel")}>
-                <Plus className="size-3.5" />
-                <span>{t("settings.addDirectory")}</span>
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {scanDirError && <p className="text-xs text-destructive mb-3" role="alert">{scanDirError}</p>}
-            {isLoadingScanDirs ? (
-              <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm justify-center">
-                <Loader2 className="size-4 animate-spin" />
-                <span>{t("settings.loading")}</span>
-              </div>
-            ) : (() => {
-              const customDirs = scanDirectories.filter((d) => !d.is_builtin);
-              const builtinDirs = scanDirectories.filter((d) => d.is_builtin);
-              return (
-                <div className="space-y-3">
-                  {/* Custom dirs first */}
-                  {customDirs.length > 0 && (
-                    <div className="rounded-lg border border-border overflow-hidden">
-                      {customDirs.map((dir) => (
-                        <ScanDirectoryRow key={dir.id} dir={dir} onRemove={() => handleRemoveDirectory(dir.path)} onToggle={(active) => handleToggleDirectory(dir.path, active)} isRemoving={removingDir === dir.path} />
-                      ))}
-                    </div>
-                  )}
-                  {customDirs.length === 0 && (
-                    <p className="text-xs text-muted-foreground text-center py-2">{t("settings.noDirs")}</p>
-                  )}
-                  {/* Built-in dirs — collapsible, two-column */}
-                  {builtinDirs.length > 0 && (
-                    <div>
-                      <button
-                        onClick={() => setShowBuiltinDirs((v) => !v)}
-                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                      >
-                        <span>{showBuiltinDirs ? "▾" : "▸"}</span>
-                        <span>{t("settings.builtinDir")} ({builtinDirs.length})</span>
-                      </button>
-                      {showBuiltinDirs && (
-                        <div className="grid grid-cols-2 gap-1.5 mt-2">
-                          {builtinDirs.map((dir) => (
-                            <div key={dir.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/30 text-xs text-muted-foreground truncate">
-                              <FolderOpen className="size-3 shrink-0" />
-                              <span className="truncate">{formatPathForDisplay(dir.path)}</span>
-                              {dir.label && <span className="shrink-0 opacity-60">· {dir.label}</span>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </CardContent>
-        </Card>
-
         {/* ── Section 5: About ────────────────────────────────────────────── */}
         <Card>
           <CardHeader>
@@ -1240,60 +1299,6 @@ export function SettingsView() {
                 <div>
                   <div className="text-xs text-muted-foreground">{t("settings.dbPath")}</div>
                   <div className="text-sm font-medium font-mono">{dbPathDisplay}</div>
-                </div>
-              </div>
-              {/* ── Flavor Switcher ──────────────────────────────────────── */}
-              <div className="flex items-center gap-3">
-                <Palette className="size-4 text-muted-foreground shrink-0" />
-                <div className="flex-1">
-                  <div className="text-xs text-muted-foreground mb-1.5">{t("settings.flavor")}</div>
-                  <div className="flex gap-2">
-                    {FLAVOR_ORDER.map((f) => (
-                      <Button
-                        key={f}
-                        variant={flavor === f ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setFlavor(f)}
-                        aria-pressed={flavor === f}
-                      >
-                        <span
-                          className="inline-block size-2 rounded-full mr-1.5 shrink-0"
-                          style={{ backgroundColor: FLAVOR_COLORS[f] }}
-                        />
-                        {t(`settings.${f}`)}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              {/* ── Accent Color Picker ─────────────────────────────────── */}
-              <div className="flex items-center gap-3">
-                <Droplets className="size-4 text-muted-foreground shrink-0" />
-                <div className="flex-1">
-                  <div className="text-xs text-muted-foreground mb-1.5">{t("settings.accentColor")}</div>
-                  <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t("settings.accentColor")}>
-                    {ACCENT_NAMES.map((name) => {
-                      const ctpVar = CTP_VAR_MAP[name];
-                      const isActive = accent === name;
-                      return (
-                        <button
-                          key={name}
-                          type="button"
-                          role="radio"
-                          aria-checked={isActive}
-                          aria-label={t(`settings.accent.${name}`)}
-                          title={t(`settings.accent.${name}`)}
-                          onClick={() => setAccent(name)}
-                          className={`relative size-6 rounded-full transition-all cursor-pointer
-                            ${isActive
-                              ? "ring-2 ring-ring ring-offset-2 ring-offset-background scale-110"
-                              : "ring-1 ring-border hover:scale-105 hover:ring-2 hover:ring-ring/50"
-                            }`}
-                          style={{ backgroundColor: `var(${ctpVar})` }}
-                        />
-                      );
-                    })}
-                  </div>
                 </div>
               </div>
               {/* ── Language Switcher ──────────────────────────────────────── */}

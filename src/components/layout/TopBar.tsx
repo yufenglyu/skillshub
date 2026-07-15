@@ -1,10 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Blocks, Database, RefreshCw, Search, Settings, Store } from "lucide-react";
+import { Blocks, Database, Monitor, Moon, RefreshCw, Search, Settings, Store, Sun } from "lucide-react";
 
 import { usePlatformStore } from "@/stores/platformStore";
 import { useDiscoverStore } from "@/stores/discoverStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
+import { useThemeStore } from "@/stores/themeStore";
 import { cn } from "@/lib/utils";
 
 interface TopBarProps {
@@ -22,6 +23,8 @@ export function TopBar({ onSearchClick, onRescan }: TopBarProps) {
   const totalDiscovered = useDiscoverStore((s) => s.totalSkillsFound);
   const isScanning = useDiscoverStore((s) => s.isScanning);
   const resourceSkillsCount = useResourceLibraryStore((s) => s.skills.length);
+  const themeMode = useThemeStore((s) => s.mode);
+  const cycleThemeMode = useThemeStore((s) => s.cycleMode);
 
   // Determine current view label and count
   const viewInfo = (() => {
@@ -61,6 +64,10 @@ export function TopBar({ onSearchClick, onRescan }: TopBarProps) {
   const isMac =
     typeof navigator !== "undefined" &&
     navigator.platform.toUpperCase().includes("MAC");
+  const themeLabel = t("topBar.cycleTheme", {
+    mode: t(`topBar.themeMode.${themeMode}`),
+  });
+  const ThemeIcon = themeMode === "system" ? Monitor : themeMode === "light" ? Sun : Moon;
 
   return (
     <header className="relative flex items-center h-12 px-4 border-b border-border bg-sidebar text-sidebar-foreground shrink-0">
@@ -173,6 +180,19 @@ export function TopBar({ onSearchClick, onRescan }: TopBarProps) {
           <span className="text-primary/70">{t("discover.scanning")}</span>
         </div>
       )}
+
+      {/* Theme */}
+      <button
+        onClick={cycleThemeMode}
+        className={cn(
+          "z-10 mr-1 p-1.5 rounded-md transition-colors cursor-pointer shrink-0",
+          "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+        )}
+        aria-label={themeLabel}
+        title={themeLabel}
+      >
+        <ThemeIcon className="size-4" />
+      </button>
 
       {/* Settings */}
       <button

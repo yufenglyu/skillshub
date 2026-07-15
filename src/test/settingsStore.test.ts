@@ -53,6 +53,14 @@ describe("settingsStore", () => {
       githubPat: "",
       isLoadingGitHubPat: false,
       isSavingGitHubPat: false,
+      webDavConfig: {
+        baseUrl: "",
+        username: "",
+        password: "",
+        remoteDir: "skillshub",
+      },
+      isLoadingWebDavConfig: false,
+      isSavingWebDavConfig: false,
     });
     vi.clearAllMocks();
   });
@@ -333,8 +341,8 @@ describe("settingsStore", () => {
     ).rejects.toThrow("Not found");
   });
 
-  it("exportAppBackup passes selected options to export_app_backup", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce("{}");
+  it("exportAppBackup returns backup bytes from export_app_backup", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce([80, 75, 3, 4]);
     const options = {
       includeResourceLibrary: true,
       includeCentralLibrary: false,
@@ -342,9 +350,18 @@ describe("settingsStore", () => {
       includeInstallations: false,
     };
 
-    await useSettingsStore.getState().exportAppBackup(options);
+    const backup = await useSettingsStore.getState().exportAppBackup(options);
 
     expect(invoke).toHaveBeenCalledWith("export_app_backup", { options });
+    expect(backup).toEqual(new Uint8Array([80, 75, 3, 4]));
+  });
+
+  it("importAppBackup passes backup bytes to import_app_backup", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
+    await useSettingsStore.getState().importAppBackup(new Uint8Array([1, 2, 3]));
+
+    expect(invoke).toHaveBeenCalledWith("import_app_backup", { backup: [1, 2, 3] });
   });
 
   it("listWebDavBackups calls list_webdav_backups with session config", async () => {
@@ -363,8 +380,8 @@ describe("settingsStore", () => {
 
   it("uploadWebDavBackup calls upload_webdav_backup with config and options", async () => {
     const file = {
-      name: "skillshub-backup.json",
-      remotePath: "skillshub-backup.json",
+      name: "skillshub-backup.zip",
+      remotePath: "skillshub-backup.zip",
       size: 100,
       modifiedAt: "2026-07-15T00:00:00Z",
     };
@@ -388,7 +405,7 @@ describe("settingsStore", () => {
   });
 
   it("downloadWebDavBackup calls download_webdav_backup with selected remote path", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce("{\"schema_version\":1}");
+    vi.mocked(invoke).mockResolvedValueOnce([80, 75, 3, 4]);
     const config = {
       baseUrl: "https://example.com/dav",
       username: "user",
@@ -396,12 +413,71 @@ describe("settingsStore", () => {
       remoteDir: "skillshub",
     };
 
-    await useSettingsStore.getState().downloadWebDavBackup(config, "skillshub-backup.json");
+    const backup = await useSettingsStore
+      .getState()
+      .downloadWebDavBackup(config, "skillshub-backup.zip");
 
     expect(invoke).toHaveBeenCalledWith("download_webdav_backup", {
       config,
-      remotePath: "skillshub-backup.json",
+      remotePath: "skillshub-backup.zip",
     });
+    expect(backup).toEqual(new Uint8Array([80, 75, 3, 4]));
+  });
+
+  it("loadWebDavConfig loads persisted WebDAV connection settings", async () => {
+    vi.mocked(invoke)
+      .mockResolvedValueOnce("https://example.com/dav")
+      .mockResolvedValueOnce("user")
+      .mockResolvedValueOnce("secret")
+      .mockResolvedValueOnce("backups");
+
+    await useSettingsStore.getState().loadWebDavConfig();
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "get_setting", { key: "webdav_base_url" });
+    expect(invoke).toHaveBeenNthCalledWith(2, "get_setting", { key: "webdav_username" });
+    expect(invoke).toHaveBeenNthCalledWith(3, "get_setting", { key: "webdav_password" });
+    expect(invoke).toHaveBeenNthCalledWith(4, "get_setting", { key: "webdav_remote_dir" });
+    expect(useSettingsStore.getState().webDavConfig).toEqual({
+      baseUrl: "https://example.com/dav",
+      username: "user",
+      password: "secret",
+      remoteDir: "backups",
+    });
+  });
+
+  it("saveWebDavConfig persists WebDAV connection settings", async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+
+    await useSettingsStore.getState().saveWebDavConfig({
+      baseUrl: " https://example.com/dav ",
+      username: "user",
+      password: "secret",
+      remoteDir: " backups ",
+    });
+
+    expect(invoke).toHaveBeenCalledWith("set_setting", {
+      key: "webdav_base_url",
+      value: "https://example.com/dav",
+    });
+    expect(invoke).toHaveBeenCalledWith("set_setting", {
+      key: "webdav_username",
+      value: "user",
+    });
+    expect(invoke).toHaveBeenCalledWith("set_setting", {
+      key: "webdav_password",
+      value: "secret",
+    });
+    expect(invoke).toHaveBeenCalledWith("set_setting", {
+      key: "webdav_remote_dir",
+      value: "backups",
+    });
+    expect(useSettingsStore.getState().webDavConfig).toEqual({
+      baseUrl: "https://example.com/dav",
+      username: "user",
+      password: "secret",
+      remoteDir: "backups",
+    });
+    expect(useSettingsStore.getState().isSavingWebDavConfig).toBe(false);
   });
 
   // ── clearError ────────────────────────────────────────────────────────────

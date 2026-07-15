@@ -1,7 +1,12 @@
 import { create } from "zustand";
 import { invoke, isTauriRuntime } from "@/lib/tauri";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { SkillDetail, SkillDetailRequest } from "@/types";
+import {
+  SkillDetail,
+  SkillDetailRequest,
+  SkillSourceMetadataResponse,
+  SkillSourceMetadataUpdate,
+} from "@/types";
 import {
   ExplanationErrorInfo,
   setupExplanationStreamListeners,
@@ -31,6 +36,7 @@ interface SkillDetailState {
   uninstallSkill: (skillId: string, agentId: string) => Promise<void>;
   refreshInstallations: (skillId: string) => Promise<void>;
   updateMetadata: (skillId: string, metadata: { notes: string | null; tags: string[] }) => Promise<void>;
+  updateSourceMetadata: (skillId: string, metadata: SkillSourceMetadataUpdate) => Promise<void>;
   cleanupExplanationListeners: () => void;
   reset: () => void;
 }
@@ -390,6 +396,50 @@ export const useSkillDetailStore = create<SkillDetailState>((set) => ({
       set((state) => ({
         detail: state.detail
           ? { ...state.detail, notes: saved.notes, tags: saved.tags }
+          : state.detail,
+      }));
+    } catch (err) {
+      set({ error: String(err) });
+      throw err;
+    }
+  },
+
+  updateSourceMetadata: async (skillId, metadata) => {
+    if (!isTauriRuntime()) {
+      set((state) => ({
+        detail: state.detail
+          ? {
+              ...state.detail,
+              source: metadata.sourceRepo
+                ? `github:${metadata.sourceRepo.trim()}`
+                : metadata.sourceType,
+              source_url: metadata.sourceUrl?.trim() || null,
+              source_author: metadata.sourceAuthor?.trim() || null,
+              source_repo: metadata.sourceRepo?.trim() || null,
+              source_path: metadata.sourcePath?.trim() || null,
+            }
+          : state.detail,
+      }));
+      return;
+    }
+    try {
+      const saved = await invoke<SkillSourceMetadataResponse>(
+        "update_resource_skill_source_metadata",
+        {
+          skillId,
+          metadata,
+        }
+      );
+      set((state) => ({
+        detail: state.detail
+          ? {
+              ...state.detail,
+              source: saved.source ?? undefined,
+              source_url: saved.source_url ?? null,
+              source_author: saved.source_author ?? null,
+              source_repo: saved.source_repo ?? null,
+              source_path: saved.source_path ?? null,
+            }
           : state.detail,
       }));
     } catch (err) {

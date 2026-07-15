@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::cmp::Ordering;
 use std::collections::HashSet;
+use std::io::{Cursor, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 use tauri::State;
@@ -134,6 +135,7 @@ struct SkillBackup {
     #[serde(default = "default_skill_backup_storage_kind")]
     storage_kind: String,
     relative_dir: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     files: Vec<SkillFileBackup>,
 }
 
@@ -206,13 +208,13 @@ struct AppBackup {
 pub async fn export_app_backup(
     state: State<'_, AppState>,
     options: Option<BackupOptions>,
-) -> Result<String, String> {
-    export_app_backup_impl(&state.db, options.unwrap_or_default()).await
+) -> Result<Vec<u8>, String> {
+    export_app_backup_archive_impl(&state.db, options.unwrap_or_default()).await
 }
 
 #[tauri::command]
-pub async fn import_app_backup(state: State<'_, AppState>, json: String) -> Result<(), String> {
-    import_app_backup_impl(&state.db, &json).await
+pub async fn import_app_backup(state: State<'_, AppState>, backup: Vec<u8>) -> Result<(), String> {
+    import_app_backup_bytes_impl(&state.db, &backup).await
 }
 
 #[tauri::command]
@@ -226,15 +228,15 @@ pub async fn upload_webdav_backup(
     config: WebDavConfig,
     options: Option<BackupOptions>,
 ) -> Result<WebDavBackupFile, String> {
-    let json = export_app_backup_impl(&state.db, options.unwrap_or_default()).await?;
-    upload_webdav_backup_impl(config, json).await
+    let archive = export_app_backup_archive_impl(&state.db, options.unwrap_or_default()).await?;
+    upload_webdav_backup_impl(config, archive).await
 }
 
 #[tauri::command]
 pub async fn download_webdav_backup(
     config: WebDavConfig,
     remote_path: String,
-) -> Result<String, String> {
+) -> Result<Vec<u8>, String> {
     download_webdav_backup_impl(config, &remote_path).await
 }
 
@@ -329,9 +331,9 @@ fn apply_webdav_auth(
 
 async fn upload_webdav_backup_impl(
     config: WebDavConfig,
-    json: String,
+    archive: Vec<u8>,
 ) -> Result<WebDavBackupFile, String> {
-    if json.len() > WEBDAV_MAX_DOWNLOAD_BYTES {
+    if archive.len() > WEBDAV_MAX_DOWNLOAD_BYTES {
         return Err("WebDAV backup exceeds size limit".to_string());
     }
     let filename = generated_backup_filename();
@@ -340,8 +342,8 @@ async fn upload_webdav_backup_impl(
     let response = apply_webdav_auth(
         client
             .put(&url)
-            .header("Content-Type", "application/json")
-            .body(json.clone()),
+            .header("Content-Type", "application/zip")
+            .body(archive.clone()),
         &config,
     )
     .send()
@@ -356,7 +358,7 @@ async fn upload_webdav_backup_impl(
     Ok(WebDavBackupFile {
         name: filename.clone(),
         remote_path: filename,
-        size: Some(json.len() as u64),
+        size: Some(archive.len() as u64),
         modified_at: Some(Utc::now().to_rfc3339()),
     })
 }
@@ -364,7 +366,7 @@ async fn upload_webdav_backup_impl(
 async fn download_webdav_backup_impl(
     config: WebDavConfig,
     remote_path: &str,
-) -> Result<String, String> {
+) -> Result<Vec<u8>, String> {
     let url = build_webdav_url(&config, remote_path)?;
     let client = webdav_client()?;
     let response = apply_webdav_auth(client.get(&url), &config)
@@ -377,7 +379,7 @@ async fn download_webdav_backup_impl(
             response.status()
         ));
     }
-    read_webdav_body(
+    read_webdav_bytes(
         response,
         WEBDAV_MAX_DOWNLOAD_BYTES,
         "WebDAV download failed",
@@ -420,6 +422,15 @@ async fn read_webdav_body(
     max_bytes: usize,
     operation: &str,
 ) -> Result<String, String> {
+    let body = read_webdav_bytes(response, max_bytes, operation).await?;
+    String::from_utf8(body).map_err(|_| format!("{} response is not valid UTF-8", operation))
+}
+
+async fn read_webdav_bytes(
+    response: reqwest::Response,
+    max_bytes: usize,
+    operation: &str,
+) -> Result<Vec<u8>, String> {
     if response
         .content_length()
         .is_some_and(|length| length > max_bytes as u64)
@@ -436,7 +447,7 @@ async fn read_webdav_body(
         }
         body.extend_from_slice(&chunk);
     }
-    String::from_utf8(body).map_err(|_| format!("{} response is not valid UTF-8", operation))
+    Ok(body)
 }
 
 #[derive(Default)]
@@ -534,16 +545,17 @@ fn parse_webdav_modified_at(value: Option<&str>) -> Option<DateTime<Utc>> {
 }
 
 fn generated_backup_timestamp(name: &str) -> Option<NaiveDateTime> {
-    let timestamp = name
-        .strip_prefix("skillshub-backup-")?
-        .strip_suffix(".json")?;
+    let timestamp = name.strip_prefix("skillshub-backup-")?;
+    let timestamp = timestamp
+        .strip_suffix(".zip")
+        .or_else(|| timestamp.strip_suffix(".json"))?;
     let timestamp = timestamp.get(..17)?;
     NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d-%H%M%S").ok()
 }
 
 fn generated_backup_filename() -> String {
     format!(
-        "skillshub-backup-{}-{}.json",
+        "skillshub-backup-{}-{}.zip",
         Utc::now().format("%Y-%m-%d-%H%M%S"),
         Uuid::new_v4().simple()
     )
@@ -564,7 +576,7 @@ fn webdav_entry_to_backup_file(
     if name.is_empty() {
         return Ok(None);
     }
-    if !name.ends_with(".json") {
+    if !name.ends_with(".zip") && !name.ends_with(".json") {
         return Ok(None);
     }
     if name == "." || name == ".." || name.contains('/') || name.contains('\\') {
@@ -588,10 +600,10 @@ fn sanitize_webdav_error(error: reqwest::Error) -> String {
     }
 }
 
-pub async fn export_app_backup_impl(
+async fn export_app_backup_data_impl(
     pool: &DbPool,
     options: BackupOptions,
-) -> Result<String, String> {
+) -> Result<AppBackup, String> {
     let central_root = central_root(pool).await?;
     let resource_root = db::get_skill_resource_library_dir(pool).await?;
     let mut skill_backups = Vec::new();
@@ -741,11 +753,143 @@ pub async fn export_app_backup_impl(
         skill_installations,
     };
 
+    Ok(backup)
+}
+
+pub async fn export_app_backup_impl(
+    pool: &DbPool,
+    options: BackupOptions,
+) -> Result<String, String> {
+    let backup = export_app_backup_data_impl(pool, options).await?;
     serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())
+}
+
+pub async fn export_app_backup_archive_impl(
+    pool: &DbPool,
+    options: BackupOptions,
+) -> Result<Vec<u8>, String> {
+    let mut backup = export_app_backup_data_impl(pool, options).await?;
+    let mut archived_files = Vec::new();
+    for skill in &mut backup.skills {
+        let archive_root = if skill.storage_kind == "resource" {
+            "resource-library"
+        } else {
+            "central-library"
+        };
+        let relative_dir = normalize_relative_path(&skill.relative_dir)?;
+        let relative_dir = path_to_portable_relative(&relative_dir)
+            .ok_or_else(|| "Backup contains an empty relative path".to_string())?;
+        for file in &skill.files {
+            let relative_file = normalize_relative_path(&file.relative_path)?;
+            let relative_file = path_to_portable_relative(&relative_file)
+                .ok_or_else(|| "Backup contains an empty relative path".to_string())?;
+            let content = STANDARD.decode(&file.content_base64).map_err(|e| {
+                format!("Invalid base64 content for '{}': {}", file.relative_path, e)
+            })?;
+            archived_files.push((
+                format!("{archive_root}/{relative_dir}/{relative_file}"),
+                content,
+            ));
+        }
+        skill.files.clear();
+    }
+
+    let manifest = serde_json::to_vec_pretty(&backup).map_err(|e| e.to_string())?;
+    let cursor = Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(cursor);
+    let options = zip::write::FileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .unix_permissions(0o644);
+    zip.start_file("manifest.json", options)
+        .map_err(|e| format!("Failed to create backup archive: {}", e))?;
+    zip.write_all(&manifest)
+        .map_err(|e| format!("Failed to write backup manifest: {}", e))?;
+    archived_files.sort_by(|a, b| a.0.cmp(&b.0));
+    for (path, content) in archived_files {
+        zip.start_file(path, options)
+            .map_err(|e| format!("Failed to create backup archive entry: {}", e))?;
+        zip.write_all(&content)
+            .map_err(|e| format!("Failed to write backup archive entry: {}", e))?;
+    }
+    let cursor = zip
+        .finish()
+        .map_err(|e| format!("Failed to finish backup archive: {}", e))?;
+    Ok(cursor.into_inner())
 }
 
 async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String> {
     let backup: AppBackup = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    import_app_backup_data_impl(pool, backup).await
+}
+
+async fn import_app_backup_bytes_impl(pool: &DbPool, backup: &[u8]) -> Result<(), String> {
+    if backup
+        .iter()
+        .copied()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .is_some_and(|byte| byte == b'{')
+    {
+        let json = std::str::from_utf8(backup)
+            .map_err(|_| "Backup JSON is not valid UTF-8".to_string())?;
+        return import_app_backup_impl(pool, json).await;
+    }
+    import_app_backup_archive_impl(pool, backup).await
+}
+
+async fn import_app_backup_archive_impl(pool: &DbPool, archive: &[u8]) -> Result<(), String> {
+    let reader = Cursor::new(archive);
+    let mut zip = zip::ZipArchive::new(reader)
+        .map_err(|e| format!("Backup archive is not a valid ZIP file: {}", e))?;
+    let mut manifest_bytes = Vec::new();
+    let mut archived_files: Vec<(String, Vec<u8>)> = Vec::new();
+    for index in 0..zip.len() {
+        let mut file = zip
+            .by_index(index)
+            .map_err(|e| format!("Failed to read backup archive entry: {}", e))?;
+        if file.is_dir() {
+            continue;
+        }
+        let name = file.name().replace('\\', "/");
+        normalize_relative_path(&name)?;
+        let mut content = Vec::new();
+        file.read_to_end(&mut content)
+            .map_err(|e| format!("Failed to read backup archive entry '{}': {}", name, e))?;
+        if name == "manifest.json" {
+            manifest_bytes = content;
+        } else {
+            archived_files.push((name, content));
+        }
+    }
+    if manifest_bytes.is_empty() {
+        return Err("Backup archive is missing manifest.json".to_string());
+    }
+    let mut backup: AppBackup =
+        serde_json::from_slice(&manifest_bytes).map_err(|e| e.to_string())?;
+    for skill in &mut backup.skills {
+        let archive_root = if skill.storage_kind == "resource" {
+            "resource-library"
+        } else {
+            "central-library"
+        };
+        let relative_dir = normalize_relative_path(&skill.relative_dir)?;
+        let relative_dir = path_to_portable_relative(&relative_dir)
+            .ok_or_else(|| "Backup contains an empty relative path".to_string())?;
+        let prefix = format!("{archive_root}/{relative_dir}/");
+        skill.files = archived_files
+            .iter()
+            .filter_map(|(name, content)| {
+                name.strip_prefix(&prefix)
+                    .map(|relative_path| SkillFileBackup {
+                        relative_path: relative_path.to_string(),
+                        content_base64: STANDARD.encode(content),
+                    })
+            })
+            .collect();
+    }
+    import_app_backup_data_impl(pool, backup).await
+}
+
+async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result<(), String> {
     if backup.schema_version != BACKUP_SCHEMA_VERSION {
         return Err(format!(
             "Unsupported backup schema version {}",
@@ -1544,6 +1688,7 @@ fn is_portable_backup_path(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Cursor, Read};
     use tempfile::tempdir;
 
     async fn setup_test_db() -> (DbPool, tempfile::TempDir) {
@@ -1571,6 +1716,198 @@ mod tests {
             .execute(pool)
             .await
             .expect("agent path");
+    }
+
+    fn zip_entry_bytes(archive: &[u8], name: &str) -> Vec<u8> {
+        let reader = Cursor::new(archive);
+        let mut zip = zip::ZipArchive::new(reader).expect("zip archive");
+        let mut file = zip.by_name(name).expect("zip entry");
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).expect("zip bytes");
+        bytes
+    }
+
+    fn zip_entry_text(archive: &[u8], name: &str) -> String {
+        String::from_utf8(zip_entry_bytes(archive, name)).expect("utf8 zip entry")
+    }
+
+    #[tokio::test]
+    async fn archive_backup_stores_resource_files_outside_manifest_json() {
+        let (pool, dir) = setup_test_db().await;
+        let resource_root = dir.path().join("resource-library");
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .expect("resource dir");
+        let skill_dir = resource_root.join("manual-pack").join("demo-skill");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: Demo Skill\n---\n\nUse this skill.",
+        )
+        .expect("skill");
+        std::fs::write(skill_dir.join("asset.txt"), "asset body").expect("asset");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "demo-skill".to_string(),
+                name: "Demo Skill".to_string(),
+                description: None,
+                file_path: path_to_string(&skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&skill_dir)),
+                is_central: false,
+                source: Some("manual".to_string()),
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+
+        let archive = export_app_backup_archive_impl(
+            &pool,
+            BackupOptions {
+                include_resource_library: true,
+                include_central_library: false,
+                include_app_config: false,
+                include_installations: false,
+            },
+        )
+        .await
+        .expect("archive export");
+
+        let manifest = zip_entry_text(&archive, "manifest.json");
+        assert!(manifest.contains("\"schema_version\""));
+        assert!(manifest.contains("\"relative_dir\": \"manual-pack/demo-skill\""));
+        assert!(!manifest.contains("contentBase64"));
+        assert!(!manifest.contains(&STANDARD.encode("asset body")));
+        assert_eq!(
+            zip_entry_text(&archive, "resource-library/manual-pack/demo-skill/SKILL.md"),
+            "---\nname: Demo Skill\n---\n\nUse this skill."
+        );
+        assert_eq!(
+            zip_entry_text(
+                &archive,
+                "resource-library/manual-pack/demo-skill/asset.txt"
+            ),
+            "asset body"
+        );
+    }
+
+    #[tokio::test]
+    async fn archive_import_restores_resource_library_files_and_metadata() {
+        let (pool, dir) = setup_test_db().await;
+        let resource_root = dir.path().join("resource-library");
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .expect("resource dir");
+        let skill_dir = resource_root.join("manual-pack").join("roundtrip-skill");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: Roundtrip Skill\n---\n\nUse this skill.",
+        )
+        .expect("skill");
+        std::fs::write(skill_dir.join("asset.txt"), "asset body").expect("asset");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "roundtrip-skill".to_string(),
+                name: "Roundtrip Skill".to_string(),
+                description: None,
+                file_path: path_to_string(&skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&skill_dir)),
+                is_central: false,
+                source: Some("manual".to_string()),
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+        db::upsert_skill_metadata(
+            &pool,
+            "roundtrip-skill",
+            Some("Local note"),
+            &["manual".to_string()],
+        )
+        .await
+        .expect("metadata");
+
+        let archive = export_app_backup_archive_impl(&pool, BackupOptions::default())
+            .await
+            .expect("archive export");
+        std::fs::remove_dir_all(&skill_dir).expect("remove files");
+        db::delete_skill(&pool, "roundtrip-skill")
+            .await
+            .expect("delete skill");
+
+        import_app_backup_bytes_impl(&pool, &archive)
+            .await
+            .expect("archive import");
+
+        assert_eq!(
+            std::fs::read_to_string(skill_dir.join("asset.txt")).expect("asset"),
+            "asset body"
+        );
+        let skill = db::get_skill_by_id(&pool, "roundtrip-skill")
+            .await
+            .expect("skill lookup")
+            .expect("skill");
+        assert!(!skill.is_central);
+        let expected_skill_dir = path_to_string(&skill_dir);
+        assert_eq!(
+            skill.canonical_path.as_deref(),
+            Some(expected_skill_dir.as_str())
+        );
+        let metadata = db::get_skill_metadata(&pool, "roundtrip-skill")
+            .await
+            .expect("metadata lookup")
+            .expect("metadata");
+        assert_eq!(metadata.notes.as_deref(), Some("Local note"));
+    }
+
+    #[tokio::test]
+    async fn archive_import_rejects_unsafe_entry_paths_before_writing() {
+        let (pool, dir) = setup_test_db().await;
+        let resource_root = dir.path().join("resource-library");
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .expect("resource dir");
+        let manifest = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": BackupOptions::default(),
+            "skills": [],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": []
+        });
+        let cursor = Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(cursor);
+        let options =
+            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        zip.start_file("manifest.json", options)
+            .expect("manifest entry");
+        zip.write_all(manifest.to_string().as_bytes())
+            .expect("manifest");
+        zip.start_file("../outside.txt", options)
+            .expect("unsafe entry");
+        zip.write_all(b"outside").expect("unsafe content");
+        let archive = zip.finish().expect("zip").into_inner();
+
+        let error = import_app_backup_bytes_impl(&pool, &archive)
+            .await
+            .expect_err("unsafe archive accepted");
+        assert!(
+            error.contains("absolute path") || error.contains("unsafe relative path"),
+            "unexpected error: {error}"
+        );
+        assert!(!dir.path().join("outside.txt").exists());
     }
 
     #[tokio::test]
@@ -2644,20 +2981,26 @@ mod tests {
     }
 
     #[test]
-    fn generated_backup_filenames_are_unique_and_keep_json_suffix() {
+    fn generated_backup_filenames_are_unique_and_keep_zip_suffix() {
         let first = generated_backup_filename();
         let second = generated_backup_filename();
         assert_ne!(first, second);
         assert!(first.starts_with("skillshub-backup-"));
-        assert!(first.ends_with(".json"));
+        assert!(first.ends_with(".zip"));
         assert!(generated_backup_timestamp(&first).is_some());
     }
 
     #[test]
-    fn webdav_normalize_remote_path_accepts_nested_json_backup() {
+    fn webdav_normalize_remote_path_accepts_nested_zip_backup() {
         let result =
-            normalize_webdav_remote_path("backups/skillshub-backup.json").expect("normalized path");
-        assert_eq!(result, "backups/skillshub-backup.json");
+            normalize_webdav_remote_path("backups/skillshub-backup.zip").expect("normalized path");
+        assert_eq!(result, "backups/skillshub-backup.zip");
+    }
+
+    #[test]
+    fn generated_backup_timestamp_accepts_legacy_json_suffix() {
+        let timestamp = generated_backup_timestamp("skillshub-backup-2026-07-15-120000-old.json");
+        assert!(timestamp.is_some());
     }
 
     #[test]
@@ -3447,7 +3790,7 @@ mod tests {
             password: None,
             remote_dir: "skillshub".to_string(),
         };
-        let too_large = "x".repeat(WEBDAV_MAX_DOWNLOAD_BYTES + 1);
+        let too_large = vec![b'x'; WEBDAV_MAX_DOWNLOAD_BYTES + 1];
         let error = upload_webdav_backup_impl(config, too_large)
             .await
             .expect_err("oversized upload accepted");

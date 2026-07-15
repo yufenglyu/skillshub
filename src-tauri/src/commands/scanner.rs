@@ -752,6 +752,10 @@ mod tests {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    fn normalize_test_path(path: impl AsRef<str>) -> String {
+        path.as_ref().replace('\\', "/")
+    }
+
     /// Write a SKILL.md with the given content in `dir/<skill_name>/SKILL.md`.
     fn create_skill_dir(parent: &Path, dir_name: &str, content: &str) -> std::path::PathBuf {
         let skill_dir = parent.join(dir_name);
@@ -1133,10 +1137,9 @@ mod tests {
 
         assert_eq!(skills.len(), 2);
         assert_eq!(skills[0].id, "apple-reminders");
-        assert!(skills[0].dir_path.contains("apple/apple-reminders"));
+        assert!(normalize_test_path(&skills[0].dir_path).contains("apple/apple-reminders"));
         assert_eq!(skills[1].id, "weights-and-biases");
-        assert!(skills[1]
-            .dir_path
+        assert!(normalize_test_path(&skills[1].dir_path)
             .contains("mlops/evaluation/weights-and-biases"));
     }
 
@@ -1398,7 +1401,7 @@ mod tests {
             .unwrap();
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].id, "apple-reminders");
-        assert!(skills[0].dir_path.contains("apple/apple-reminders"));
+        assert!(normalize_test_path(&skills[0].dir_path).contains("apple/apple-reminders"));
     }
 
     #[tokio::test]
@@ -1523,8 +1526,8 @@ mod tests {
         assert_eq!(plugin_a_rows.len(), 1);
         assert_eq!(plugin_a_rows[0].source_kind, "plugin");
         assert_eq!(
-            plugin_a_rows[0].dir_path,
-            plugin_a_skill_root.join("plugin-a-skill").to_string_lossy()
+            normalize_test_path(&plugin_a_rows[0].dir_path),
+            normalize_test_path(plugin_a_skill_root.join("plugin-a-skill").to_string_lossy())
         );
         assert_eq!(
             plugin_a_rows[0].source_root,
@@ -1538,8 +1541,8 @@ mod tests {
         assert_eq!(plugin_b_rows.len(), 1);
         assert_eq!(plugin_b_rows[0].source_kind, "plugin");
         assert_eq!(
-            plugin_b_rows[0].dir_path,
-            plugin_b_skill_root.join("plugin-b-skill").to_string_lossy()
+            normalize_test_path(&plugin_b_rows[0].dir_path),
+            normalize_test_path(plugin_b_skill_root.join("plugin-b-skill").to_string_lossy())
         );
         assert_eq!(
             plugin_b_rows[0].source_root,
@@ -1629,8 +1632,8 @@ mod tests {
             .unwrap()
             .expect("user copy should still back the logical skill row");
         assert_eq!(
-            stored_skill.file_path,
-            user_root.join("shared-skill/SKILL.md").to_string_lossy()
+            normalize_test_path(&stored_skill.file_path),
+            normalize_test_path(user_root.join("shared-skill/SKILL.md").to_string_lossy())
         );
     }
 
@@ -1814,8 +1817,7 @@ mod tests {
         assert_eq!(observations[0].skill_id, "using-superpowers");
         assert_eq!(observations[0].source_kind, "compatibility");
         assert!(observations[0].is_read_only);
-        assert!(observations[0]
-            .dir_path
+        assert!(normalize_test_path(&observations[0].dir_path)
             .contains("superpowers/using-superpowers"));
 
         let platform_skills = db::get_skills_for_agent(&pool, "factory-droid")
@@ -1842,13 +1844,14 @@ mod tests {
             .expect("central scan should persist the shared skill");
         assert!(skill.is_central);
         assert_eq!(
-            skill.canonical_path.as_deref(),
-            Some(
+            skill.canonical_path
+                .as_deref()
+                .map(normalize_test_path),
+            Some(normalize_test_path(
                 shared_root
                     .join("superpowers/using-superpowers")
                     .to_string_lossy()
-                    .as_ref()
-            )
+            ))
         );
     }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
@@ -9,7 +9,6 @@ import {
   FileText,
   Code,
   Bot,
-  RefreshCw,
   Loader2,
   ChevronDown,
   ChevronRight,
@@ -200,7 +199,7 @@ function PlatformToggleGroup({
 
 // ─── Tab Toggle ───────────────────────────────────────────────────────────────
 
-type PreviewTab = "markdown" | "raw" | "explanation";
+type PreviewTab = "markdown" | "raw";
 
 interface TabToggleProps {
   activeTab: PreviewTab;
@@ -240,20 +239,6 @@ function TabToggle({ activeTab, onChange, previewLabel }: TabToggleProps) {
         <Code className="size-3.5" />
         {t("detail.rawSource")}
       </button>
-      <button
-        role="tab"
-        aria-selected={activeTab === "explanation"}
-        onClick={() => onChange("explanation")}
-        className={cn(
-          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-          activeTab === "explanation"
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground"
-        )}
-      >
-        <Bot className="size-3.5" />
-        {t("detail.aiExplanation")}
-      </button>
     </div>
   );
 }
@@ -273,6 +258,14 @@ const detailTypographyClassName = cn(
   "[&_pre]:text-[12px] [&_pre]:leading-5",
   "[&_pre_code]:text-[12px] [&_pre_code]:leading-5"
 );
+
+const DEFAULT_DETAIL_SIDEBAR_WIDTH = 512;
+const MIN_DETAIL_SIDEBAR_WIDTH = 360;
+const MAX_DETAIL_SIDEBAR_WIDTH = 720;
+
+function clampDetailSidebarWidth(width: number) {
+  return Math.min(MAX_DETAIL_SIDEBAR_WIDTH, Math.max(MIN_DETAIL_SIDEBAR_WIDTH, width));
+}
 
 interface SelectedSkillFile {
   path: string;
@@ -448,8 +441,8 @@ export function SkillDetailView({
   const explanationErrorInfo = useSkillDetailStore((s) => s.explanationErrorInfo);
   const loadCachedExplanation = useSkillDetailStore((s) => s.loadCachedExplanation);
   const generateExplanation = useSkillDetailStore((s) => s.generateExplanation);
-  const refreshExplanation = useSkillDetailStore((s) => s.refreshExplanation);
   const updateMetadata = useSkillDetailStore((s) => s.updateMetadata);
+  const updateSourceMetadata = useSkillDetailStore((s) => s.updateSourceMetadata);
   const reset = useSkillDetailStore((s) => s.reset);
 
   // Platform agents (loaded at app init)
@@ -487,11 +480,18 @@ export function SkillDetailView({
 
   // Local UI state
   const [activeTab, setActiveTab] = useState<PreviewTab>("markdown");
+  const [detailSidebarWidth, setDetailSidebarWidth] = useState(DEFAULT_DETAIL_SIDEBAR_WIDTH);
   const [isCollectionPickerOpen, setIsCollectionPickerOpen] = useState(false);
-  const [showErrorDetails, setShowErrorDetails] = useState(false);
   const [notesInput, setNotesInput] = useState("");
   const [tagsInput, setTagsInput] = useState("");
   const [isSavingMetadata, setIsSavingMetadata] = useState(false);
+  const [pendingGeneratedNote, setPendingGeneratedNote] = useState(false);
+  const [sourceTypeInput, setSourceTypeInput] = useState("github");
+  const [sourceUrlInput, setSourceUrlInput] = useState("");
+  const [sourceAuthorInput, setSourceAuthorInput] = useState("");
+  const [sourceRepoInput, setSourceRepoInput] = useState("");
+  const [sourcePathInput, setSourcePathInput] = useState("");
+  const [isSavingSourceMetadata, setIsSavingSourceMetadata] = useState(false);
   const addToCollectionButtonRef = useRef<HTMLButtonElement | null>(null);
   const selectedFilePath = selectedFile?.path ?? null;
   const selectedRelativePath = selectedFile?.relativePath ?? null;
@@ -502,6 +502,31 @@ export function SkillDetailView({
     return detail?.dir_path ?? null;
   }, [detail?.dir_path, discoverMetadata?.dirPath, filePath, isFileMode]);
   const skillFilePath = isFileMode ? filePath ?? null : detail?.file_path ?? null;
+  const sidebarStyle = {
+    "--skill-detail-sidebar-width": `${detailSidebarWidth}px`,
+  } as CSSProperties;
+
+  const handleSidebarResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = detailSidebarWidth;
+
+    function handleMouseMove(moveEvent: MouseEvent) {
+      setDetailSidebarWidth(clampDetailSidebarWidth(startWidth + startX - moveEvent.clientX));
+    }
+
+    function handleMouseUp() {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  }, [detailSidebarWidth]);
 
   useEffect(() => {
     if (detail?.is_read_only && isCollectionPickerOpen) {
@@ -513,6 +538,32 @@ export function SkillDetailView({
     setNotesInput(detail?.notes ?? "");
     setTagsInput((detail?.tags ?? []).join(", "));
   }, [detail?.id, detail?.notes, detail?.tags]);
+
+  useEffect(() => {
+    if (pendingGeneratedNote && explanation) {
+      setNotesInput(explanation);
+      setPendingGeneratedNote(false);
+    }
+    if (pendingGeneratedNote && explanationError) {
+      setPendingGeneratedNote(false);
+    }
+  }, [explanation, explanationError, pendingGeneratedNote]);
+
+  useEffect(() => {
+    const source = detail?.source ?? "";
+    setSourceTypeInput(source.startsWith("github:") || detail?.source_repo ? "github" : "manual");
+    setSourceUrlInput(detail?.source_url ?? "");
+    setSourceAuthorInput(detail?.source_author ?? "");
+    setSourceRepoInput(detail?.source_repo ?? (source.startsWith("github:") ? source.slice("github:".length) : ""));
+    setSourcePathInput(detail?.source_path ?? "");
+  }, [
+    detail?.id,
+    detail?.source,
+    detail?.source_author,
+    detail?.source_path,
+    detail?.source_repo,
+    detail?.source_url,
+  ]);
 
   const fetchDirectoryTree = useCallback(async (dirPath: string) => {
     if (!isTauriRuntime()) {
@@ -710,20 +761,62 @@ export function SkillDetailView({
       .slice(0, 30);
   }
 
-  async function handleSaveMetadata() {
+  async function handleSaveNotes() {
     if (!detail || detail.is_read_only) return;
     setIsSavingMetadata(true);
     try {
       await updateMetadata(detail.id, {
         notes: notesInput.trim() ? notesInput.trim() : null,
-        tags: parseTagsInput(tagsInput),
+        tags: detail.tags ?? [],
       });
-      toast.success(t("detail.metadataSaved"));
+      toast.success(t("detail.notesSaved"));
     } catch (err) {
       toast.error(t("detail.metadataSaveError", { error: String(err) }));
     } finally {
       setIsSavingMetadata(false);
     }
+  }
+
+  async function handleSaveTags() {
+    if (!detail || detail.is_read_only) return;
+    setIsSavingMetadata(true);
+    try {
+      await updateMetadata(detail.id, {
+        notes: detail.notes ?? null,
+        tags: parseTagsInput(tagsInput),
+      });
+      toast.success(t("detail.tagsSaved"));
+    } catch (err) {
+      toast.error(t("detail.metadataSaveError", { error: String(err) }));
+    } finally {
+      setIsSavingMetadata(false);
+    }
+  }
+
+  async function handleSaveSourceMetadata() {
+    if (!detail || !canEditBasicSource) return;
+    setIsSavingSourceMetadata(true);
+    try {
+      await updateSourceMetadata(detail.id, {
+        sourceType: sourceTypeInput,
+        sourceUrl: sourceUrlInput.trim() || null,
+        sourceAuthor: sourceAuthorInput.trim() || null,
+        sourceRepo: sourceRepoInput.trim() || null,
+        sourcePath: sourcePathInput.trim() || null,
+      });
+      toast.success(t("detail.sourceMetadataSaved"));
+    } catch (err) {
+      toast.error(t("detail.sourceMetadataSaveError", { error: String(err) }));
+    } finally {
+      setIsSavingSourceMetadata(false);
+    }
+  }
+
+  function displaySourceValue(source?: string | null, sourceRepo?: string | null) {
+    if (sourceRepo) return sourceRepo;
+    if (!source) return null;
+    if (source.startsWith("github:")) return source.slice("github:".length);
+    return source;
   }
 
   function handleGenerateExplanation() {
@@ -741,21 +834,17 @@ export function SkillDetailView({
     }
   }
 
-  function handleRefreshExplanation() {
-    if (isFileMode && skillContent) {
-      handleGenerateExplanation();
+  function handleGenerateNote() {
+    if (explanation) {
+      setNotesInput(explanation);
       return;
     }
-    if (explanationRequestKey && skillContent) {
-      refreshExplanation(explanationRequestKey, skillContent, i18n.language);
-    }
+    setPendingGeneratedNote(true);
+    handleGenerateExplanation();
   }
 
   function handleSelectFile(file: SelectedSkillFile) {
     setSelectedFile(file);
-    if (activeTab === "explanation") {
-      setActiveTab(file.path.toLowerCase().endsWith(".md") ? "markdown" : "raw");
-    }
   }
 
   function handleToggleDirectory(path: string) {
@@ -784,7 +873,7 @@ export function SkillDetailView({
     : skillContent;
   const selectedPreviewPath = selectedFilePath ?? skillFilePath;
   const isSelectedMarkdownFile = (selectedPreviewPath ?? "").toLowerCase().endsWith(".md");
-  const previewLabel = isSelectedMarkdownFile ? t("detail.markdown") : t("detail.preview");
+  const previewLabel = isSelectedMarkdownFile ? t("detail.previewMode") : t("detail.preview");
   const { frontmatterRaw, frontmatterData, body: markdownContent } = previewContent && isSelectedMarkdownFile
     ? parseFrontmatter(previewContent)
     : { frontmatterRaw: "", frontmatterData: {}, body: previewContent ?? "" };
@@ -796,6 +885,11 @@ export function SkillDetailView({
     ? discoverMetadata?.description
     : detail?.description;
   const hasData = isFileMode ? skillContent !== null : !!detail;
+  const canEditBasicSource = !!detail
+    && !detail.is_read_only
+    && !detail.is_central
+    && !detail.source_kind
+    && (detail.source === "manual" || (detail.source === "resource-library" && !detail.source_repo));
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -905,7 +999,7 @@ export function SkillDetailView({
                     </p>
                   )}
                 </div>
-              ) : activeTab === "raw" ? (
+              ) : (
                 <pre
                   className="p-6 text-[12px] leading-5 font-mono whitespace-pre-wrap break-words text-foreground/80"
                   role="tabpanel"
@@ -914,114 +1008,25 @@ export function SkillDetailView({
                   {selectedRelativePath ? `${selectedRelativePath}\n\n` : ""}
                   {isSelectedFileLoading ? t("common.loading") : (previewContent ?? t("detail.noContent"))}
                 </pre>
-              ) : (
-                <div
-                  className="p-6 space-y-4"
-                  role="tabpanel"
-                  aria-label={t("detail.aiExplanation")}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-sm font-semibold flex items-center gap-2">
-                        <Bot className="size-4 text-primary" />
-                        {t("detail.aiExplanation")}
-                      </h2>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t("detail.aiExplanationDesc")}
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={explanation ? handleRefreshExplanation : handleGenerateExplanation}
-                      disabled={!skillContent || isExplanationLoading || isExplanationStreaming}
-                      className="gap-1.5"
-                    >
-                      {isExplanationLoading || isExplanationStreaming ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : explanation ? (
-                        <RefreshCw className="size-3.5" />
-                      ) : (
-                        <Bot className="size-3.5" />
-                      )}
-                      {explanation ? t("detail.regenerateExplanation") : t("detail.generateExplanation")}
-                    </Button>
-                  </div>
-
-                  {explanationError && (
-                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2">
-                      <p className="text-sm text-destructive">
-                        {explanationErrorInfo?.message || explanationError}
-                      </p>
-                      {(explanationErrorInfo?.details || explanationError !== explanationErrorInfo?.message) && (
-                        <div>
-                          <button
-                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                            onClick={() => setShowErrorDetails((v) => !v)}
-                          >
-                            {showErrorDetails ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-                            {t("detail.showDetails")}
-                          </button>
-                          {showErrorDetails && (
-                            <pre className="mt-1.5 text-[11px] leading-4 font-mono text-muted-foreground whitespace-pre-wrap break-all bg-muted/30 rounded-md p-2 max-h-40 overflow-auto">
-                              {explanationErrorInfo?.details || explanationError}
-                            </pre>
-                          )}
-                        </div>
-                      )}
-                      {explanationErrorInfo?.fallbackTried && (
-                        <p className="text-xs text-muted-foreground">
-                          {t("detail.fallbackTried")}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {isExplanationLoading && !explanation ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="size-4 animate-spin" />
-                      {t("detail.explanationLoading")}
-                    </div>
-                  ) : explanation ? (
-                    <div className={cn("markdown-body rounded-lg border border-border bg-card p-4", detailTypographyClassName)}>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {explanation}
-                      </ReactMarkdown>
-                      {isExplanationStreaming && (
-                        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                          <Loader2 className="size-3.5 animate-spin" />
-                          {t("detail.explanationStreaming")}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-border p-8 text-center space-y-3">
-                      <Bot className="size-8 mx-auto text-muted-foreground/60" />
-                      <div>
-                        <p className="text-sm font-medium">{t("detail.noExplanationTitle")}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {t("detail.noExplanationDesc")}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={handleGenerateExplanation}
-                        disabled={!skillContent || isExplanationLoading || isExplanationStreaming}
-                        className="gap-1.5"
-                      >
-                        <Bot className="size-3.5" />
-                        {t("detail.generateExplanation")}
-                      </Button>
-                    </div>
-                  )}
-                </div>
               )}
+            </div>
+
+            <div
+              role="separator"
+              aria-label={t("detail.resizeSidebar")}
+              aria-orientation="vertical"
+              className="hidden w-2 shrink-0 cursor-col-resize items-stretch justify-center border-l border-border/70 bg-background transition-colors hover:bg-primary/10 md:flex"
+              onMouseDown={handleSidebarResizeStart}
+              onDoubleClick={() => setDetailSidebarWidth(DEFAULT_DETAIL_SIDEBAR_WIDTH)}
+            >
+              <div className="my-auto h-10 w-0.5 rounded-full bg-border" />
             </div>
 
             {/* ── Right: Sidebar ─────────────────────────────────────── */}
             <aside
               data-testid="skill-detail-right-sidebar"
-              className="w-full shrink-0 border-t border-border overflow-y-auto p-4 space-y-5 md:w-64 md:border-t-0 md:border-l"
+              style={sidebarStyle}
+              className="w-full shrink-0 border-t border-border overflow-y-auto p-4 space-y-5 md:w-[var(--skill-detail-sidebar-width)] md:border-t-0"
             >
               {isFileMode && discoverMetadata ? (
                 <>
@@ -1164,13 +1169,11 @@ export function SkillDetailView({
                   )}
 
                   {!isFileMode && detail && !detail.is_read_only && (
-                    <section aria-label={t("detail.localMetadataRegion")}>
-                      <SectionLabel>{t("detail.localMetadata")}</SectionLabel>
+                    <>
+                    <section aria-label={t("detail.notesRegion")}>
+                      <SectionLabel>{t("detail.notes")}</SectionLabel>
                       <div className="space-y-2.5 rounded-lg border border-border/70 bg-muted/20 p-3">
                         <div className="space-y-1.5">
-                          <label className="text-[11px] font-medium text-muted-foreground">
-                            {t("detail.notes")}
-                          </label>
                           <Textarea
                             value={notesInput}
                             onChange={(event) => setNotesInput(event.target.value)}
@@ -1178,10 +1181,65 @@ export function SkillDetailView({
                             className="min-h-20 resize-y text-xs"
                           />
                         </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8 w-full"
+                            disabled={!skillContent || isExplanationLoading || isExplanationStreaming}
+                            onClick={handleGenerateNote}
+                          >
+                            {isExplanationLoading || isExplanationStreaming ? (
+                              <>
+                                <Loader2 className="size-3.5 animate-spin" />
+                                {t("detail.explanationLoading")}
+                              </>
+                            ) : (
+                              t("detail.generateNote")
+                            )}
+                          </Button>
+                          {isExplanationStreaming && explanation && (
+                            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                              <Loader2 className="size-3 animate-spin" />
+                              {t("detail.explanationStreaming")}
+                            </p>
+                          )}
+                          {explanationError && (
+                            <div className="space-y-1 rounded-md border border-destructive/30 bg-destructive/5 p-2">
+                              <p className="text-[11px] leading-relaxed text-destructive">
+                                {explanationErrorInfo?.message || explanationError}
+                              </p>
+                              {explanationErrorInfo?.fallbackTried && (
+                                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                                  {t("detail.fallbackTried")}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8 w-full"
+                            disabled={isSavingMetadata}
+                            onClick={handleSaveNotes}
+                          >
+                            {isSavingMetadata ? (
+                              <>
+                                <Loader2 className="size-3.5 animate-spin" />
+                                {t("detail.savingMetadata")}
+                              </>
+                            ) : (
+                              t("detail.saveNotes")
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section aria-label={t("detail.tagsRegion")}>
+                      <SectionLabel>{t("detail.tags")}</SectionLabel>
+                      <div className="space-y-2.5 rounded-lg border border-border/70 bg-muted/20 p-3">
                         <div className="space-y-1.5">
-                          <label className="text-[11px] font-medium text-muted-foreground">
-                            {t("detail.tags")}
-                          </label>
                           <Input
                             value={tagsInput}
                             onChange={(event) => setTagsInput(event.target.value)}
@@ -1206,7 +1264,7 @@ export function SkillDetailView({
                           size="sm"
                           className="h-8 w-full"
                           disabled={isSavingMetadata}
-                          onClick={handleSaveMetadata}
+                          onClick={handleSaveTags}
                         >
                           {isSavingMetadata ? (
                             <>
@@ -1214,17 +1272,93 @@ export function SkillDetailView({
                               {t("detail.savingMetadata")}
                             </>
                           ) : (
-                            t("detail.saveMetadata")
+                            t("detail.saveTags")
                           )}
                         </Button>
                       </div>
                     </section>
+                    </>
                   )}
 
                   {/* Metadata */}
                   <section aria-label={t("detail.metadataRegion")}>
                     <SectionLabel>{t("detail.metadata")}</SectionLabel>
                     <div className="space-y-2.5">
+                      {canEditBasicSource && (
+                        <div className="space-y-2.5 rounded-lg border border-border/70 bg-muted/20 p-3">
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-medium text-muted-foreground">
+                              {t("detail.sourceType")}
+                            </label>
+                            <Input
+                              value={sourceTypeInput}
+                              onChange={(event) => setSourceTypeInput(event.target.value)}
+                              placeholder="manual"
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-medium text-muted-foreground">
+                              {t("detail.sourceRepo")}
+                            </label>
+                            <Input
+                              value={sourceRepoInput}
+                              onChange={(event) => setSourceRepoInput(event.target.value)}
+                              placeholder="owner/repo"
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-medium text-muted-foreground">
+                              {t("detail.sourceAuthor")}
+                            </label>
+                            <Input
+                              value={sourceAuthorInput}
+                              onChange={(event) => setSourceAuthorInput(event.target.value)}
+                              placeholder={t("detail.sourceAuthorPlaceholder")}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-medium text-muted-foreground">
+                              {t("detail.sourcePath")}
+                            </label>
+                            <Input
+                              value={sourcePathInput}
+                              onChange={(event) => setSourcePathInput(event.target.value)}
+                              placeholder="skills/example/SKILL.md"
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-medium text-muted-foreground">
+                              {t("detail.sourceUrl")}
+                            </label>
+                            <Input
+                              value={sourceUrlInput}
+                              onChange={(event) => setSourceUrlInput(event.target.value)}
+                              placeholder="https://github.com/owner/repo"
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8 w-full"
+                            disabled={isSavingSourceMetadata}
+                            onClick={handleSaveSourceMetadata}
+                          >
+                            {isSavingSourceMetadata ? (
+                              <>
+                                <Loader2 className="size-3.5 animate-spin" />
+                                {t("detail.savingSourceMetadata")}
+                              </>
+                            ) : (
+                              t("detail.saveBasicInfo")
+                            )}
+                          </Button>
+                        </div>
+                      )}
                       <MetadataRow label={t("detail.filePath")} value={formatPathForDisplay(detail.file_path)} />
                       {detail.dir_path && (
                         <MetadataRow
@@ -1245,8 +1379,11 @@ export function SkillDetailView({
                           value={formatPathForDisplay(detail.source_root)}
                         />
                       )}
-                      {!detail.source_kind && detail.source && (
-                        <MetadataRow label={t("detail.source")} value={detail.source} />
+                      {!detail.source_kind && displaySourceValue(detail.source, detail.source_repo) && (
+                        <MetadataRow
+                          label={t("detail.source")}
+                          value={displaySourceValue(detail.source, detail.source_repo) ?? ""}
+                        />
                       )}
                       {detail.source_author && (
                         <MetadataRow
@@ -1256,7 +1393,7 @@ export function SkillDetailView({
                           value={detail.source_author}
                         />
                       )}
-                      {detail.source_repo && (
+                      {detail.source_repo && detail.source_repo !== displaySourceValue(detail.source, detail.source_repo) && (
                         <MetadataRow
                           label={t("detail.sourceRepo", {
                             defaultValue: i18n.language.startsWith("zh") ? "来源仓库" : "Source repository",

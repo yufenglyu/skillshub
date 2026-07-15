@@ -1,9 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  ArrowUpDown,
   Blocks,
-  Download,
   FolderOpen,
   RefreshCw,
   Search,
@@ -33,10 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AgentWithStatus, CentralSkillBundle, ScannedSkill, SkillWithLinks } from "@/types";
-import { GitHubRepoImportWizard } from "@/components/marketplace/GitHubRepoImportWizard";
-import { useMarketplaceStore } from "@/stores/marketplaceStore";
-import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
+import { AgentWithStatus, CentralSkillBundle, SkillWithLinks } from "@/types";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { formatPathForDisplay } from "@/lib/path";
 import { buildSearchText, normalizeSearchQuery } from "@/lib/search";
@@ -95,21 +90,10 @@ const BROWSER_FIXTURE_SKILLS: SkillWithLinks[] = [
 const EMPTY_SKILLS: SkillWithLinks[] = [];
 const EMPTY_BUNDLES: CentralSkillBundle[] = [];
 const EMPTY_AGENTS: AgentWithStatus[] = [];
-const EMPTY_SKILLS_BY_AGENT: Record<string, ScannedSkill[]> = {};
-const EMPTY_GITHUB_IMPORT_STATE = {
-  isPreviewLoading: false,
-  isImporting: false,
-  preview: null,
-  importResult: null,
-  previewedRepoUrl: null,
-  error: null,
-};
 const noopLoadCentralSkills = async () => {};
 const noopLoadCentralBundles = async () => {};
 const noopRefreshCounts = async () => {};
 const noopGetSkillsByAgent = async (_agentId: string) => {};
-const noopPreviewGitHubRepoImport = async () => null;
-const noopResetGitHubImport = () => {};
 const noopTogglePlatformLink = async (_skillId: string, _agentId: string) => {};
 const noopUninstallSkillsFromAgent = async (_skillIds: string[], _agentId: string) => {};
 const noopDeleteCentralSkill = async (
@@ -161,9 +145,6 @@ const noopInstallSkill = async () => ({
   succeeded: [],
   failed: [],
 });
-const noopImportGitHubRepoSkills = async () => {
-  throw new Error("GitHub import is unavailable");
-};
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
@@ -178,23 +159,6 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-function parseSortableTimestamp(value?: string | null): number {
-  if (!value) return 0;
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function getSkillSortTimestamp(
-  skill: SkillWithLinks,
-  field: "createdAt" | "updatedAt"
-): number {
-  return parseSortableTimestamp(
-    field === "createdAt"
-      ? skill.created_at ?? skill.scanned_at
-      : skill.updated_at ?? skill.scanned_at
-  );
-}
-
 // ─── CentralSkillsView ────────────────────────────────────────────────────────
 
 export function CentralSkillsView() {
@@ -206,9 +170,6 @@ export function CentralSkillsView() {
   const rawLoadCentralSkills = useCentralSkillsStore(
     (state) => state.loadCentralSkills
   );
-  const updateSourceBackedSkill = useCentralSkillsStore(
-    (state) => state.updateSourceBackedSkill
-  ) ?? (async (skillId: string) => skillId);
   const shouldUseBrowserFixtures =
     !isTauriRuntime() &&
     rawSkills === undefined &&
@@ -265,47 +226,16 @@ export function CentralSkillsView() {
   const togglingAgentId = useCentralSkillsStore((state) => state.togglingAgentId);
   const deletingSkillId = useCentralSkillsStore((state) => state.deletingSkillId);
   const deletingBundlePath = useCentralSkillsStore((state) => state.deletingBundlePath);
-  const isUpdatingSources = useCentralSkillsStore((state) => state.isUpdatingSources);
-  const updateSourceBackedSkills = useCentralSkillsStore(
-    (state) => state.updateSourceBackedSkills
-  ) ?? (async () => []);
-  const loadResourceLibrary = useResourceLibraryStore(
-    (state) => state.loadResourceLibrary
-  ) ?? (async () => {});
-  const resourceSkills =
-    useResourceLibraryStore((state) => state.skills) ?? EMPTY_SKILLS;
-  const resourceAgents =
-    useResourceLibraryStore((state) => state.agents) ?? EMPTY_AGENTS;
-  const installResourceSkill =
-    useResourceLibraryStore((state) => state.installSkill) ?? noopInstallSkill;
 
   // Keep the platform sidebar counts in sync after install.
   const refreshCounts =
     usePlatformStore((state) => state.refreshCounts) ?? noopRefreshCounts;
-  const platformAgents = usePlatformStore((state) => state.agents) ?? EMPTY_AGENTS;
-  const skillsByAgent =
-    useSkillStore((state) => state.skillsByAgent) ?? EMPTY_SKILLS_BY_AGENT;
   const getSkillsByAgent =
     useSkillStore((state) => state.getSkillsByAgent) ?? noopGetSkillsByAgent;
-  const githubImport =
-    useMarketplaceStore((state) => state.githubImport) ?? EMPTY_GITHUB_IMPORT_STATE;
-  const previewGitHubRepoImport =
-    useMarketplaceStore((state) => state.previewGitHubRepoImport) ??
-    noopPreviewGitHubRepoImport;
-  const importGitHubRepoSkills =
-    useMarketplaceStore((state) => state.importGitHubRepoSkills) ??
-    noopImportGitHubRepoSkills;
-  const resetGitHubImport =
-    useMarketplaceStore((state) => state.resetGitHubImport) ?? noopResetGitHubImport;
 
-  type SortField = "name" | "createdAt" | "updatedAt";
-  type SortDirection = "asc" | "desc";
-  const [sortField, setSortField] = useState<SortField>("name");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [viewMode, setViewMode] = useSkillListViewMode("central");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [updatingSkillId, setUpdatingSkillId] = useState<string | null>(null);
   const [selectedCentralSkillIds, setSelectedCentralSkillIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -325,8 +255,6 @@ export function CentralSkillsView() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [platformDrawerSkillId, setPlatformDrawerSkillId] = useState<string | null>(null);
   const [isPlatformDrawerOpen, setIsPlatformDrawerOpen] = useState(false);
-  const [isGitHubImportOpen, setIsGitHubImportOpen] = useState(false);
-  const [githubRepoUrl, setGitHubRepoUrl] = useState("");
   const contentRef = useRef<HTMLDivElement | null>(null);
   const detailButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -441,27 +369,14 @@ export function CentralSkillsView() {
     });
   }, [bundles, centralFolderGroupsByPath, normalizedSearchQuery, selectedTag, viewMode]);
 
-  // Sort filtered skills.
   const sortedSkills = useMemo(() => {
-    const list = [...filteredSkills];
-    const direction = sortDirection === "asc" ? 1 : -1;
-    return list.sort((a, b) => {
-      const nameComparison = a.name.localeCompare(b.name, undefined, {
+    return [...filteredSkills].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, {
         numeric: true,
         sensitivity: "base",
-      });
-
-      if (sortField === "name") {
-        return nameComparison * direction;
-      }
-
-      const leftTime = getSkillSortTimestamp(a, sortField);
-      const rightTime = getSkillSortTimestamp(b, sortField);
-      const timeComparison = leftTime - rightTime;
-
-      return timeComparison === 0 ? nameComparison : timeComparison * direction;
-    });
-  }, [filteredSkills, sortDirection, sortField]);
+      })
+    );
+  }, [filteredSkills]);
 
   const uninstallTargetAgents = useMemo(
     () => agents.filter(isInstallTargetAgent),
@@ -524,17 +439,6 @@ export function CentralSkillsView() {
   function linkedAgentNames(skill: SkillWithLinks): string[] {
     return agentDisplayNames([...skill.linked_agents, ...(skill.read_only_agents ?? [])]);
   }
-
-  const sortFieldOptions: Array<{ value: SortField; label: string }> = [
-    { value: "name", label: t("central.sortByName") },
-    { value: "createdAt", label: t("central.sortByCreatedAt") },
-    { value: "updatedAt", label: t("central.sortByUpdatedAt") },
-  ];
-
-  const sortDirectionOptions: Array<{ value: SortDirection; label: string }> = [
-    { value: "asc", label: t("central.sortAscending") },
-    { value: "desc", label: t("central.sortDescending") },
-  ];
 
   function setDetailButtonRef(skillId: string, node: HTMLButtonElement | null) {
     detailButtonRefs.current[skillId] = node;
@@ -688,94 +592,10 @@ export function CentralSkillsView() {
     }
   }
 
-  async function handleUpdateSources() {
-    try {
-      const updated = await updateSourceBackedSkills();
-      await refreshCounts();
-      toast.success(t("central.updateSourcesSuccess", { count: updated.length }));
-    } catch (err) {
-      toast.error(t("central.updateSourcesError", { error: String(err) }));
-    }
-  }
-
-  async function handleUpdateSingleSource(skill: SkillWithLinks) {
-    setUpdatingSkillId(skill.id);
-    try {
-      await updateSourceBackedSkill(skill.id);
-      toast.success(t("central.updateSourceSuccess", { name: skill.name }));
-    } catch (err) {
-      toast.error(t("central.updateSourceError", { name: skill.name, error: String(err) }));
-    } finally {
-      setUpdatingSkillId(null);
-    }
-  }
-
-  async function handleGitHubPreview() {
-    try {
-      return await previewGitHubRepoImport(githubRepoUrl);
-    } catch {
-      return null;
-    }
-  }
-
-  async function handleGitHubImport(
-    selections: Parameters<typeof importGitHubRepoSkills>[1]
-  ) {
-    try {
-      const result = await importGitHubRepoSkills(githubRepoUrl, selections);
-      await Promise.all([refreshCounts(), loadCentralSkills(), loadResourceLibrary()]);
-      toast.success(t("resource.githubImportSuccess"));
-      return result;
-    } catch (err) {
-      toast.error(t("marketplace.installError", { error: String(err) }));
-      throw err;
-    }
-  }
-
-  async function handleInstallImportedSkill(
-    skillId: string,
-    agentIds: string[],
-    method: "symlink" | "copy"
-  ) {
-    const result = await installResourceSkill(skillId, agentIds, method);
-    if (result.failed.length > 0) {
-      toast.error(
-        t("central.installPartialFail", {
-          platforms: result.failed.map((item) => item.agent_id).join(", "),
-        })
-      );
-    }
-    await Promise.all([
-      refreshCounts(),
-      loadResourceLibrary(),
-      ...agentIds.map((agentId) => getSkillsByAgent(agentId)),
-    ]);
-  }
-
-  const installableImportedSkills = useMemo(() => {
-    if (!githubImport.importResult) return [];
-    const importedIds = new Set(
-      githubImport.importResult.importedSkills.map((skill) => skill.importedSkillId)
-    );
-    return resourceSkills.filter((skill) => importedIds.has(skill.id));
-  }, [githubImport.importResult, resourceSkills]);
-
-  const availableInstallAgents = useMemo(
-    () => (resourceAgents.length > 0 ? resourceAgents : agents.length > 0 ? agents : platformAgents),
-    [agents, platformAgents, resourceAgents]
-  );
   const platformDrawerSkill = useMemo(
     () => skills.find((skill) => skill.id === platformDrawerSkillId) ?? null,
     [platformDrawerSkillId, skills]
   );
-
-  async function handleAfterImportSuccess() {
-    const agentIds = Object.keys(skillsByAgent);
-    await Promise.all([
-      loadResourceLibrary(),
-      ...agentIds.map((agentId) => getSkillsByAgent(agentId)),
-    ]);
-  }
 
   return (
     <div className="flex flex-col h-full">
@@ -798,23 +618,6 @@ export function CentralSkillsView() {
             {centralSkillsDir}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={handleUpdateSources}
-            disabled={isUpdatingSources}
-          >
-            {isUpdatingSources ? (
-              <RefreshCw className="size-4 animate-spin" />
-            ) : (
-              <Download className="size-4" />
-            )}
-            {t("central.updateSources")}
-          </Button>
-          <Button variant="outline" onClick={() => setIsGitHubImportOpen(true)}>
-            {t("marketplace.githubImportSecondaryCta")}
-          </Button>
-        </div>
       </div>
 
       {/* Search bar */}
@@ -831,56 +634,6 @@ export function CentralSkillsView() {
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <ArrowUpDown className="size-3.5" />
-              <span>{t("central.sortLabel")}</span>
-            </div>
-            <div
-              role="group"
-              aria-label={t("central.sortFieldLabel")}
-              className="flex rounded-xl bg-muted/40 p-1"
-            >
-              {sortFieldOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={sortField === option.value}
-                  onClick={() => setSortField(option.value)}
-                  className={cn(
-                    "h-7 rounded-lg px-3 text-xs font-medium transition-colors cursor-pointer",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                    sortField === option.value
-                      ? "bg-background/95 text-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
-                  )}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <div
-              role="group"
-              aria-label={t("central.sortDirectionLabel")}
-              className="flex rounded-xl bg-muted/40 p-1"
-            >
-              {sortDirectionOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={sortDirection === option.value}
-                  onClick={() => setSortDirection(option.value)}
-                  className={cn(
-                    "h-7 rounded-lg px-3 text-xs font-medium transition-colors cursor-pointer",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                    sortDirection === option.value
-                      ? "bg-background/95 text-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
-                  )}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
             <SkillListModeToggle value={viewMode} onChange={setViewMode} />
           </div>
         </div>
@@ -1092,16 +845,12 @@ export function CentralSkillsView() {
                       tags={(skill.tags ?? []).map((tag) => ({ key: tag, label: tag }))}
                       onDetail={() => handleOpenDrawer(skill.id)}
                       onInstallTo={() => handleInstallClick(skill)}
-                      onUpdateFromSource={
-                        skill.source_url ? () => void handleUpdateSingleSource(skill) : undefined
-                      }
-                      updateFromSourceLabel={t("central.updateSourceLabel", { name: skill.name })}
                       onDeleteFromCentral={() => handleDeleteClick(skill)}
                       deleteFromCentralLabel={t("central.deleteFromCentralLabel", { name: skill.name })}
                       deleteFromCentralRequiresDialog={
                         skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0
                       }
-                      isLoading={deletingSkillId === skill.id || updatingSkillId === skill.id}
+                      isLoading={deletingSkillId === skill.id}
                       detailButtonRef={(node) => setDetailButtonRef(skill.id, node)}
                       platformIcons={{
                         agents,
@@ -1191,29 +940,6 @@ export function CentralSkillsView() {
             setIsDialogOpen(true);
           }
         }}
-      />
-
-      <GitHubRepoImportWizard
-        open={isGitHubImportOpen}
-        onOpenChange={setIsGitHubImportOpen}
-        repoUrl={githubRepoUrl}
-        onRepoUrlChange={setGitHubRepoUrl}
-        preview={githubImport.preview}
-        previewError={githubImport.error}
-        isPreviewLoading={githubImport.isPreviewLoading}
-        isImporting={githubImport.isImporting}
-        importResult={githubImport.importResult}
-        onPreview={handleGitHubPreview}
-        onImport={handleGitHubImport}
-        availableAgents={availableInstallAgents}
-        installableSkills={installableImportedSkills}
-        onInstallImportedSkill={handleInstallImportedSkill}
-        onAfterImportSuccess={handleAfterImportSuccess}
-        onReset={() => {
-          resetGitHubImport();
-          setGitHubRepoUrl("");
-        }}
-        launcherLabel={t("resource.title")}
       />
 
       <Dialog

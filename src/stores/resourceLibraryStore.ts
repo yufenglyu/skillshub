@@ -3,6 +3,10 @@ import { invoke, isTauriRuntime } from "@/lib/tauri";
 import {
   AgentWithStatus,
   BatchInstallResult,
+  CentralSkillBundleDeletePreview,
+  CreateManualResourceSkillInput,
+  DeleteCentralSkillBundleOptions,
+  DeleteCentralSkillBundleResult,
   DeleteResourceSkillOptions,
   DeleteResourceSkillResult,
   SkillWithLinks,
@@ -48,6 +52,12 @@ interface ResourceLibraryState {
   togglePlatformLink: (skillId: string, agentId: string) => Promise<void>;
   updateSourceBackedSkills: () => Promise<string[]>;
   updateSourceBackedSkill: (skillId: string) => Promise<string>;
+  createManualSkill: (input: CreateManualResourceSkillInput) => Promise<SkillWithLinks>;
+  previewDeleteResourceBundle: (relativePath: string) => Promise<CentralSkillBundleDeletePreview>;
+  deleteResourceBundle: (
+    relativePath: string,
+    options: DeleteCentralSkillBundleOptions
+  ) => Promise<DeleteCentralSkillBundleResult>;
   deleteResourceSkill: (
     skillId: string,
     options: DeleteResourceSkillOptions
@@ -170,6 +180,100 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
       return updated;
     } catch (err) {
       set({ error: String(err), isUpdatingSources: false });
+      throw err;
+    }
+  },
+
+  createManualSkill: async (input) => {
+    set({ isLoading: true, error: null });
+    if (!isTauriRuntime()) {
+      const created: SkillWithLinks = {
+        id: input.skillId,
+        name: input.name,
+        description: input.description ?? undefined,
+        file_path: `~/.skillshub/library/${input.skillId}/SKILL.md`,
+        canonical_path: `~/.skillshub/library/${input.skillId}`,
+        is_central: false,
+        source: "manual",
+        source_url: input.sourceUrl ?? null,
+        source_author: input.sourceAuthor ?? null,
+        source_repo: input.sourceRepo ?? null,
+        source_path: input.sourcePath ?? null,
+        scanned_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        linked_agents: [],
+        read_only_agents: [],
+      };
+      set((state) => ({ skills: [created, ...state.skills], isLoading: false }));
+      return created;
+    }
+
+    try {
+      const created = await invoke<SkillWithLinks>("create_manual_resource_skill", { input });
+      const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
+      set({ skills: skills ?? [], isLoading: false });
+      return created;
+    } catch (err) {
+      set({ error: String(err), isLoading: false });
+      throw err;
+    }
+  },
+
+  previewDeleteResourceBundle: async (relativePath) => {
+    if (!isTauriRuntime()) {
+      const skills = get().skills.filter((skill) =>
+        skill.canonical_path?.includes(relativePath)
+      );
+      return {
+        bundle: {
+          name: relativePath.split(/[\\/]/).pop() || relativePath,
+          relativePath,
+          path: `~/.skillshub/library/${relativePath}`,
+          isSymlink: false,
+          skillCount: skills.length,
+          linkedAgentCount: 0,
+          readOnlyAgentCount: 0,
+        },
+        skills,
+        affectedAgents: [],
+        skippedReadOnlyAgents: [],
+      };
+    }
+    return await invoke<CentralSkillBundleDeletePreview>(
+      "preview_delete_resource_skill_bundle",
+      { relativePath }
+    );
+  },
+
+  deleteResourceBundle: async (relativePath, options) => {
+    set({ isLoading: true, error: null });
+    if (!isTauriRuntime()) {
+      const result: DeleteCentralSkillBundleResult = {
+        relativePath,
+        removedBundlePath: `~/.skillshub/library/${relativePath}`,
+        removedKind: "directory",
+        removedSkillIds: [],
+        uninstalledAgents: [],
+        skippedReadOnlyAgents: [],
+      };
+      set((state) => ({
+        skills: state.skills.filter((skill) => !skill.canonical_path?.includes(relativePath)),
+        isLoading: false,
+      }));
+      return result;
+    }
+
+    try {
+      const result = await invoke<DeleteCentralSkillBundleResult>(
+        "delete_resource_skill_bundle",
+        { relativePath, options }
+      );
+      const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
+      set({ skills: skills ?? [], isLoading: false });
+      return result;
+    } catch (err) {
+      set({ error: String(err), isLoading: false });
       throw err;
     }
   },

@@ -286,12 +286,12 @@ describe("SkillDetailDrawer", () => {
     const sidebar = screen.getByTestId("skill-detail-right-sidebar");
 
     expect(drawer.className).toContain("w-screen");
-    expect(drawer.className).toContain("md:w-[min(900px,90vw)]");
+    expect(drawer.className).not.toContain("md:w-[min(900px,90vw)]");
     expect(layout.className).toContain("flex-col");
     expect(layout.className).toContain("md:flex-row");
     expect(sidebar.className).toContain("border-t");
-    expect(sidebar.className).toContain("md:border-l");
     expect(sidebar.className).toContain("md:border-t-0");
+    expect(screen.getByRole("separator", { name: /调整详情栏宽度/i }).className).toContain("border-l");
   });
 
   it("does not unmount the parent container during open/close", async () => {

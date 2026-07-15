@@ -22,42 +22,43 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 
 - Resource library first workflow for GitHub imports, marketplace installs, and local skill storage.
 - One-click promotion from the resource library to Central Skills while preserving source grouping such as `owner/repo/skill`.
+- Manual skill creation, sorting by name/created/updated time, folder view, and safe folder deletion in the Skill Resource Library.
 - Manual platform selection for installs, with symlink, copy, and automatic fallback modes.
-- Central Skills directory view with folder mode, bulk platform uninstall, source updates, and safe delete previews.
-- Skill detail view with Markdown preview, raw source, AI explanation, source metadata, author/repo, creation/update timestamps, notes, and tags.
+- Central Skills management focused on the central directory, with folder mode, bulk platform uninstall, and safe delete previews.
+- Full-width skill detail view with Markdown preview, raw source, basic/source metadata, install status, notes, tags, and AI-generated notes.
 - Search across names, descriptions, notes, tags, and source metadata.
 - Tag filtering and collection management for reusable skill sets.
 - GitHub repository import with preview, rename/overwrite/skip conflict handling, and source metadata tracking.
 - Marketplace browsing, source sync, and per-source updates.
-- App backup import/export for skills, metadata, collections, settings, and resource/central storage layout.
+- Local ZIP backup and WebDAV backup/import with selectable resource library, central library, app configuration, and platform installation state. WebDAV connection details can be saved locally, while passwords, tokens, and API keys are excluded from backup files.
 - Project skill discovery, including Obsidian vault grouping and local project skill directories.
-- Bilingual UI, Catppuccin themes, accent colors, responsive navigation, and compact shortcut buttons.
+- Bilingual UI, VS Code-inspired light/dark themes, system theme cycling, responsive navigation, and compact shortcut buttons.
 
 ## Screenshots
 
-### Skill Resource Library
+### Skill Resource Library, Sorting, And Manual Creation
 
 ![Skill resource library view](images/01.png)
-
-### Review installed skills on a specific platform
-
-![Platform skill view](images/06.png)
-
-### Discover local project skill libraries
-
-![Discover project skill libraries](images/03.png)
-
-### Browse marketplace publishers and skills
-
-![Marketplace view](images/04.png)
 
 ### Import skills from a GitHub repository
 
 ![GitHub repository import wizard](images/02.png)
 
+### Central Skills
+
+![Central Skills view](images/03.png)
+
+### Settings, Backup, And WebDAV
+
+![Settings and backup view](images/04.png)
+
 ### Organize reusable collections
 
 ![Skill collections view](images/05.png)
+
+### Review installed skills on a specific platform
+
+![Platform skill view](images/06.png)
 
 ## Download
 
@@ -128,8 +129,8 @@ Changing the Resource Library path does not move existing platform installs. Cha
 
 - **Local-first storage**: metadata, collections, scan results, settings, and cached AI explanations stay in `~/.skillshub/db.sqlite` or the local skill directories you manage.
 - **No telemetry**: the app does not include analytics, crash reporting, or usage tracking.
-- **Network access is feature-driven**: outbound requests only happen when you use marketplace sync/download, GitHub import, source updates, or AI explanation generation.
-- **Credentials are stored locally**: GitHub PAT and AI API keys are stored in the local SQLite settings table and are not encrypted at rest by the app.
+- **Network access is feature-driven**: outbound requests only happen when you use marketplace sync/download, GitHub import, source updates, WebDAV backup, or AI explanation generation.
+- **Credentials are stored locally**: GitHub PAT, AI API keys, and WebDAV connection settings are stored in the local SQLite settings table and are not encrypted at rest by the app. Backup files exclude API keys, tokens, and password-like settings.
 - Never post real secrets in issues, pull requests, screenshots, or logs.
 
 ## Tech Stack
@@ -142,7 +143,7 @@ Changing the Resource Library path does not move existing platform installs. Cha
 | State management | Zustand |
 | Markdown | react-markdown |
 | i18n | react-i18next, i18next-browser-languagedetector |
-| Theming | Catppuccin palette |
+| Theming | VS Code-inspired light/dark themes |
 | Backend | Rust, serde, sqlx, chrono, uuid |
 | Database | SQLite via sqlx, WAL mode |
 | Routing | react-router-dom v7 |
@@ -183,7 +184,7 @@ cd src-tauri && cargo clippy -- -D warnings
 ### Package a Release
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0
 ```
 
 The script updates version metadata, runs type and Rust compile checks unless skipped, builds Tauri packages, and writes release assets under `release-assets/`.
@@ -191,16 +192,16 @@ The script updates version metadata, runs type and Rust compile checks unless sk
 Target the current OS:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms auto
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms auto
 ```
 
 Target one or more platforms:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms windows
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms linux
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms macos
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.10.7 -Platforms windows,linux,macos
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms windows
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms linux
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms macos
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms windows,linux,macos
 ```
 
 `-Platforms all` expands to Windows, Linux, and macOS. The macOS target builds two packages: `macos_x64` for Intel Macs and `macos_arm64` for Apple Silicon / M-series Macs. Each target still requires the corresponding Tauri toolchain and OS packaging dependencies; macOS packages should be built on macOS, Linux bundles on Linux, and Windows MSI packages on Windows.

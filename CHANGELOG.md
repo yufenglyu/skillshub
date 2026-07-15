@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.11.0 - 2026-07-15
+
+Feature and maintenance release focused on the Resource Library workflow, backup portability, WebDAV migration, and a cleaner desktop UI.
+
+### Features
+
+- Add ZIP-based local and WebDAV backups with selectable resource library, central library, app configuration, and platform installation state.
+- Add WebDAV remote backup listing, upload/import actions, and locally persisted WebDAV connection settings while excluding secrets from backup archives.
+- Add manual skill creation in the Skill Resource Library, with editable basic/source metadata for local skills.
+- Add Resource Library sorting, folder view deletion, and safer folder-level delete previews.
+- Add a top-bar theme toggle for system, light, and dark modes with refreshed VS Code-inspired themes.
+
+### Improvements
+
+- Move Resource Library management controls into a denser toolbar with GitHub import, manual creation, sorting, and view switching.
+- Simplify Central Skills into a focused central-directory view.
+- Rework skill detail pages with full-width content, separate notes and tags, and AI-generated notes from the metadata panel.
+- Group Settings directory controls in Resource Library, Central Skills, and scan directory order.
+- Rework the sidebar software platform section with a title, icon, and icon-only visibility toggle.
+
+### Fixes
+
+- Preserve saved WebDAV connection settings across application restarts.
+- Store app data under `~/.skillshub/db.sqlite` while preserving first-run migration from `~/.skillsmanage/db.sqlite`.
+- Keep GitHub-imported skill source metadata aligned with the repository name instead of generic resource-library labels.
+
 ## 0.10.0 - 2026-04-30
 
 Feature release focused on broader platform coverage, Discover reliability, and denser Central Skills platform management.

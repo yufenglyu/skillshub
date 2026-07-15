@@ -215,11 +215,7 @@ pub fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn safe_relative_resource_path(
-    source_dir: &Path,
-    resource_root: &Path,
-    skill_id: &str,
-) -> PathBuf {
+fn safe_relative_resource_path(source_dir: &Path, resource_root: &Path, skill_id: &str) -> PathBuf {
     let Ok(relative) = source_dir.strip_prefix(resource_root) else {
         return PathBuf::from(skill_id);
     };
@@ -451,14 +447,9 @@ pub async fn install_skill_to_agent_impl(
     // 3. Ensure the skill exists in central (auto-centralize if needed).
     ensure_centralized(pool, skill_id, &canonical_dir).await?;
 
-    if let Some(result) = universal_available_install_result(
-        pool,
-        skill_id,
-        agent_id,
-        &canonical_dir,
-        &central_root,
-    )
-    .await?
+    if let Some(result) =
+        universal_available_install_result(pool, skill_id, agent_id, &canonical_dir, &central_root)
+            .await?
     {
         return Ok(result);
     }
@@ -579,14 +570,9 @@ pub async fn install_skill_to_agent_copy_impl(
     // 3. Ensure the skill exists in central (auto-centralize if needed).
     ensure_centralized(pool, skill_id, &canonical_dir).await?;
 
-    if let Some(result) = universal_available_install_result(
-        pool,
-        skill_id,
-        agent_id,
-        &canonical_dir,
-        &central_root,
-    )
-    .await?
+    if let Some(result) =
+        universal_available_install_result(pool, skill_id, agent_id, &canonical_dir, &central_root)
+            .await?
     {
         return Ok(result);
     }
@@ -1123,10 +1109,14 @@ mod tests {
         );
         let link_target = fs::read_link(&symlink_path).unwrap();
         assert!(
-            link_target.components().collect::<Vec<_>>().windows(2).any(|pair| {
-                pair[0].as_os_str() == "superpowers"
-                    && pair[1].as_os_str() == "using-superpowers"
-            }),
+            link_target
+                .components()
+                .collect::<Vec<_>>()
+                .windows(2)
+                .any(|pair| {
+                    pair[0].as_os_str() == "superpowers"
+                        && pair[1].as_os_str() == "using-superpowers"
+                }),
             "symlink should point at nested canonical path, got {:?}",
             link_target
         );
@@ -1299,15 +1289,16 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!old_flat_path.exists(), "old flat symlink should be removed");
         assert!(
-            agent_dir
-                .join("anthropics")
-                .join("skills")
-                .join("migrated-link")
-                .join("SKILL.md")
-                .exists()
+            !old_flat_path.exists(),
+            "old flat symlink should be removed"
         );
+        assert!(agent_dir
+            .join("anthropics")
+            .join("skills")
+            .join("migrated-link")
+            .join("SKILL.md")
+            .exists());
     }
 
     #[tokio::test]
@@ -1368,14 +1359,12 @@ mod tests {
             .unwrap();
 
         assert!(!old_flat_path.exists(), "old flat copy should be removed");
-        assert!(
-            agent_dir
-                .join("anthropics")
-                .join("skills")
-                .join("migrated-copy")
-                .join("SKILL.md")
-                .exists()
-        );
+        assert!(agent_dir
+            .join("anthropics")
+            .join("skills")
+            .join("migrated-copy")
+            .join("SKILL.md")
+            .exists());
     }
 
     #[tokio::test]
@@ -1861,6 +1850,61 @@ mod tests {
             skill.canonical_path.as_deref(),
             Some(expected_dir.to_string_lossy().as_ref())
         );
+    }
+
+    #[tokio::test]
+    async fn test_add_resource_skill_to_central_preserves_github_source_metadata() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let agent_dir = tmp.path().join("claude");
+        let resource_dir = tmp.path().join("resource");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::create_dir_all(&resource_dir).unwrap();
+
+        let pool = setup_db(&central_dir, &agent_dir).await;
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+        create_resource_skill(&pool, &resource_dir, "github-resource").await;
+        let mut skill = db::get_skill_by_id(&pool, "github-resource")
+            .await
+            .unwrap()
+            .unwrap();
+        skill.source = Some("github:example/skills".to_string());
+        db::upsert_skill(&pool, &skill).await.unwrap();
+        db::upsert_skill_source(
+            &pool,
+            &db::SkillSource {
+                skill_id: "github-resource".to_string(),
+                source_type: "github".to_string(),
+                source_url: Some(
+                    "https://raw.githubusercontent.com/example/skills/main/SKILL.md".to_string(),
+                ),
+                source_author: Some("example".to_string()),
+                source_repo: Some("example/skills".to_string()),
+                source_path: Some("skills/github-resource/SKILL.md".to_string()),
+                updated_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        add_resource_skill_to_central_impl(&pool, "github-resource")
+            .await
+            .unwrap();
+
+        let promoted = db::get_skill_by_id(&pool, "github-resource")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(promoted.source.as_deref(), Some("github:example/skills"));
+        let source = db::get_skill_source(&pool, "github-resource")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(source.source_type, "github");
+        assert_eq!(source.source_repo.as_deref(), Some("example/skills"));
     }
 
     #[tokio::test]

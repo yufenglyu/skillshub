@@ -1,10 +1,12 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowUpDown,
   Blocks,
   Database,
   Download,
   FolderOpen,
+  Plus,
   RefreshCw,
   Search,
 } from "lucide-react";
@@ -43,7 +45,7 @@ import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useSkillStore } from "@/stores/skillStore";
-import type { SkillWithLinks } from "@/types";
+import type { CentralSkillBundleDeletePreview, SkillWithLinks } from "@/types";
 
 function EmptyState({ message }: { message: string }) {
   return (
@@ -59,6 +61,26 @@ function EmptyState({ message }: { message: string }) {
 function sortSkillsByName(skills: SkillWithLinks[]) {
   return [...skills].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+  );
+}
+
+type ResourceSortField = "name" | "createdAt" | "updatedAt";
+type ResourceSortDirection = "asc" | "desc";
+
+function parseSortableTimestamp(value?: string | null): number {
+  if (!value) return 0;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function getSkillSortTimestamp(
+  skill: SkillWithLinks,
+  field: "createdAt" | "updatedAt"
+): number {
+  return parseSortableTimestamp(
+    field === "createdAt"
+      ? skill.created_at ?? skill.scanned_at
+      : skill.updated_at ?? skill.scanned_at
   );
 }
 
@@ -158,6 +180,11 @@ export function ResourceLibraryView() {
   const installSkill = useResourceLibraryStore((state) => state.installSkill);
   const addToCentral = useResourceLibraryStore((state) => state.addToCentral);
   const togglePlatformLink = useResourceLibraryStore((state) => state.togglePlatformLink);
+  const createManualSkill = useResourceLibraryStore((state) => state.createManualSkill);
+  const previewDeleteResourceBundle = useResourceLibraryStore(
+    (state) => state.previewDeleteResourceBundle
+  );
+  const deleteResourceBundle = useResourceLibraryStore((state) => state.deleteResourceBundle);
   const deleteResourceSkill = useResourceLibraryStore((state) => state.deleteResourceSkill);
   const updateSourceBackedSkills = useResourceLibraryStore(
     (state) => state.updateSourceBackedSkills
@@ -180,6 +207,8 @@ export function ResourceLibraryView() {
   const resetGitHubImport = useMarketplaceStore((state) => state.resetGitHubImport);
 
   const [viewMode, setViewMode] = useSkillListViewMode("resource-library");
+  const [sortField, setSortField] = useState<ResourceSortField>("name");
+  const [sortDirection, setSortDirection] = useState<ResourceSortDirection>("asc");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [activeFolderKey, setActiveFolderKey] = useState<string | null>(null);
@@ -190,6 +219,14 @@ export function ResourceLibraryView() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [updatingSkillId, setUpdatingSkillId] = useState<string | null>(null);
   const [isGitHubImportOpen, setIsGitHubImportOpen] = useState(false);
+  const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
+  const [manualSkillId, setManualSkillId] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [manualDescription, setManualDescription] = useState("");
+  const [manualBody, setManualBody] = useState("");
+  const [folderDeletePreview, setFolderDeletePreview] =
+    useState<CentralSkillBundleDeletePreview | null>(null);
+  const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [githubRepoUrl, setGitHubRepoUrl] = useState("");
   const detailButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -244,7 +281,7 @@ export function ResourceLibraryView() {
   const visibleSkills =
     viewMode === "folders" ? activeFolder?.skills ?? folderSplit.rootSkills : skills;
   const filteredSkills = useMemo(() => {
-    return sortSkillsByName(visibleSkills).filter((skill) => {
+    return visibleSkills.filter((skill) => {
       if (selectedTag && !(skill.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag)) {
         return false;
       }
@@ -259,6 +296,22 @@ export function ResourceLibraryView() {
       ]).includes(normalizedSearchQuery);
     });
   }, [normalizedSearchQuery, selectedTag, visibleSkills]);
+
+  const sortedSkills = useMemo(() => {
+    const direction = sortDirection === "asc" ? 1 : -1;
+    return [...filteredSkills].sort((a, b) => {
+      const nameComparison = a.name.localeCompare(b.name, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+      if (sortField === "name") {
+        return nameComparison * direction;
+      }
+      const timeComparison =
+        getSkillSortTimestamp(a, sortField) - getSkillSortTimestamp(b, sortField);
+      return timeComparison === 0 ? nameComparison : timeComparison * direction;
+    });
+  }, [filteredSkills, sortDirection, sortField]);
 
   const filteredFolders = useMemo(() => {
     if (viewMode !== "folders" || activeFolder) return [];
@@ -283,6 +336,17 @@ export function ResourceLibraryView() {
     );
     return skills.filter((skill) => importedIds.has(skill.id));
   }, [githubImport.importResult, skills]);
+
+  const sortFieldOptions: Array<{ value: ResourceSortField; label: string }> = [
+    { value: "name", label: t("central.sortByName") },
+    { value: "createdAt", label: t("central.sortByCreatedAt") },
+    { value: "updatedAt", label: t("central.sortByUpdatedAt") },
+  ];
+
+  const sortDirectionOptions: Array<{ value: ResourceSortDirection; label: string }> = [
+    { value: "asc", label: t("central.sortAscending") },
+    { value: "desc", label: t("central.sortDescending") },
+  ];
 
   async function handleRefresh() {
     await loadResourceLibrary();
@@ -399,6 +463,54 @@ export function ResourceLibraryView() {
     void handleDeleteResourceSkill(skill, false);
   }
 
+  async function handleCreateManualSkill() {
+    try {
+      await createManualSkill({
+        skillId: manualSkillId,
+        name: manualName,
+        description: manualDescription || null,
+        body: manualBody || null,
+      });
+      setIsManualCreateOpen(false);
+      setManualSkillId("");
+      setManualName("");
+      setManualDescription("");
+      setManualBody("");
+      toast.success(t("resource.manualCreateSuccess"));
+    } catch (err) {
+      toast.error(t("resource.manualCreateError", { error: String(err) }));
+    }
+  }
+
+  async function handleDeleteFolderClick(group: SkillFolderGroup<SkillWithLinks>) {
+    try {
+      const preview = await previewDeleteResourceBundle(group.relativePath);
+      setFolderDeletePreview(preview);
+    } catch (err) {
+      toast.error(t("resource.deleteFolderError", { error: String(err) }));
+    }
+  }
+
+  async function handleConfirmDeleteFolder() {
+    if (!folderDeletePreview) return;
+    const cascadeUninstall = folderDeletePreview.affectedAgents.length > 0;
+    setIsDeletingFolder(true);
+    try {
+      await deleteResourceBundle(folderDeletePreview.bundle.relativePath, { cascadeUninstall });
+      await Promise.all([
+        refreshCounts(),
+        loadCentralSkills(),
+        ...folderDeletePreview.affectedAgents.map((agentId) => getSkillsByAgent(agentId)),
+      ]);
+      toast.success(t("resource.deleteFolderSuccess", { name: folderDeletePreview.bundle.name }));
+      setFolderDeletePreview(null);
+    } catch (err) {
+      toast.error(t("resource.deleteFolderError", { error: String(err) }));
+    } finally {
+      setIsDeletingFolder(false);
+    }
+  }
+
   async function handleGitHubPreview() {
     try {
       return await previewGitHubRepoImport(githubRepoUrl);
@@ -461,12 +573,17 @@ export function ResourceLibraryView() {
             {isUpdatingSources ? (
               <RefreshCw className="size-4 animate-spin" />
             ) : (
-              <Download className="size-4" />
+              <RefreshCw className="size-4" />
             )}
             {t("resource.updateSources")}
           </Button>
           <Button variant="outline" onClick={() => setIsGitHubImportOpen(true)}>
+            <Download className="size-4" />
             {t("marketplace.githubImportSecondaryCta")}
+          </Button>
+          <Button variant="outline" onClick={() => setIsManualCreateOpen(true)}>
+            <Plus className="size-4" />
+            {t("resource.manualCreate")}
           </Button>
         </div>
       </div>
@@ -483,7 +600,59 @@ export function ResourceLibraryView() {
               aria-label={t("resource.searchPlaceholder")}
             />
           </div>
-          <SkillListModeToggle value={viewMode} onChange={setViewMode} />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <ArrowUpDown className="size-3.5" />
+              <span>{t("central.sortLabel")}</span>
+            </div>
+            <div
+              role="group"
+              aria-label={t("central.sortFieldLabel")}
+              className="flex rounded-xl bg-muted/40 p-1"
+            >
+              {sortFieldOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={sortField === option.value}
+                  onClick={() => setSortField(option.value)}
+                  className={cn(
+                    "h-7 rounded-lg px-3 text-xs font-medium transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                    sortField === option.value
+                      ? "bg-background/95 text-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div
+              role="group"
+              aria-label={t("central.sortDirectionLabel")}
+              className="flex rounded-xl bg-muted/40 p-1"
+            >
+              {sortDirectionOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={sortDirection === option.value}
+                  onClick={() => setSortDirection(option.value)}
+                  className={cn(
+                    "h-7 rounded-lg px-3 text-xs font-medium transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                    sortDirection === option.value
+                      ? "bg-background/95 text-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <SkillListModeToggle value={viewMode} onChange={setViewMode} />
+          </div>
         </div>
         {availableTags.length > 0 && (
           <div role="group" aria-label={t("central.tagFilter")} className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -557,6 +726,8 @@ export function ResourceLibraryView() {
                       readOnlyAgentCount={group.readOnlyAgentCount}
                       previewNames={group.skills.map((skill) => skill.name)}
                       onOpen={() => setActiveFolderKey(group.relativePath)}
+                      onDelete={() => void handleDeleteFolderClick(group)}
+                      deleteLabel={t("resource.deleteFolderLabel", { name: group.name })}
                     />
                   ))}
                 </div>
@@ -576,7 +747,7 @@ export function ResourceLibraryView() {
                   </div>
                 )}
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  {filteredSkills.map((skill) => (
+                  {sortedSkills.map((skill) => (
                     <UnifiedSkillCard
                       key={skill.id}
                       name={skill.name}
@@ -687,6 +858,113 @@ export function ResourceLibraryView() {
               disabled={!!deleteTargetSkill && deletingSkillId === deleteTargetSkill.id}
             >
               {t("resource.deleteCascadeLabel")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("resource.manualCreateTitle")}</DialogTitle>
+            <DialogDescription>{t("resource.manualCreateDesc")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="manual-skill-id" className="mb-1 block text-xs text-muted-foreground">
+                {t("resource.manualSkillId")}
+              </label>
+              <Input
+                id="manual-skill-id"
+                value={manualSkillId}
+                onChange={(event) => setManualSkillId(event.target.value)}
+                placeholder="my-skill"
+              />
+            </div>
+            <div>
+              <label htmlFor="manual-skill-name" className="mb-1 block text-xs text-muted-foreground">
+                {t("resource.manualSkillName")}
+              </label>
+              <Input
+                id="manual-skill-name"
+                value={manualName}
+                onChange={(event) => setManualName(event.target.value)}
+                placeholder="My Skill"
+              />
+            </div>
+            <div>
+              <label htmlFor="manual-skill-description" className="mb-1 block text-xs text-muted-foreground">
+                {t("resource.manualSkillDescription")}
+              </label>
+              <Input
+                id="manual-skill-description"
+                value={manualDescription}
+                onChange={(event) => setManualDescription(event.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="manual-skill-body" className="mb-1 block text-xs text-muted-foreground">
+                {t("resource.manualSkillBody")}
+              </label>
+              <textarea
+                id="manual-skill-body"
+                value={manualBody}
+                onChange={(event) => setManualBody(event.target.value)}
+                className="min-h-28 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsManualCreateOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => void handleCreateManualSkill()}>
+              {t("resource.manualCreateSubmit")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!folderDeletePreview}
+        onOpenChange={(open) => {
+          if (!open) {
+            setFolderDeletePreview(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {t("resource.deleteFolderConfirmTitle", {
+                name: folderDeletePreview?.bundle.name ?? "",
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {folderDeletePreview
+                ? t("resource.deleteFolderConfirmDesc", {
+                    count: folderDeletePreview.skills.length,
+                    platforms: folderDeletePreview.affectedAgents.join(", ") || t("common.none"),
+                  })
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setFolderDeletePreview(null)}
+              disabled={isDeletingFolder}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void handleConfirmDeleteFolder()}
+              disabled={isDeletingFolder}
+            >
+              {folderDeletePreview?.affectedAgents.length
+                ? t("resource.deleteFolderCascadeLabel")
+                : t("resource.deleteFolderLabelShort")}
             </Button>
           </DialogFooter>
         </DialogContent>

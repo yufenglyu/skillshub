@@ -70,8 +70,7 @@ export function SkillDetailDrawer({
           aria-labelledby={showContent ? titleId : undefined}
           data-testid="skill-detail-drawer"
           className={cn(
-            "fixed inset-y-0 right-0 z-50 flex h-full w-screen flex-col bg-background shadow-2xl ring-1 ring-border outline-none",
-            "md:w-[min(900px,90vw)]"
+            "fixed inset-y-0 right-0 z-50 flex h-full w-screen flex-col bg-background shadow-2xl ring-1 ring-border outline-none"
           )}
         >
           <div className="flex h-10 shrink-0 items-center justify-end border-b border-border px-2">

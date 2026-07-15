@@ -259,6 +259,32 @@ export function Sidebar() {
         <div className="border-t border-sidebar-border/70 my-2" />
 
         {/* Platform icons */}
+        {expanded ? (
+          <div
+            data-testid="software-platform-heading"
+            className="flex items-center justify-between gap-2 px-2.5 py-1.5"
+          >
+            <div className="flex min-w-0 items-center gap-2.5 text-muted-foreground">
+              <Blocks className="size-4 shrink-0" />
+              <span className="truncate text-sm font-medium">
+                {t("sidebar.softwarePlatforms")}
+              </span>
+            </div>
+            {!isLoading && (
+              <button
+                onClick={toggleShowAllPlatforms}
+                title={showAllPlatforms ? t("sidebar.hideEmptyPlatforms") : t("sidebar.showAllPlatforms")}
+                aria-label={showAllPlatforms ? t("sidebar.hideEmptyPlatforms") : t("sidebar.showAllPlatforms")}
+                className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+              >
+                {showAllPlatforms ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="border-t border-sidebar-border/40 my-1.5" />
+        )}
+
         {isLoading ? (
           <div className={cn(
             "flex items-center py-2 text-muted-foreground text-sm",
@@ -352,31 +378,6 @@ export function Sidebar() {
           </>
         )}
 
-        {!isLoading && (
-          <div className={cn(
-            "pt-2",
-            expanded ? "px-1" : "flex justify-center"
-          )}>
-            <button
-              onClick={toggleShowAllPlatforms}
-              title={showAllPlatforms ? t("sidebar.hideEmptyPlatforms") : t("sidebar.showAllPlatforms")}
-              aria-label={showAllPlatforms ? t("sidebar.hideEmptyPlatforms") : t("sidebar.showAllPlatforms")}
-              className={cn(
-                "cursor-pointer rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary",
-                expanded
-                  ? "flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-left"
-                  : "p-2"
-              )}
-            >
-              {showAllPlatforms ? <EyeOff className="size-4 shrink-0" /> : <Eye className="size-4 shrink-0" />}
-              {expanded && (
-                <span className="truncate">
-                  {showAllPlatforms ? t("sidebar.hideEmptyPlatforms") : t("sidebar.showAllPlatforms")}
-                </span>
-              )}
-            </button>
-          </div>
-        )}
       </div>
 
     </nav>

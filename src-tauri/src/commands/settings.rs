@@ -89,7 +89,9 @@ pub async fn update_central_skills_dir_impl(pool: &DbPool, path: &str) -> Result
 }
 
 pub async fn get_skill_resource_library_dir_impl(pool: &DbPool) -> Result<String, String> {
-    Ok(path_to_string(&db::get_skill_resource_library_dir(pool).await?))
+    Ok(path_to_string(
+        &db::get_skill_resource_library_dir(pool).await?,
+    ))
 }
 
 pub async fn update_skill_resource_library_dir_impl(
@@ -100,7 +102,9 @@ pub async fn update_skill_resource_library_dir_impl(
     if path.is_empty() {
         return Err("Skill Resource Library path cannot be empty".to_string());
     }
-    Ok(path_to_string(&db::set_skill_resource_library_dir(pool, path).await?))
+    Ok(path_to_string(
+        &db::set_skill_resource_library_dir(pool, path).await?,
+    ))
 }
 
 async fn demote_skills_outside_new_central_root(
@@ -202,9 +206,7 @@ pub async fn update_central_skills_dir(
 }
 
 #[tauri::command]
-pub async fn get_skill_resource_library_dir(
-    state: State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn get_skill_resource_library_dir(state: State<'_, AppState>) -> Result<String, String> {
     get_skill_resource_library_dir_impl(&state.db).await
 }
 

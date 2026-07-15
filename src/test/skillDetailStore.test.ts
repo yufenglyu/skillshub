@@ -390,6 +390,66 @@ describe("skillDetailStore", () => {
     );
   });
 
+  it("updates source metadata through update_resource_skill_source_metadata", async () => {
+    const resourceDetail: SkillDetail = {
+      ...mockDetail,
+      is_central: false,
+      source: "resource-library",
+      source_author: null,
+      source_repo: null,
+      source_path: null,
+    };
+    useSkillDetailStore.setState({
+      detail: resourceDetail,
+      content: mockContent,
+      isLoading: false,
+      installingAgentId: null,
+      error: null,
+      explanation: null,
+      isExplanationLoading: false,
+      isExplanationStreaming: false,
+      explanationError: null,
+      explanationErrorInfo: null,
+    });
+    vi.mocked(invoke).mockResolvedValueOnce({
+      skill_id: "frontend-design",
+      source: "github:example/skills",
+      source_type: "github",
+      source_url: "https://github.com/example/skills",
+      source_author: "example",
+      source_repo: "example/skills",
+      source_path: "skills/frontend-design/SKILL.md",
+      updated_at: "2026-07-15T00:00:00Z",
+    });
+
+    await useSkillDetailStore.getState().updateSourceMetadata("frontend-design", {
+      sourceType: "github",
+      sourceUrl: "https://github.com/example/skills",
+      sourceAuthor: "",
+      sourceRepo: " example/skills ",
+      sourcePath: "skills/frontend-design/SKILL.md",
+    });
+
+    expect(invoke).toHaveBeenCalledWith("update_resource_skill_source_metadata", {
+      skillId: "frontend-design",
+      metadata: {
+        sourceType: "github",
+        sourceUrl: "https://github.com/example/skills",
+        sourceAuthor: "",
+        sourceRepo: " example/skills ",
+        sourcePath: "skills/frontend-design/SKILL.md",
+      },
+    });
+    expect(useSkillDetailStore.getState().detail).toEqual(
+      expect.objectContaining({
+        source: "github:example/skills",
+        source_author: "example",
+        source_repo: "example/skills",
+        source_path: "skills/frontend-design/SKILL.md",
+      })
+    );
+  });
+
   it("reloads install mutations against the active Claude row identity", async () => {
     vi.mocked(invoke)
       .mockResolvedValueOnce(mockDetail)
