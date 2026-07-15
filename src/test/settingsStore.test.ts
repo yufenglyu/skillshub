@@ -333,6 +333,77 @@ describe("settingsStore", () => {
     ).rejects.toThrow("Not found");
   });
 
+  it("exportAppBackup passes selected options to export_app_backup", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce("{}");
+    const options = {
+      includeResourceLibrary: true,
+      includeCentralLibrary: false,
+      includeAppConfig: true,
+      includeInstallations: false,
+    };
+
+    await useSettingsStore.getState().exportAppBackup(options);
+
+    expect(invoke).toHaveBeenCalledWith("export_app_backup", { options });
+  });
+
+  it("listWebDavBackups calls list_webdav_backups with session config", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce([]);
+    const config = {
+      baseUrl: "https://example.com/dav",
+      username: "user",
+      password: "secret",
+      remoteDir: "skillshub",
+    };
+
+    await useSettingsStore.getState().listWebDavBackups(config);
+
+    expect(invoke).toHaveBeenCalledWith("list_webdav_backups", { config });
+  });
+
+  it("uploadWebDavBackup calls upload_webdav_backup with config and options", async () => {
+    const file = {
+      name: "skillshub-backup.json",
+      remotePath: "skillshub-backup.json",
+      size: 100,
+      modifiedAt: "2026-07-15T00:00:00Z",
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(file);
+    const config = {
+      baseUrl: "https://example.com/dav",
+      username: "",
+      password: "",
+      remoteDir: "skillshub",
+    };
+    const options = {
+      includeResourceLibrary: true,
+      includeCentralLibrary: true,
+      includeAppConfig: true,
+      includeInstallations: true,
+    };
+
+    await useSettingsStore.getState().uploadWebDavBackup(config, options);
+
+    expect(invoke).toHaveBeenCalledWith("upload_webdav_backup", { config, options });
+  });
+
+  it("downloadWebDavBackup calls download_webdav_backup with selected remote path", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce("{\"schema_version\":1}");
+    const config = {
+      baseUrl: "https://example.com/dav",
+      username: "user",
+      password: "secret",
+      remoteDir: "skillshub",
+    };
+
+    await useSettingsStore.getState().downloadWebDavBackup(config, "skillshub-backup.json");
+
+    expect(invoke).toHaveBeenCalledWith("download_webdav_backup", {
+      config,
+      remotePath: "skillshub-backup.json",
+    });
+  });
+
   // ── clearError ────────────────────────────────────────────────────────────
 
   it("clearError resets error to null", () => {

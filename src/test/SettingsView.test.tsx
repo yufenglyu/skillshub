@@ -102,6 +102,9 @@ function setupMocks({
   updateResourceLibraryDir = vi.fn(),
   exportAppBackup = vi.fn(),
   importAppBackup = vi.fn(),
+  listWebDavBackups = vi.fn(),
+  uploadWebDavBackup = vi.fn(),
+  downloadWebDavBackup = vi.fn(),
   loadCentralSkills = vi.fn(),
   rescan = vi.fn(),
   refreshCounts = vi.fn(),
@@ -135,6 +138,9 @@ function setupMocks({
       updateResourceLibraryDir,
       exportAppBackup,
       importAppBackup,
+      listWebDavBackups,
+      uploadWebDavBackup,
+      downloadWebDavBackup,
       clearError: vi.fn(),
     })
   );

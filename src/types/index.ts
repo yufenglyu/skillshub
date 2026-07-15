@@ -25,6 +25,27 @@ export interface UpdateCustomAgentConfig {
   global_skills_dir: string;
 }
 
+export interface BackupOptions {
+  includeResourceLibrary: boolean;
+  includeCentralLibrary: boolean;
+  includeAppConfig: boolean;
+  includeInstallations: boolean;
+}
+
+export interface WebDavConfig {
+  baseUrl: string;
+  username?: string | null;
+  password?: string | null;
+  remoteDir: string;
+}
+
+export interface WebDavBackupFile {
+  name: string;
+  remotePath: string;
+  size?: number | null;
+  modifiedAt?: string | null;
+}
+
 // ─── Scan Types ───────────────────────────────────────────────────────────────
 
 export interface ScanResult {

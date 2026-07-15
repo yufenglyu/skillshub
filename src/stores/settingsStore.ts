@@ -1,6 +1,14 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { ScanDirectory, AgentWithStatus, CustomAgentConfig, UpdateCustomAgentConfig } from "@/types";
+import {
+  ScanDirectory,
+  AgentWithStatus,
+  CustomAgentConfig,
+  UpdateCustomAgentConfig,
+  BackupOptions,
+  WebDavConfig,
+  WebDavBackupFile,
+} from "@/types";
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -32,8 +40,11 @@ interface SettingsState {
   updateCentralSkillsDir: (path: string) => Promise<AgentWithStatus>;
   loadResourceLibraryDir: () => Promise<void>;
   updateResourceLibraryDir: (path: string) => Promise<string>;
-  exportAppBackup: () => Promise<string>;
+  exportAppBackup: (options?: BackupOptions) => Promise<string>;
   importAppBackup: (json: string) => Promise<void>;
+  listWebDavBackups: (config: WebDavConfig) => Promise<WebDavBackupFile[]>;
+  uploadWebDavBackup: (config: WebDavConfig, options?: BackupOptions) => Promise<WebDavBackupFile>;
+  downloadWebDavBackup: (config: WebDavConfig, remotePath: string) => Promise<string>;
 
   clearError: () => void;
 }
@@ -206,12 +217,27 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     return updated;
   },
 
-  exportAppBackup: async () => {
-    return await invoke<string>("export_app_backup");
+  exportAppBackup: async (options) => {
+    return await invoke<string>("export_app_backup", { options: options ?? null });
   },
 
   importAppBackup: async (json: string) => {
     await invoke<void>("import_app_backup", { json });
+  },
+
+  listWebDavBackups: async (config) => {
+    return await invoke<WebDavBackupFile[]>("list_webdav_backups", { config });
+  },
+
+  uploadWebDavBackup: async (config, options) => {
+    return await invoke<WebDavBackupFile>("upload_webdav_backup", {
+      config,
+      options: options ?? null,
+    });
+  },
+
+  downloadWebDavBackup: async (config, remotePath) => {
+    return await invoke<string>("download_webdav_backup", { config, remotePath });
   },
 
   // ── Misc ───────────────────────────────────────────────────────────────────
