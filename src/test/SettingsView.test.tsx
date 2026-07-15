@@ -229,6 +229,115 @@ describe("SettingsView", () => {
     expect(loadGitHubPat).toHaveBeenCalled();
   });
 
+  it("renders backup content checkboxes checked by default", () => {
+    setupMocks();
+    renderSettingsView();
+
+    expect(screen.getByRole("checkbox", { name: "技能资源库" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "中央技能库" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "软件配置" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "技能安装的平台" })).toBeChecked();
+  });
+
+  it("local export uses selected backup options", async () => {
+    const exportAppBackup = vi.fn().mockResolvedValue("{}");
+    setupMocks({ exportAppBackup });
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "中央技能库" }));
+    fireEvent.click(screen.getByRole("button", { name: "导出备份" }));
+
+    await waitFor(() => {
+      expect(exportAppBackup).toHaveBeenCalledWith({
+        includeResourceLibrary: true,
+        includeCentralLibrary: false,
+        includeAppConfig: true,
+        includeInstallations: true,
+      });
+    });
+  });
+
+  it("refreshes and renders WebDAV backup files", async () => {
+    const listWebDavBackups = vi.fn().mockResolvedValue([
+      {
+        name: "skillshub-backup-2026-07-15-120000.json",
+        remotePath: "skillshub-backup-2026-07-15-120000.json",
+        size: 42,
+        modifiedAt: "2026-07-15T12:00:00Z",
+      },
+    ]);
+    setupMocks({ listWebDavBackups });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://example.com/dav" },
+    });
+    fireEvent.change(screen.getByLabelText("远端目录"), {
+      target: { value: "skillshub" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
+
+    expect(await screen.findByText("skillshub-backup-2026-07-15-120000.json")).toBeTruthy();
+  });
+
+  it("uploads a WebDAV backup then refreshes the remote list", async () => {
+    const listWebDavBackups = vi.fn().mockResolvedValue([]);
+    const uploadWebDavBackup = vi.fn().mockResolvedValue({
+      name: "skillshub-backup.json",
+      remotePath: "skillshub-backup.json",
+    });
+    setupMocks({ listWebDavBackups, uploadWebDavBackup });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://example.com/dav" },
+    });
+    fireEvent.change(screen.getByLabelText("远端目录"), {
+      target: { value: "skillshub" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "上传到 WebDAV" }));
+
+    await waitFor(() => {
+      expect(uploadWebDavBackup).toHaveBeenCalled();
+    });
+    expect(listWebDavBackups).toHaveBeenCalled();
+  });
+
+  it("imports the selected WebDAV backup", async () => {
+    const downloadWebDavBackup = vi.fn().mockResolvedValue('{"schema_version":1}');
+    const importAppBackup = vi.fn().mockResolvedValue(undefined);
+    setupMocks({
+      downloadWebDavBackup,
+      importAppBackup,
+      listWebDavBackups: vi.fn().mockResolvedValue([
+        {
+          name: "skillshub-backup.json",
+          remotePath: "skillshub-backup.json",
+        },
+      ]),
+    });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://example.com/dav" },
+    });
+    fireEvent.change(screen.getByLabelText("远端目录"), {
+      target: { value: "skillshub" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
+    await screen.findByText("skillshub-backup.json");
+    fireEvent.click(screen.getByRole("radio", { name: /skillshub-backup\.json/ }));
+    fireEvent.click(screen.getByRole("button", { name: "导入选中的 WebDAV 备份" }));
+
+    await waitFor(() => {
+      expect(downloadWebDavBackup).toHaveBeenCalledWith(
+        expect.objectContaining({ baseUrl: "https://example.com/dav", remoteDir: "skillshub" }),
+        "skillshub-backup.json"
+      );
+    });
+    expect(importAppBackup).toHaveBeenCalledWith('{"schema_version":1}');
+  });
+
   it("renders the saved github pat value and explanation copy", () => {
     setupMocks({ githubPat: "github_pat_saved" });
     renderSettingsView();

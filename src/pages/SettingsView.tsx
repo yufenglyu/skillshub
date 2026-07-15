@@ -23,7 +23,7 @@ import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { AddDirectoryDialog } from "@/components/settings/AddDirectoryDialog";
 import { PlatformDialog } from "@/components/settings/PlatformDialog";
 import { Input } from "@/components/ui/input";
-import { AgentWithStatus, ScanDirectory } from "@/types";
+import { AgentWithStatus, BackupOptions, ScanDirectory, WebDavBackupFile } from "@/types";
 import { AI_PROVIDERS, REGION_LABELS, RegionId } from "@/data/aiProviders";
 import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/path";
 
@@ -183,6 +183,9 @@ export function SettingsView() {
   const updateResourceLibraryDir = useSettingsStore((s) => s.updateResourceLibraryDir);
   const exportAppBackup = useSettingsStore((s) => s.exportAppBackup);
   const importAppBackup = useSettingsStore((s) => s.importAppBackup);
+  const listWebDavBackups = useSettingsStore((s) => s.listWebDavBackups);
+  const uploadWebDavBackup = useSettingsStore((s) => s.uploadWebDavBackup);
+  const downloadWebDavBackup = useSettingsStore((s) => s.downloadWebDavBackup);
   const githubPat = useSettingsStore((s) => s.githubPat);
   const isLoadingGitHubPat = useSettingsStore((s) => s.isLoadingGitHubPat);
   const isSavingGitHubPat = useSettingsStore((s) => s.isSavingGitHubPat);
@@ -307,6 +310,21 @@ export function SettingsView() {
   const [resourcePathMessage, setResourcePathMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [isImportingBackup, setIsImportingBackup] = useState(false);
+  const [backupOptions, setBackupOptions] = useState<BackupOptions>({
+    includeResourceLibrary: true,
+    includeCentralLibrary: true,
+    includeAppConfig: true,
+    includeInstallations: true,
+  });
+  const [webDavBaseUrl, setWebDavBaseUrl] = useState("");
+  const [webDavUsername, setWebDavUsername] = useState("");
+  const [webDavPassword, setWebDavPassword] = useState("");
+  const [webDavRemoteDir, setWebDavRemoteDir] = useState("skillshub");
+  const [webDavFiles, setWebDavFiles] = useState<WebDavBackupFile[]>([]);
+  const [selectedWebDavPath, setSelectedWebDavPath] = useState("");
+  const [isRefreshingWebDav, setIsRefreshingWebDav] = useState(false);
+  const [isUploadingWebDav, setIsUploadingWebDav] = useState(false);
+  const [isImportingWebDav, setIsImportingWebDav] = useState(false);
   const backupInputRef = useRef<HTMLInputElement | null>(null);
 
   // ── Load on mount ──────────────────────────────────────────────────────────
@@ -528,7 +546,7 @@ export function SettingsView() {
   async function handleExportBackup() {
     setIsExportingBackup(true);
     try {
-      const json = await exportAppBackup();
+      const json = await exportAppBackup(backupOptions);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -566,6 +584,80 @@ export function SettingsView() {
     } finally {
       setIsImportingBackup(false);
       if (backupInputRef.current) backupInputRef.current.value = "";
+    }
+  }
+
+  function updateBackupOption(key: keyof BackupOptions, checked: boolean) {
+    setBackupOptions((current) => ({ ...current, [key]: checked }));
+  }
+
+  function currentWebDavConfig() {
+    return {
+      baseUrl: webDavBaseUrl.trim(),
+      username: webDavUsername,
+      password: webDavPassword,
+      remoteDir: webDavRemoteDir.trim(),
+    };
+  }
+
+  async function handleRefreshWebDavBackups() {
+    if (!webDavBaseUrl.trim() || !webDavRemoteDir.trim()) {
+      toast.error(t("settings.webdavMissingConfig"));
+      return;
+    }
+    setIsRefreshingWebDav(true);
+    try {
+      const files = await listWebDavBackups(currentWebDavConfig());
+      setWebDavFiles(files);
+      setSelectedWebDavPath(files[0]?.remotePath ?? "");
+      toast.success(t("settings.webdavRefreshed"));
+    } catch (err) {
+      toast.error(t("settings.webdavRefreshError", { error: String(err) }));
+    } finally {
+      setIsRefreshingWebDav(false);
+    }
+  }
+
+  async function handleUploadWebDavBackup() {
+    if (!webDavBaseUrl.trim() || !webDavRemoteDir.trim()) {
+      toast.error(t("settings.webdavMissingConfig"));
+      return;
+    }
+    setIsUploadingWebDav(true);
+    try {
+      await uploadWebDavBackup(currentWebDavConfig(), backupOptions);
+      toast.success(t("settings.webdavUploaded"));
+      const files = await listWebDavBackups(currentWebDavConfig());
+      setWebDavFiles(files);
+      setSelectedWebDavPath(files[0]?.remotePath ?? "");
+    } catch (err) {
+      toast.error(t("settings.webdavUploadError", { error: String(err) }));
+    } finally {
+      setIsUploadingWebDav(false);
+    }
+  }
+
+  async function handleImportSelectedWebDavBackup() {
+    if (!selectedWebDavPath) {
+      toast.error(t("settings.webdavMissingSelection"));
+      return;
+    }
+    setIsImportingWebDav(true);
+    try {
+      const json = await downloadWebDavBackup(currentWebDavConfig(), selectedWebDavPath);
+      await importAppBackup(json);
+      await Promise.all([
+        rescan(),
+        loadScanDirectories(),
+        loadCentralSkills(),
+        loadResourceLibrary(),
+        loadGitHubPat(),
+      ]);
+      toast.success(t("settings.webdavImported"));
+    } catch (err) {
+      toast.error(t("settings.webdavImportError", { error: String(err) }));
+    } finally {
+      setIsImportingWebDav(false);
     }
   }
 
@@ -695,6 +787,26 @@ export function SettingsView() {
             </div>
           </CardHeader>
           <CardContent>
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">{t("settings.backupContent")}</div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  ["includeResourceLibrary", "settings.backupIncludeResourceLibrary"],
+                  ["includeCentralLibrary", "settings.backupIncludeCentralLibrary"],
+                  ["includeAppConfig", "settings.backupIncludeAppConfig"],
+                  ["includeInstallations", "settings.backupIncludeInstallations"],
+                ].map(([key, labelKey]) => (
+                  <label key={key} className="flex items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={backupOptions[key as keyof BackupOptions]}
+                      onChange={(event) => updateBackupOption(key as keyof BackupOptions, event.target.checked)}
+                    />
+                    <span>{t(labelKey)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={handleExportBackup} disabled={isExportingBackup || isImportingBackup}>
                 {isExportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
@@ -720,6 +832,57 @@ export function SettingsView() {
             <p className="mt-3 text-xs text-muted-foreground">
               {t("settings.backupHint")}
             </p>
+            <div className="mt-5 space-y-3 border-t border-border/60 pt-4">
+              <div>
+                <div className="text-sm font-medium">{t("settings.webdavTitle")}</div>
+                <p className="mt-1 text-xs text-muted-foreground">{t("settings.webdavSessionOnlyHint")}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label htmlFor="webdav-url" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavUrlLabel")}</label>
+                  <Input id="webdav-url" value={webDavBaseUrl} onChange={(event) => setWebDavBaseUrl(event.target.value)} placeholder="https://example.com/dav" />
+                </div>
+                <div>
+                  <label htmlFor="webdav-remote-dir" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavRemoteDirLabel")}</label>
+                  <Input id="webdav-remote-dir" value={webDavRemoteDir} onChange={(event) => setWebDavRemoteDir(event.target.value)} placeholder={t("settings.webdavRemoteDirPlaceholder")} />
+                </div>
+                <div>
+                  <label htmlFor="webdav-username" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavUsernameLabel")}</label>
+                  <Input id="webdav-username" value={webDavUsername} onChange={(event) => setWebDavUsername(event.target.value)} autoComplete="off" />
+                </div>
+                <div>
+                  <label htmlFor="webdav-password" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavPasswordLabel")}</label>
+                  <Input id="webdav-password" type="password" value={webDavPassword} onChange={(event) => setWebDavPassword(event.target.value)} autoComplete="off" />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" onClick={handleRefreshWebDavBackups} disabled={isRefreshingWebDav || isUploadingWebDav || isImportingWebDav}>
+                  {isRefreshingWebDav ? <Loader2 className="size-4 animate-spin" /> : null}
+                  <span>{t("settings.webdavRefresh")}</span>
+                </Button>
+                <Button variant="outline" onClick={handleUploadWebDavBackup} disabled={isRefreshingWebDav || isUploadingWebDav || isImportingWebDav}>
+                  {isUploadingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+                  <span>{t("settings.webdavUpload")}</span>
+                </Button>
+              </div>
+              <div className="rounded-lg border border-border/70">
+                {webDavFiles.length === 0 ? (
+                  <p className="px-3 py-3 text-xs text-muted-foreground">{t("settings.webdavNoBackups")}</p>
+                ) : (
+                  webDavFiles.map((file) => (
+                    <label key={file.remotePath} className="flex items-center gap-2 border-b border-border/50 px-3 py-2 text-sm last:border-0">
+                      <input type="radio" name="webdav-backup-file" checked={selectedWebDavPath === file.remotePath} onChange={() => setSelectedWebDavPath(file.remotePath)} />
+                      <span className="flex-1 truncate">{file.name}</span>
+                      {file.modifiedAt ? <span className="text-xs text-muted-foreground">{file.modifiedAt}</span> : null}
+                    </label>
+                  ))
+                )}
+              </div>
+              <Button onClick={handleImportSelectedWebDavBackup} disabled={isRefreshingWebDav || isUploadingWebDav || isImportingWebDav || !selectedWebDavPath}>
+                {isImportingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                <span>{t("settings.webdavImportSelected")}</span>
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
