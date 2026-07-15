@@ -8,12 +8,11 @@ use sqlx::FromRow;
 use std::cmp::Ordering;
 use std::path::{Component, Path, PathBuf};
 use tauri::State;
+use uuid::Uuid;
 
 use crate::{
-    db::{
-        self, Agent, Collection, DbPool, ScanDirectory, Skill, SkillInstallation, SkillMetadata,
-        SkillSource,
-    },
+    commands::linker::{install_skill_to_agent_copy_impl, install_skill_to_agent_impl},
+    db::{self, Agent, Collection, DbPool, ScanDirectory, Skill, SkillMetadata, SkillSource},
     path_utils::path_to_string,
     AppState,
 };
@@ -103,6 +102,19 @@ struct MarketplaceSkillBackup {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct SkillInstallationBackup {
+    skill_id: String,
+    agent_id: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "link_type",
+        alias = "linkType"
+    )]
+    method: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SkillFileBackup {
     relative_path: String,
     content_base64: String,
@@ -135,7 +147,7 @@ struct AppBackup {
     skill_registries: Vec<SkillRegistryBackup>,
     marketplace_skills: Vec<MarketplaceSkillBackup>,
     #[serde(default)]
-    skill_installations: Vec<SkillInstallation>,
+    skill_installations: Vec<SkillInstallationBackup>,
 }
 
 #[tauri::command]
@@ -199,14 +211,26 @@ fn normalize_webdav_base_url(value: &str) -> Result<String, String> {
 }
 
 fn normalize_webdav_remote_path(value: &str) -> Result<String, String> {
-    let trimmed = value.trim().trim_matches('/');
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("WebDAV remote path cannot be empty".to_string());
+    }
+    let bytes = trimmed.as_bytes();
+    let looks_like_windows_drive_path =
+        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    let path = Path::new(trimmed);
+    if path.is_absolute()
+        || trimmed.starts_with('/')
+        || trimmed.starts_with('\\')
+        || looks_like_windows_drive_path
+    {
+        return Err("WebDAV remote path must be relative".to_string());
+    }
+    let trimmed = trimmed.trim_end_matches('/');
     if trimmed.is_empty() {
         return Err("WebDAV remote path cannot be empty".to_string());
     }
     let path = Path::new(trimmed);
-    if path.is_absolute() {
-        return Err("WebDAV remote path must be relative".to_string());
-    }
     let mut parts = Vec::new();
     for component in path.components() {
         match component {
@@ -264,10 +288,7 @@ async fn upload_webdav_backup_impl(
     config: WebDavConfig,
     json: String,
 ) -> Result<WebDavBackupFile, String> {
-    let filename = format!(
-        "skillshub-backup-{}.json",
-        Utc::now().format("%Y-%m-%d-%H%M%S")
-    );
+    let filename = generated_backup_filename();
     let url = build_webdav_url(&config, &filename)?;
     let client = Client::new();
     let response = apply_webdav_auth(
@@ -432,7 +453,16 @@ fn generated_backup_timestamp(name: &str) -> Option<NaiveDateTime> {
     let timestamp = name
         .strip_prefix("skillshub-backup-")?
         .strip_suffix(".json")?;
+    let timestamp = timestamp.get(..17)?;
     NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d-%H%M%S").ok()
+}
+
+fn generated_backup_filename() -> String {
+    format!(
+        "skillshub-backup-{}-{}.json",
+        Utc::now().format("%Y-%m-%d-%H%M%S"),
+        Uuid::new_v4().simple()
+    )
 }
 
 fn webdav_entry_to_backup_file(
@@ -526,7 +556,7 @@ pub async fn export_app_backup_impl(
                 .await
                 .map_err(|e| e.to_string())?
                 .into_iter()
-                .filter(|setting| !is_sensitive_setting_key(&setting.key))
+                .filter(|setting| is_exportable_setting_key(&setting.key))
                 .collect(),
             db::get_all_agents(pool).await?,
             db::get_scan_directories(pool).await?,
@@ -561,14 +591,25 @@ pub async fn export_app_backup_impl(
     };
 
     let skill_installations = if options.include_installations {
-        sqlx::query_as::<_, SkillInstallation>(
-            "SELECT skill_id, agent_id, installed_path, link_type, symlink_target, created_at
+        sqlx::query_as::<_, SkillInstallationMethodRow>(
+            "SELECT skill_id, agent_id, link_type
              FROM skill_installations
              ORDER BY skill_id, agent_id",
         )
         .fetch_all(pool)
         .await
         .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|installation| SkillInstallationBackup {
+            skill_id: installation.skill_id,
+            agent_id: installation.agent_id,
+            method: Some(
+                validated_install_method(Some(&installation.link_type))
+                    .as_str()
+                    .to_string(),
+            ),
+        })
+        .collect()
     } else {
         Vec::new()
     };
@@ -606,7 +647,7 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         .map_err(|e| format!("Failed to create Central Skills root: {}", e))?;
 
     for setting in backup.settings {
-        if is_sensitive_setting_key(&setting.key) {
+        if !is_exportable_setting_key(&setting.key) {
             continue;
         }
         db::set_setting(pool, &setting.key, &setting.value).await?;
@@ -684,7 +725,20 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
     }
 
     for installation in backup.skill_installations {
-        db::upsert_skill_installation(pool, &installation).await?;
+        match validated_install_method(installation.method.as_deref()) {
+            BackupInstallMethod::Copy => {
+                install_skill_to_agent_copy_impl(
+                    pool,
+                    &installation.skill_id,
+                    &installation.agent_id,
+                )
+                .await?;
+            }
+            BackupInstallMethod::Symlink => {
+                install_skill_to_agent_impl(pool, &installation.skill_id, &installation.agent_id)
+                    .await?;
+            }
+        }
     }
 
     for collection in backup.collections {
@@ -965,11 +1019,49 @@ async fn upsert_marketplace_skill_backup(
     .map_err(|e| e.to_string())
 }
 
-fn is_sensitive_setting_key(key: &str) -> bool {
-    let lower = key.to_ascii_lowercase();
-    ["api_key", "token", "secret", "password", "pat"]
-        .iter()
-        .any(|needle| lower.contains(needle))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackupInstallMethod {
+    Symlink,
+    Copy,
+}
+
+impl BackupInstallMethod {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Symlink => "symlink",
+            Self::Copy => "copy",
+        }
+    }
+}
+
+fn validated_install_method(value: Option<&str>) -> BackupInstallMethod {
+    match value.map(str::trim) {
+        Some("copy") => BackupInstallMethod::Copy,
+        Some("symlink") => BackupInstallMethod::Symlink,
+        _ => BackupInstallMethod::Symlink,
+    }
+}
+
+#[derive(Debug, FromRow)]
+struct SkillInstallationMethodRow {
+    skill_id: String,
+    agent_id: String,
+    link_type: String,
+}
+
+const BACKUP_SETTING_ALLOWLIST: &[&str] = &[
+    "language",
+    "theme",
+    "accent",
+    "accent_color",
+    "skill_resource_library_dir",
+    "ai_provider",
+    "ai_region",
+    "ai_model",
+];
+
+fn is_exportable_setting_key(key: &str) -> bool {
+    BACKUP_SETTING_ALLOWLIST.contains(&key)
 }
 
 #[cfg(test)]
@@ -994,10 +1086,22 @@ mod tests {
         (pool, dir)
     }
 
+    async fn configure_agent_root(pool: &DbPool, agent_id: &str, root: &Path) {
+        std::fs::create_dir_all(root).expect("agent root");
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = ?")
+            .bind(path_to_string(root))
+            .bind(agent_id)
+            .execute(pool)
+            .await
+            .expect("agent path");
+    }
+
     #[tokio::test]
     async fn backup_roundtrip_preserves_skill_installations() {
-        let (pool, _dir) = setup_test_db().await;
-        let central = central_root(&pool).await.expect("central");
+        let (source_pool, source_dir) = setup_test_db().await;
+        let source_agent_root = source_dir.path().join("source-windsurf");
+        configure_agent_root(&source_pool, "windsurf", &source_agent_root).await;
+        let central = central_root(&source_pool).await.expect("central");
         let skill_dir = central.join("installed-demo");
         std::fs::create_dir_all(&skill_dir).expect("skill dir");
         std::fs::write(
@@ -1007,7 +1111,7 @@ mod tests {
         .expect("skill");
 
         db::upsert_skill(
-            &pool,
+            &source_pool,
             &Skill {
                 id: "installed-demo".to_string(),
                 name: "Installed Demo".to_string(),
@@ -1022,41 +1126,121 @@ mod tests {
         )
         .await
         .expect("skill");
-        db::upsert_skill_installation(
-            &pool,
-            &db::SkillInstallation {
-                skill_id: "installed-demo".to_string(),
-                agent_id: "claude-code".to_string(),
-                installed_path: "/tmp/.claude/skills/installed-demo".to_string(),
-                link_type: "symlink".to_string(),
-                symlink_target: Some(path_to_string(&skill_dir)),
-                created_at: "2026-01-02T00:00:00Z".to_string(),
-            },
+        crate::commands::linker::install_skill_to_agent_copy_impl(
+            &source_pool,
+            "installed-demo",
+            "windsurf",
         )
         .await
         .expect("installation");
 
-        let json = export_app_backup_impl(&pool, BackupOptions::default())
+        let json = export_app_backup_impl(&source_pool, BackupOptions::default())
             .await
             .expect("export");
-        sqlx::query("DELETE FROM skill_installations WHERE skill_id = ?")
-            .bind("installed-demo")
-            .execute(&pool)
+        assert!(!json.contains("installed_path"));
+        assert!(!json.contains("symlink_target"));
+        assert!(json.contains("\"method\": \"copy\""));
+
+        let (target_pool, target_dir) = setup_test_db().await;
+        let target_agent_root = target_dir.path().join("target-windsurf");
+        configure_agent_root(&target_pool, "windsurf", &target_agent_root).await;
+        import_app_backup_impl(&target_pool, &json)
             .await
-            .expect("delete installation");
+            .expect("import");
 
-        import_app_backup_impl(&pool, &json).await.expect("import");
-
-        let installations = db::get_skill_installations(&pool, "installed-demo")
+        let installations = db::get_skill_installations(&target_pool, "installed-demo")
             .await
             .expect("installations");
         assert_eq!(installations.len(), 1);
-        assert_eq!(installations[0].agent_id, "claude-code");
-        assert_eq!(installations[0].link_type, "symlink");
+        assert_eq!(installations[0].agent_id, "windsurf");
+        assert_eq!(installations[0].link_type, "copy");
         assert_eq!(
-            installations[0].symlink_target.as_deref(),
-            Some(path_to_string(&skill_dir).as_str())
+            installations[0].installed_path,
+            path_to_string(&target_agent_root.join("installed-demo"))
         );
+        assert!(target_agent_root.join("installed-demo").is_dir());
+        assert_eq!(installations[0].symlink_target.as_deref(), None);
+    }
+
+    #[tokio::test]
+    async fn legacy_installation_paths_are_ignored_during_import() {
+        let (source_pool, _source_dir) = setup_test_db().await;
+        let central = central_root(&source_pool).await.expect("central");
+        let skill_dir = central.join("legacy-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: Legacy Demo\n---\n").expect("skill");
+        db::upsert_skill(
+            &source_pool,
+            &Skill {
+                id: "legacy-demo".to_string(),
+                name: "Legacy Demo".to_string(),
+                description: None,
+                file_path: path_to_string(&skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&skill_dir)),
+                is_central: true,
+                source: None,
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+        let json = export_app_backup_impl(
+            &source_pool,
+            BackupOptions {
+                include_installations: false,
+                ..BackupOptions::default()
+            },
+        )
+        .await
+        .expect("export");
+        let mut value: serde_json::Value = serde_json::from_str(&json).expect("backup");
+        value["skill_installations"] = serde_json::json!([{
+            "skill_id": "legacy-demo",
+            "agent_id": "windsurf",
+            "installed_path": "D:\\\\outside\\\\dangerous",
+            "link_type": "copy",
+            "symlink_target": "D:\\\\outside\\\\canonical",
+            "created_at": "2026-01-02T00:00:00Z"
+        }]);
+
+        let (target_pool, target_dir) = setup_test_db().await;
+        let target_agent_root = target_dir.path().join("target-windsurf");
+        configure_agent_root(&target_pool, "windsurf", &target_agent_root).await;
+        import_app_backup_impl(&target_pool, &value.to_string())
+            .await
+            .expect("import");
+
+        let installation = db::get_skill_installations(&target_pool, "legacy-demo")
+            .await
+            .expect("installations")
+            .pop()
+            .expect("installation");
+        assert_eq!(installation.link_type, "copy");
+        assert_eq!(
+            installation.installed_path,
+            path_to_string(&target_agent_root.join("legacy-demo"))
+        );
+        assert_ne!(installation.installed_path, "D:\\outside\\dangerous");
+        assert_eq!(installation.symlink_target, None);
+        assert!(target_agent_root.join("legacy-demo").is_dir());
+    }
+
+    #[test]
+    fn installation_method_accepts_only_safe_values() {
+        assert_eq!(
+            validated_install_method(Some("symlink")),
+            BackupInstallMethod::Symlink
+        );
+        assert_eq!(
+            validated_install_method(Some("copy")),
+            BackupInstallMethod::Copy
+        );
+        assert_eq!(
+            validated_install_method(Some("copycat")),
+            BackupInstallMethod::Symlink
+        );
+        assert_eq!(validated_install_method(None), BackupInstallMethod::Symlink);
     }
 
     #[tokio::test]
@@ -1210,18 +1394,32 @@ mod tests {
         db::set_setting(&pool, "language", "zh")
             .await
             .expect("language");
+        db::set_setting(&pool, "skill_resource_library_dir", "D:\\backup-library")
+            .await
+            .expect("resource library path");
         db::set_setting(&pool, "github_pat", "should-not-export")
             .await
             .expect("pat");
         db::set_setting(&pool, "ai_api_key", "should-not-export")
             .await
             .expect("api key");
+        db::set_setting(&pool, "account_password", "should-not-export")
+            .await
+            .expect("password");
+        db::set_setting(&pool, "service_secret", "should-not-export")
+            .await
+            .expect("secret");
+        db::set_setting(&pool, "webdav_url", "https://user:pass@example.com/dav")
+            .await
+            .expect("userinfo URL");
 
         let json = export_app_backup_impl(&pool, BackupOptions::default())
             .await
             .expect("export");
         assert!(json.contains("\"language\""));
+        assert!(json.contains("skill_resource_library_dir"));
         assert!(!json.contains("should-not-export"));
+        assert!(!json.contains("https://user:pass@example.com/dav"));
 
         let mut backup: AppBackup = serde_json::from_str(&json).expect("backup");
         backup.settings.push(SettingBackup {
@@ -1419,6 +1617,31 @@ mod tests {
     fn webdav_normalize_remote_path_rejects_traversal() {
         let result = normalize_webdav_remote_path("../secret.json");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn webdav_normalize_remote_path_rejects_absolute_and_unc_like_values() {
+        for value in [
+            "/backups/skillshub-backup.json",
+            r"\server\share\backup.json",
+            r"C:\backups\skillshub-backup.json",
+            "C:/backups/skillshub-backup.json",
+        ] {
+            assert!(
+                normalize_webdav_remote_path(value).is_err(),
+                "absolute-looking path accepted: {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn generated_backup_filenames_are_unique_and_keep_json_suffix() {
+        let first = generated_backup_filename();
+        let second = generated_backup_filename();
+        assert_ne!(first, second);
+        assert!(first.starts_with("skillshub-backup-"));
+        assert!(first.ends_with(".json"));
+        assert!(generated_backup_timestamp(&first).is_some());
     }
 
     #[test]
