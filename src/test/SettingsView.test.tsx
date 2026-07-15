@@ -295,6 +295,65 @@ describe("SettingsView", () => {
     expect(await screen.findByText("skillshub-backup-2026-07-15-120000.json")).toBeTruthy();
   });
 
+  it("clears stale WebDAV selections when the connection config changes", async () => {
+    const listWebDavBackups = vi.fn().mockResolvedValue([
+      {
+        name: "skillshub-backup-2026-07-15-120000.json",
+        remotePath: "skillshub-backup-2026-07-15-120000.json",
+      },
+    ]);
+    setupMocks({ listWebDavBackups });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://example.com/dav" },
+    });
+    fireEvent.change(screen.getByLabelText("远端目录"), {
+      target: { value: "skillshub" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
+
+    expect(await screen.findByText("skillshub-backup-2026-07-15-120000.json")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "导入选中的 WebDAV 备份" })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://other.example.com/dav" },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("skillshub-backup-2026-07-15-120000.json")).toBeNull();
+      expect(screen.getByRole("button", { name: "导入选中的 WebDAV 备份" })).toBeDisabled();
+    });
+  });
+
+  it("disables all backup actions while a local export is running", async () => {
+    let resolveExport: (value: string) => void = () => undefined;
+    const exportAppBackup = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveExport = resolve;
+        })
+    );
+    setupMocks({ exportAppBackup });
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("button", { name: "导出备份" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "导出备份" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "导入备份" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "刷新远端备份" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "上传到 WebDAV" })).toBeDisabled();
+    });
+
+    resolveExport("{}");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "导出备份" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "刷新远端备份" })).toBeEnabled();
+    });
+  });
+
   it("uploads a WebDAV backup then refreshes the remote list", async () => {
     const listWebDavBackups = vi.fn().mockResolvedValue([]);
     const uploadWebDavBackup = vi.fn().mockResolvedValue({

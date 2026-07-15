@@ -352,6 +352,7 @@ export function SettingsView() {
   const [isUploadingWebDav, setIsUploadingWebDav] = useState(false);
   const [isImportingWebDav, setIsImportingWebDav] = useState(false);
   const backupInputRef = useRef<HTMLInputElement | null>(null);
+  const isBackupBusy = isExportingBackup || isImportingBackup || isRefreshingWebDav || isUploadingWebDav || isImportingWebDav;
 
   // ── Load on mount ──────────────────────────────────────────────────────────
 
@@ -376,6 +377,11 @@ export function SettingsView() {
       setResourcePathInput(formatPathForDisplay(resourceLibraryDir));
     }
   }, [resourceLibraryDir]);
+
+  useEffect(() => {
+    setWebDavFiles([]);
+    setSelectedWebDavPath("");
+  }, [webDavBaseUrl, webDavRemoteDir, webDavUsername, webDavPassword]);
 
   const isGitHubPatDirty = useMemo(() => githubPatInput.trim() !== githubPat, [githubPatInput, githubPat]);
   const isCentralPathDirty = useMemo(
@@ -840,14 +846,14 @@ export function SettingsView() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" onClick={handleExportBackup} disabled={isExportingBackup || isImportingBackup}>
+              <Button variant="outline" onClick={handleExportBackup} disabled={isBackupBusy}>
                 {isExportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                 <span>{t("settings.exportBackup")}</span>
               </Button>
               <Button
                 variant="outline"
                 onClick={() => backupInputRef.current?.click()}
-                disabled={isExportingBackup || isImportingBackup}
+                disabled={isBackupBusy}
               >
                 {isImportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
                 <span>{t("settings.importBackup")}</span>
@@ -888,11 +894,11 @@ export function SettingsView() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" onClick={handleRefreshWebDavBackups} disabled={isRefreshingWebDav || isUploadingWebDav || isImportingWebDav}>
+                <Button variant="outline" onClick={handleRefreshWebDavBackups} disabled={isBackupBusy}>
                   {isRefreshingWebDav ? <Loader2 className="size-4 animate-spin" /> : null}
                   <span>{t("settings.webdavRefresh")}</span>
                 </Button>
-                <Button variant="outline" onClick={handleUploadWebDavBackup} disabled={isRefreshingWebDav || isUploadingWebDav || isImportingWebDav}>
+                <Button variant="outline" onClick={handleUploadWebDavBackup} disabled={isBackupBusy}>
                   {isUploadingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
                   <span>{t("settings.webdavUpload")}</span>
                 </Button>
@@ -910,7 +916,7 @@ export function SettingsView() {
                   ))
                 )}
               </div>
-              <Button onClick={handleImportSelectedWebDavBackup} disabled={isRefreshingWebDav || isUploadingWebDav || isImportingWebDav || !selectedWebDavPath}>
+              <Button onClick={handleImportSelectedWebDavBackup} disabled={isBackupBusy || !selectedWebDavPath}>
                 {isImportingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                 <span>{t("settings.webdavImportSelected")}</span>
               </Button>

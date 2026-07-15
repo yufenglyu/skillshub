@@ -331,6 +331,9 @@ async fn upload_webdav_backup_impl(
     config: WebDavConfig,
     json: String,
 ) -> Result<WebDavBackupFile, String> {
+    if json.len() > WEBDAV_MAX_DOWNLOAD_BYTES {
+        return Err("WebDAV backup exceeds size limit".to_string());
+    }
     let filename = generated_backup_filename();
     let url = build_webdav_url(&config, &filename)?;
     let client = webdav_client()?;
@@ -758,9 +761,7 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         .map_err(|e| format!("Failed to create Central Skills root: {}", e))?;
     std::fs::create_dir_all(&resource_root)
         .map_err(|e| format!("Failed to create Skill Resource Library root: {}", e))?;
-    for skill in &backup.skills {
-        validate_skill_backup(skill)?;
-    }
+    validate_restore_plan(&backup.skills)?;
 
     for setting in backup.settings {
         if !is_exportable_setting_key(&setting.key) {
@@ -803,18 +804,7 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
             &central_root
         };
         let target_dir = target_root.join(relative_dir);
-        if target_dir.exists() {
-            std::fs::remove_dir_all(&target_dir).map_err(|e| {
-                format!(
-                    "Failed to replace existing skill directory '{}': {}",
-                    target_dir.display(),
-                    e
-                )
-            })?;
-        }
-        std::fs::create_dir_all(&target_dir)
-            .map_err(|e| format!("Failed to create skill directory: {}", e))?;
-        write_files(&target_dir, &skill.files)?;
+        replace_skill_directory(&target_dir, &skill.files)?;
 
         let mut db_skill = skill.skill;
         db_skill.file_path = path_to_string(&target_dir.join("SKILL.md"));
@@ -1048,30 +1038,114 @@ fn path_to_portable_relative(path: &Path) -> Option<String> {
 
 fn validate_skill_backup(skill: &SkillBackup) -> Result<(), String> {
     normalize_relative_path(&skill.relative_dir)?;
-    let mut paths: Vec<PathBuf> = Vec::new();
+    let mut paths: Vec<(PathBuf, String)> = Vec::new();
+    let mut has_skill_md = false;
     for file in &skill.files {
         let relative_path = normalize_relative_path(&file.relative_path)?;
+        let key = relative_path_key(&relative_path)?;
+        if key == "skill.md" {
+            has_skill_md = true;
+        }
         STANDARD
             .decode(&file.content_base64)
             .map_err(|e| format!("Invalid base64 content for '{}': {}", file.relative_path, e))?;
-        paths.push(relative_path);
+        paths.push((relative_path, key));
     }
-    paths.sort();
+    if !has_skill_md {
+        return Err("Backup skill is missing SKILL.md".to_string());
+    }
+    paths.sort_by(|a, b| a.1.cmp(&b.1));
     for index in 0..paths.len() {
-        if index > 0 && paths[index] == paths[index - 1] {
+        if index > 0 && paths[index].1 == paths[index - 1].1 {
             return Err("Backup contains duplicate file paths".to_string());
         }
-        for ancestor in paths[index].ancestors().skip(1) {
-            if ancestor.as_os_str().is_empty() {
-                break;
-            }
-            if paths[..index]
-                .binary_search(&ancestor.to_path_buf())
-                .is_ok()
-            {
+        for previous in &paths[..index] {
+            if paths[index].1.starts_with(&format!("{}/", previous.1)) {
                 return Err("Backup contains conflicting file and directory paths".to_string());
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_restore_plan(skills: &[SkillBackup]) -> Result<(), String> {
+    let mut targets = Vec::new();
+    for skill in skills {
+        validate_skill_backup(skill)?;
+        let relative_dir = normalize_relative_path(&skill.relative_dir)?;
+        let storage = if skill.storage_kind == "resource" {
+            "resource"
+        } else {
+            "central"
+        };
+        targets.push((storage.to_string(), relative_path_key(&relative_dir)?));
+    }
+    targets.sort();
+    for index in 1..targets.len() {
+        let previous = &targets[index - 1];
+        let current = &targets[index];
+        if previous.0 == current.0
+            && (previous.1 == current.1 || current.1.starts_with(&format!("{}/", previous.1)))
+        {
+            return Err("Backup contains conflicting skill restore paths".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn relative_path_key(path: &Path) -> Result<String, String> {
+    path_to_portable_relative(path)
+        .map(|path| path.to_ascii_lowercase())
+        .ok_or_else(|| "Backup contains an empty relative path".to_string())
+}
+
+fn replace_skill_directory(target_dir: &Path, files: &[SkillFileBackup]) -> Result<(), String> {
+    let parent = target_dir
+        .parent()
+        .ok_or_else(|| "Backup target has no parent directory".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("Failed to create directory '{}': {}", parent.display(), e))?;
+    let name = target_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("skill");
+    let unique = Uuid::new_v4().simple().to_string();
+    let staging_dir = parent.join(format!(".{name}.restore-{unique}"));
+    let old_dir = parent.join(format!(".{name}.old-{unique}"));
+
+    std::fs::create_dir_all(&staging_dir)
+        .map_err(|e| format!("Failed to create staging directory: {}", e))?;
+    if let Err(error) = write_files(&staging_dir, files) {
+        let _ = std::fs::remove_dir_all(&staging_dir);
+        return Err(error);
+    }
+
+    let had_existing = target_dir.exists();
+    if had_existing {
+        std::fs::rename(target_dir, &old_dir).map_err(|e| {
+            let _ = std::fs::remove_dir_all(&staging_dir);
+            format!(
+                "Failed to stage existing skill directory '{}': {}",
+                target_dir.display(),
+                e
+            )
+        })?;
+    }
+
+    if let Err(error) = std::fs::rename(&staging_dir, target_dir) {
+        if had_existing {
+            let _ = std::fs::rename(&old_dir, target_dir);
+        }
+        let _ = std::fs::remove_dir_all(&staging_dir);
+        return Err(format!(
+            "Failed to replace skill directory '{}': {}",
+            target_dir.display(),
+            error
+        ));
+    }
+
+    if had_existing {
+        let _ = std::fs::remove_dir_all(&old_dir);
     }
     Ok(())
 }
@@ -2698,6 +2772,7 @@ mod tests {
                 "storage_kind": "central",
                 "relative_dir": "conflict-demo",
                 "files": [
+                    {"relative_path": "SKILL.md", "content_base64": "LS0tCm5hbWU6IENvbmZsaWN0IERlbW8KLS0tCg=="},
                     {"relative_path": "node", "content_base64": "bm9kZQ=="},
                     {"relative_path": "node/child", "content_base64": "Y2hpbGQ="}
                 ]
@@ -2728,6 +2803,126 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn import_rejects_missing_skill_md_before_replacing_existing_skill_directory() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let skill_dir = central.join("missing-skill-md-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: Existing\n---\n")
+            .expect("existing skill");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [{
+                "skill": {
+                    "id": "missing-skill-md-demo",
+                    "name": "Missing Skill MD Demo",
+                    "description": null,
+                    "file_path": "",
+                    "canonical_path": null,
+                    "is_central": true,
+                    "source": null,
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "storage_kind": "central",
+                "relative_dir": "missing-skill-md-demo",
+                "files": [{"relative_path": "README.md", "content_base64": "cmVhZG1l"}]
+            }],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": []
+        });
+
+        let error = import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect_err("missing SKILL.md accepted");
+        assert!(error.contains("missing SKILL.md"));
+        assert_eq!(
+            std::fs::read_to_string(skill_dir.join("SKILL.md")).expect("existing skill content"),
+            "---\nname: Existing\n---\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn import_rejects_global_skill_restore_path_collisions() {
+        let (pool, _dir) = setup_test_db().await;
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [
+                {
+                    "skill": {
+                        "id": "demo-one",
+                        "name": "Demo One",
+                        "description": null,
+                        "file_path": "",
+                        "canonical_path": null,
+                        "is_central": true,
+                        "source": null,
+                        "content": null,
+                        "scanned_at": "2026-01-01T00:00:00Z"
+                    },
+                    "storage_kind": "central",
+                    "relative_dir": "CaseSkill",
+                    "files": [{"relative_path": "SKILL.md", "content_base64": "LS0tCm5hbWU6IERlbW8KLS0tCg=="}]
+                },
+                {
+                    "skill": {
+                        "id": "demo-two",
+                        "name": "Demo Two",
+                        "description": null,
+                        "file_path": "",
+                        "canonical_path": null,
+                        "is_central": true,
+                        "source": null,
+                        "content": null,
+                        "scanned_at": "2026-01-01T00:00:00Z"
+                    },
+                    "storage_kind": "central",
+                    "relative_dir": "caseskill",
+                    "files": [{"relative_path": "SKILL.md", "content_base64": "LS0tCm5hbWU6IERlbW8KLS0tCg=="}]
+                }
+            ],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": []
+        });
+
+        let error = import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect_err("colliding restore paths accepted");
+        assert!(error.contains("conflicting skill restore paths"));
+    }
+
+    #[tokio::test]
+    async fn webdav_upload_rejects_backups_larger_than_download_limit() {
+        let config = WebDavConfig {
+            base_url: "https://example.com/dav".to_string(),
+            username: None,
+            password: None,
+            remote_dir: "skillshub".to_string(),
+        };
+        let too_large = "x".repeat(WEBDAV_MAX_DOWNLOAD_BYTES + 1);
+        let error = upload_webdav_backup_impl(config, too_large)
+            .await
+            .expect_err("oversized upload accepted");
+        assert!(error.contains("size limit"));
+    }
+
+    #[tokio::test]
     async fn import_accepts_legacy_backslash_relative_paths_as_portable_segments() {
         let (pool, _dir) = setup_test_db().await;
         let central = central_root(&pool).await.expect("central");
@@ -2749,7 +2944,10 @@ mod tests {
                 },
                 "storage_kind": "central",
                 "relative_dir": "nested\\legacy-path-demo",
-                "files": [{"relative_path": "docs\\guide.md", "content_base64": "Z3VpZGU="}]
+                "files": [
+                    {"relative_path": "SKILL.md", "content_base64": "LS0tCm5hbWU6IExlZ2FjeSBQYXRoIERlbW8KLS0tCg=="},
+                    {"relative_path": "docs\\guide.md", "content_base64": "Z3VpZGU="}
+                ]
             }],
             "collections": [],
             "collection_skills": [],
