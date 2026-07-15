@@ -180,8 +180,9 @@ jobs:
 
       - name: Install Linux system deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          APT_GET="sudo apt-get -o Acquire::ForceIPv4=true"
+          $APT_GET update
+          $APT_GET install -y --no-install-recommends \
             build-essential \
             curl \
             file \
@@ -194,10 +195,10 @@ jobs:
             pkg-config \
             rpm \
             wget
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev \
-            || sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.0-dev
-          sudo apt-get install -y --no-install-recommends libsoup-3.0-dev \
-            || sudo apt-get install -y --no-install-recommends libsoup2.4-dev
+          $APT_GET install -y --no-install-recommends libwebkit2gtk-4.1-dev \
+            || $APT_GET install -y --no-install-recommends libwebkit2gtk-4.0-dev
+          $APT_GET install -y --no-install-recommends libsoup-3.0-dev \
+            || $APT_GET install -y --no-install-recommends libsoup2.4-dev
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
