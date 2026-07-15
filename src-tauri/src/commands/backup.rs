@@ -657,7 +657,10 @@ pub async fn export_app_backup_impl(
             )
             .fetch_all(pool)
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter_map(sanitize_registry_backup)
+            .collect(),
             sqlx::query_as::<_, MarketplaceSkillBackup>(
                 "SELECT id, registry_id, name, description, download_url, is_installed,
                         synced_at, cache_updated_at
@@ -665,7 +668,10 @@ pub async fn export_app_backup_impl(
             )
             .fetch_all(pool)
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|skill| is_safe_backup_url(&skill.download_url))
+            .collect(),
         )
     } else {
         (
@@ -890,7 +896,7 @@ async fn append_skill_backups(
         let skill_dir = skill_directory(&skill);
         let relative_dir = relative_to_root(&skill_dir, root).unwrap_or_else(|| skill.id.clone());
         let files = collect_files(&skill_dir)?;
-        let source = db::get_skill_source(pool, &skill.id).await?;
+        let source = sanitize_skill_source(db::get_skill_source(pool, &skill.id).await?);
         let metadata = db::get_skill_metadata(pool, &skill.id).await?;
         let mut exported_skill = skill;
         exported_skill.file_path.clear();
@@ -1169,6 +1175,60 @@ const BACKUP_SETTING_ALLOWLIST: &[&str] = &[
 
 fn is_exportable_setting_key(key: &str) -> bool {
     BACKUP_SETTING_ALLOWLIST.contains(&key)
+}
+
+fn sanitize_registry_backup(mut registry: SkillRegistryBackup) -> Option<SkillRegistryBackup> {
+    if !is_safe_backup_url(&registry.url) {
+        return None;
+    }
+    registry.last_sync_error = None;
+    Some(registry)
+}
+
+fn sanitize_skill_source(source: Option<SkillSource>) -> Option<SkillSource> {
+    source.map(|mut source| {
+        if source
+            .source_url
+            .as_deref()
+            .is_some_and(|url| !is_safe_backup_url(url))
+        {
+            source.source_url = None;
+        }
+        if source
+            .source_path
+            .as_deref()
+            .is_some_and(|path| !is_portable_backup_path(path))
+        {
+            source.source_path = None;
+        }
+        source
+    })
+}
+
+fn is_safe_backup_url(value: &str) -> bool {
+    let Ok(url) = Url::parse(value) else {
+        return false;
+    };
+    let scheme = url.scheme();
+    matches!(scheme, "http" | "https") && url.username().is_empty() && url.password().is_none()
+}
+
+fn is_portable_backup_path(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with('/')
+        || trimmed.starts_with('\\')
+        || trimmed.contains('\\')
+    {
+        return false;
+    }
+    let bytes = trimmed.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return false;
+    }
+    trimmed
+        .split('/')
+        .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
 #[cfg(test)]
@@ -1550,6 +1610,113 @@ mod tests {
             db::get_setting(&pool, "github_pat").await.expect("pat"),
             Some("existing".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn backup_excludes_credential_urls_and_sync_errors() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let skill_dir = central.join("url-safety-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: URL Safety\n---\n").expect("skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "url-safety-demo".to_string(),
+                name: "URL Safety".to_string(),
+                description: None,
+                file_path: path_to_string(&skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&skill_dir)),
+                is_central: true,
+                source: None,
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+        db::upsert_skill_source(
+            &pool,
+            &SkillSource {
+                skill_id: "url-safety-demo".to_string(),
+                source_type: "github".to_string(),
+                source_url: Some("https://token:secret@example.com/skill.md".to_string()),
+                source_author: Some("example".to_string()),
+                source_repo: Some("example/repo".to_string()),
+                source_path: Some(r"C:\private\skill".to_string()),
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("source");
+        sqlx::query(
+            "INSERT INTO skill_registries
+             (id, name, source_type, url, is_builtin, is_enabled, last_sync_status, last_sync_error, created_at)
+             VALUES (?, ?, ?, ?, 0, 1, ?, ?, ?)",
+        )
+        .bind("safe-registry")
+        .bind("Safe Registry")
+        .bind("github")
+        .bind("https://github.com/example/safe")
+        .bind("failed")
+        .bind(r"C:\private\sync.log token=secret")
+        .bind("2026-01-01T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("safe registry");
+        sqlx::query(
+            "INSERT INTO skill_registries
+             (id, name, source_type, url, is_builtin, is_enabled, last_sync_status, last_sync_error, created_at)
+             VALUES (?, ?, ?, ?, 0, 1, ?, ?, ?)",
+        )
+        .bind("unsafe-registry")
+        .bind("Unsafe Registry")
+        .bind("github")
+        .bind("https://user:secret@example.com/private")
+        .bind("failed")
+        .bind("should-not-export")
+        .bind("2026-01-01T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("unsafe registry");
+        sqlx::query(
+            "INSERT INTO marketplace_skills
+             (id, registry_id, name, download_url, is_installed, synced_at)
+             VALUES (?, ?, ?, ?, 0, ?)",
+        )
+        .bind("safe-marketplace")
+        .bind("safe-registry")
+        .bind("safe-marketplace")
+        .bind("https://example.com/safe/SKILL.md")
+        .bind("2026-01-01T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("safe marketplace");
+        sqlx::query(
+            "INSERT INTO marketplace_skills
+             (id, registry_id, name, download_url, is_installed, synced_at)
+             VALUES (?, ?, ?, ?, 0, ?)",
+        )
+        .bind("unsafe-marketplace")
+        .bind("safe-registry")
+        .bind("unsafe-marketplace")
+        .bind("https://token:secret@example.com/unsafe/SKILL.md")
+        .bind("2026-01-01T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("unsafe marketplace");
+
+        let json = export_app_backup_impl(&pool, BackupOptions::default())
+            .await
+            .expect("export");
+
+        assert!(json.contains("https://github.com/example/safe"));
+        assert!(json.contains("https://example.com/safe/SKILL.md"));
+        assert!(!json.contains("https://user:secret@example.com/private"));
+        assert!(!json.contains("https://token:secret@example.com"));
+        assert!(!json.contains("should-not-export"));
+        assert!(!json.contains("sync.log"));
+        assert!(!json.contains("C:\\\\private"));
     }
 
     #[tokio::test]
