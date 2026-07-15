@@ -6,7 +6,10 @@ use std::path::{Component, Path, PathBuf};
 use tauri::State;
 
 use crate::{
-    db::{self, Agent, Collection, DbPool, ScanDirectory, Skill, SkillMetadata, SkillSource},
+    db::{
+        self, Agent, Collection, DbPool, ScanDirectory, Skill, SkillInstallation, SkillMetadata,
+        SkillSource,
+    },
     path_utils::path_to_string,
     AppState,
 };
@@ -109,6 +112,8 @@ struct AppBackup {
     scan_directories: Vec<ScanDirectory>,
     skill_registries: Vec<SkillRegistryBackup>,
     marketplace_skills: Vec<MarketplaceSkillBackup>,
+    #[serde(default)]
+    skill_installations: Vec<SkillInstallation>,
 }
 
 #[tauri::command]
@@ -210,6 +215,19 @@ pub async fn export_app_backup_impl(
         )
     };
 
+    let skill_installations = if options.include_installations {
+        sqlx::query_as::<_, SkillInstallation>(
+            "SELECT skill_id, agent_id, installed_path, link_type, symlink_target, created_at
+             FROM skill_installations
+             ORDER BY skill_id, agent_id",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?
+    } else {
+        Vec::new()
+    };
+
     let backup = AppBackup {
         schema_version: BACKUP_SCHEMA_VERSION,
         exported_at: Utc::now().to_rfc3339(),
@@ -223,6 +241,7 @@ pub async fn export_app_backup_impl(
         scan_directories,
         skill_registries,
         marketplace_skills,
+        skill_installations,
     };
 
     serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())
@@ -317,6 +336,10 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
             let tags = db::parse_skill_metadata_tags(Some(&metadata));
             db::upsert_skill_metadata(pool, &db_skill.id, metadata.notes.as_deref(), &tags).await?;
         }
+    }
+
+    for installation in backup.skill_installations {
+        db::upsert_skill_installation(pool, &installation).await?;
     }
 
     for collection in backup.collections {
@@ -624,6 +647,71 @@ mod tests {
             .await
             .expect("central path");
         (pool, dir)
+    }
+
+    #[tokio::test]
+    async fn backup_roundtrip_preserves_skill_installations() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let skill_dir = central.join("installed-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: Installed Demo\n---\n",
+        )
+        .expect("skill");
+
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "installed-demo".to_string(),
+                name: "Installed Demo".to_string(),
+                description: None,
+                file_path: path_to_string(&skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&skill_dir)),
+                is_central: true,
+                source: None,
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+        db::upsert_skill_installation(
+            &pool,
+            &db::SkillInstallation {
+                skill_id: "installed-demo".to_string(),
+                agent_id: "claude-code".to_string(),
+                installed_path: "/tmp/.claude/skills/installed-demo".to_string(),
+                link_type: "symlink".to_string(),
+                symlink_target: Some(path_to_string(&skill_dir)),
+                created_at: "2026-01-02T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("installation");
+
+        let json = export_app_backup_impl(&pool, BackupOptions::default())
+            .await
+            .expect("export");
+        sqlx::query("DELETE FROM skill_installations WHERE skill_id = ?")
+            .bind("installed-demo")
+            .execute(&pool)
+            .await
+            .expect("delete installation");
+
+        import_app_backup_impl(&pool, &json).await.expect("import");
+
+        let installations = db::get_skill_installations(&pool, "installed-demo")
+            .await
+            .expect("installations");
+        assert_eq!(installations.len(), 1);
+        assert_eq!(installations[0].agent_id, "claude-code");
+        assert_eq!(installations[0].link_type, "symlink");
+        assert_eq!(
+            installations[0].symlink_target.as_deref(),
+            Some(path_to_string(&skill_dir).as_str())
+        );
     }
 
     #[tokio::test]
