@@ -1,12 +1,15 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::{DateTime, NaiveDateTime, Utc};
+use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
 use quick_xml::events::Event;
 use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 use tauri::State;
 use uuid::Uuid;
 
@@ -18,6 +21,9 @@ use crate::{
 };
 
 const BACKUP_SCHEMA_VERSION: u32 = 1;
+const WEBDAV_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const WEBDAV_MAX_DOWNLOAD_BYTES: usize = 64 * 1024 * 1024;
+const WEBDAV_MAX_LIST_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -132,18 +138,64 @@ struct SkillBackup {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct AgentBackup {
+    id: String,
+    display_name: String,
+    category: String,
+    icon_name: Option<String>,
+    is_detected: bool,
+    is_builtin: bool,
+    is_enabled: bool,
+}
+
+impl From<&Agent> for AgentBackup {
+    fn from(agent: &Agent) -> Self {
+        Self {
+            id: agent.id.clone(),
+            display_name: agent.display_name.clone(),
+            category: agent.category.clone(),
+            icon_name: agent.icon_name.clone(),
+            is_detected: agent.is_detected,
+            is_builtin: agent.is_builtin,
+            is_enabled: agent.is_enabled,
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ScanDirectoryBackup {
+    id: i64,
+    label: Option<String>,
+    is_active: bool,
+    is_builtin: bool,
+    added_at: String,
+}
+
+impl From<&ScanDirectory> for ScanDirectoryBackup {
+    fn from(directory: &ScanDirectory) -> Self {
+        Self {
+            id: directory.id,
+            label: directory.label.clone(),
+            is_active: directory.is_active,
+            is_builtin: directory.is_builtin,
+            added_at: directory.added_at.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct AppBackup {
     schema_version: u32,
     exported_at: String,
-    central_root: String,
     #[serde(default)]
     included: BackupOptions,
     skills: Vec<SkillBackup>,
     collections: Vec<Collection>,
     collection_skills: Vec<CollectionSkillBackup>,
     settings: Vec<SettingBackup>,
-    agents: Vec<Agent>,
-    scan_directories: Vec<ScanDirectory>,
+    agents: Vec<AgentBackup>,
+    scan_directories: Vec<ScanDirectoryBackup>,
     skill_registries: Vec<SkillRegistryBackup>,
     marketplace_skills: Vec<MarketplaceSkillBackup>,
     #[serde(default)]
@@ -215,31 +267,22 @@ fn normalize_webdav_remote_path(value: &str) -> Result<String, String> {
     if trimmed.is_empty() {
         return Err("WebDAV remote path cannot be empty".to_string());
     }
-    let bytes = trimmed.as_bytes();
-    let looks_like_windows_drive_path =
-        bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
-    let path = Path::new(trimmed);
-    if path.is_absolute()
-        || trimmed.starts_with('/')
-        || trimmed.starts_with('\\')
-        || looks_like_windows_drive_path
-    {
+    if trimmed.starts_with('/') || trimmed.contains('\\') {
         return Err("WebDAV remote path must be relative".to_string());
     }
-    let trimmed = trimmed.trim_end_matches('/');
-    if trimmed.is_empty() {
-        return Err("WebDAV remote path cannot be empty".to_string());
+    if trimmed.contains('?') || trimmed.contains('#') {
+        return Err("WebDAV remote path must not contain query or fragment separators".to_string());
     }
-    let path = Path::new(trimmed);
-    let mut parts = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(part) => parts.push(part.to_string_lossy().to_string()),
-            _ => return Err("WebDAV remote path contains unsafe traversal".to_string()),
-        }
+    let bytes = trimmed.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return Err("WebDAV remote path must be relative".to_string());
     }
-    if parts.is_empty() {
-        return Err("WebDAV remote path cannot be empty".to_string());
+    let parts: Vec<&str> = trimmed.split('/').collect();
+    if parts
+        .iter()
+        .any(|part| part.is_empty() || *part == "." || *part == "..")
+    {
+        return Err("WebDAV remote path contains unsafe traversal".to_string());
     }
     Ok(parts.join("/"))
 }
@@ -290,7 +333,7 @@ async fn upload_webdav_backup_impl(
 ) -> Result<WebDavBackupFile, String> {
     let filename = generated_backup_filename();
     let url = build_webdav_url(&config, &filename)?;
-    let client = Client::new();
+    let client = webdav_client()?;
     let response = apply_webdav_auth(
         client
             .put(&url)
@@ -320,7 +363,7 @@ async fn download_webdav_backup_impl(
     remote_path: &str,
 ) -> Result<String, String> {
     let url = build_webdav_url(&config, remote_path)?;
-    let client = Client::new();
+    let client = webdav_client()?;
     let response = apply_webdav_auth(client.get(&url), &config)
         .send()
         .await
@@ -331,16 +374,18 @@ async fn download_webdav_backup_impl(
             response.status()
         ));
     }
-    response
-        .text()
-        .await
-        .map_err(|e| format!("WebDAV download failed: {}", sanitize_webdav_error(e)))
+    read_webdav_body(
+        response,
+        WEBDAV_MAX_DOWNLOAD_BYTES,
+        "WebDAV download failed",
+    )
+    .await
 }
 
 async fn list_webdav_backups_impl(config: WebDavConfig) -> Result<Vec<WebDavBackupFile>, String> {
     let url = build_webdav_directory_url(&config)?;
     let method = Method::from_bytes(b"PROPFIND").map_err(|e| e.to_string())?;
-    let client = Client::new();
+    let client = webdav_client()?;
     let response = apply_webdav_auth(client.request(method, &url).header("Depth", "1"), &config)
         .send()
         .await
@@ -351,11 +396,44 @@ async fn list_webdav_backups_impl(config: WebDavConfig) -> Result<Vec<WebDavBack
             response.status()
         ));
     }
-    let body = response
-        .text()
-        .await
-        .map_err(|e| format!("WebDAV list failed: {}", sanitize_webdav_error(e)))?;
+    let body = read_webdav_body(response, WEBDAV_MAX_LIST_BYTES, "WebDAV list failed").await?;
     parse_webdav_backup_files(&body)
+}
+
+fn webdav_client() -> Result<Client, String> {
+    Client::builder()
+        .timeout(WEBDAV_REQUEST_TIMEOUT)
+        .build()
+        .map_err(|e| {
+            format!(
+                "Failed to create WebDAV client: {}",
+                sanitize_webdav_error(e)
+            )
+        })
+}
+
+async fn read_webdav_body(
+    response: reqwest::Response,
+    max_bytes: usize,
+    operation: &str,
+) -> Result<String, String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(format!("{} response exceeds size limit", operation));
+    }
+
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("{}: {}", operation, sanitize_webdav_error(e)))?;
+        if chunk.len() > max_bytes.saturating_sub(body.len()) {
+            return Err(format!("{} response exceeds size limit", operation));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    String::from_utf8(body).map_err(|_| format!("{} response is not valid UTF-8", operation))
 }
 
 #[derive(Default)]
@@ -421,20 +499,23 @@ fn parse_webdav_backup_files(xml: &str) -> Result<Vec<WebDavBackupFile>, String>
     }
 
     files.sort_by(|a, b| {
-        match (
-            parse_webdav_modified_at(a.modified_at.as_deref()),
-            parse_webdav_modified_at(b.modified_at.as_deref()),
-        ) {
+        match (webdav_modified_timestamp(a), webdav_modified_timestamp(b)) {
             (Some(a_date), Some(b_date)) => b_date.cmp(&a_date),
             (Some(_), None) => Ordering::Less,
             (None, Some(_)) => Ordering::Greater,
             (None, None) => Ordering::Equal,
         }
-        .then_with(|| generated_backup_timestamp(&b.name).cmp(&generated_backup_timestamp(&a.name)))
         .then_with(|| a.name.cmp(&b.name))
         .then_with(|| a.remote_path.cmp(&b.remote_path))
     });
     Ok(files)
+}
+
+fn webdav_modified_timestamp(file: &WebDavBackupFile) -> Option<DateTime<Utc>> {
+    let http_timestamp = parse_webdav_modified_at(file.modified_at.as_deref());
+    let filename_timestamp = generated_backup_timestamp(&file.name)
+        .map(|timestamp| DateTime::<Utc>::from_naive_utc_and_offset(timestamp, Utc));
+    http_timestamp.into_iter().chain(filename_timestamp).max()
 }
 
 fn parse_webdav_modified_at(value: Option<&str>) -> Option<DateTime<Utc>> {
@@ -558,8 +639,16 @@ pub async fn export_app_backup_impl(
                 .into_iter()
                 .filter(|setting| is_exportable_setting_key(&setting.key))
                 .collect(),
-            db::get_all_agents(pool).await?,
-            db::get_scan_directories(pool).await?,
+            db::get_all_agents(pool)
+                .await?
+                .iter()
+                .map(AgentBackup::from)
+                .collect(),
+            db::get_scan_directories(pool)
+                .await?
+                .iter()
+                .map(ScanDirectoryBackup::from)
+                .collect(),
             sqlx::query_as::<_, SkillRegistryBackup>(
                 "SELECT id, name, source_type, url, is_builtin, is_enabled, last_synced,
                         last_attempted_sync, last_sync_status, last_sync_error,
@@ -590,6 +679,16 @@ pub async fn export_app_backup_impl(
         )
     };
 
+    let current_agents = db::get_all_agents(pool).await?;
+    let included_skill_ids: HashSet<String> = skill_backups
+        .iter()
+        .map(|skill| skill.skill.id.clone())
+        .collect();
+    let restorable_agent_ids: HashSet<String> = current_agents
+        .iter()
+        .filter(|agent| options.include_app_config || agent.is_builtin)
+        .map(|agent| agent.id.clone())
+        .collect();
     let skill_installations = if options.include_installations {
         sqlx::query_as::<_, SkillInstallationMethodRow>(
             "SELECT skill_id, agent_id, link_type
@@ -600,6 +699,10 @@ pub async fn export_app_backup_impl(
         .await
         .map_err(|e| e.to_string())?
         .into_iter()
+        .filter(|installation| {
+            included_skill_ids.contains(&installation.skill_id)
+                && restorable_agent_ids.contains(&installation.agent_id)
+        })
         .map(|installation| SkillInstallationBackup {
             skill_id: installation.skill_id,
             agent_id: installation.agent_id,
@@ -617,7 +720,6 @@ pub async fn export_app_backup_impl(
     let backup = AppBackup {
         schema_version: BACKUP_SCHEMA_VERSION,
         exported_at: Utc::now().to_rfc3339(),
-        central_root: path_to_string(&central_root),
         included: options,
         skills: skill_backups,
         collections,
@@ -642,9 +744,14 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         ));
     }
 
+    // Resolve all filesystem roots from the current database before reading any
+    // backup-controlled settings or legacy path fields.
     let central_root = central_root(pool).await?;
+    let resource_root = db::get_skill_resource_library_dir(pool).await?;
     std::fs::create_dir_all(&central_root)
         .map_err(|e| format!("Failed to create Central Skills root: {}", e))?;
+    std::fs::create_dir_all(&resource_root)
+        .map_err(|e| format!("Failed to create Skill Resource Library root: {}", e))?;
 
     for setting in backup.settings {
         if !is_exportable_setting_key(&setting.key) {
@@ -653,32 +760,15 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         db::set_setting(pool, &setting.key, &setting.value).await?;
     }
 
-    let resource_root = db::get_skill_resource_library_dir(pool).await?;
-    std::fs::create_dir_all(&resource_root)
-        .map_err(|e| format!("Failed to create Skill Resource Library root: {}", e))?;
-
+    let backup_custom_agent_ids: HashSet<String> = backup
+        .agents
+        .iter()
+        .filter(|agent| !agent.is_builtin)
+        .map(|agent| agent.id.clone())
+        .collect();
     for agent in backup.agents {
         if !agent.is_builtin {
-            upsert_agent_backup(pool, &agent).await?;
-        }
-    }
-
-    for dir in backup.scan_directories {
-        if !dir.is_builtin {
-            sqlx::query(
-                "INSERT INTO scan_directories (path, label, is_active, is_builtin, added_at)
-                 VALUES (?, ?, ?, 0, ?)
-                 ON CONFLICT(path) DO UPDATE SET
-                   label = excluded.label,
-                   is_active = excluded.is_active",
-            )
-            .bind(&dir.path)
-            .bind(&dir.label)
-            .bind(dir.is_active)
-            .bind(&dir.added_at)
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
+            update_existing_custom_agent_backup(pool, &agent).await?;
         }
     }
 
@@ -686,6 +776,11 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         upsert_registry_backup(pool, &registry).await?;
     }
 
+    let included_skill_ids: HashSet<String> = backup
+        .skills
+        .iter()
+        .map(|skill| skill.skill.id.clone())
+        .collect();
     for skill in backup.skills {
         let relative_dir = normalize_relative_path(&skill.relative_dir)?;
         let is_resource_skill = skill.storage_kind == "resource";
@@ -725,6 +820,21 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
     }
 
     for installation in backup.skill_installations {
+        if !included_skill_ids.contains(&installation.skill_id) {
+            continue;
+        }
+        if db::get_skill_by_id(pool, &installation.skill_id)
+            .await?
+            .is_none()
+        {
+            continue;
+        }
+        let Some(agent) = db::get_agent_by_id(pool, &installation.agent_id).await? else {
+            continue;
+        };
+        if backup_custom_agent_ids.contains(&installation.agent_id) && agent.is_builtin {
+            continue;
+        }
         match validated_install_method(installation.method.as_deref()) {
             BackupInstallMethod::Copy => {
                 install_skill_to_agent_copy_impl(
@@ -782,8 +892,11 @@ async fn append_skill_backups(
         let files = collect_files(&skill_dir)?;
         let source = db::get_skill_source(pool, &skill.id).await?;
         let metadata = db::get_skill_metadata(pool, &skill.id).await?;
+        let mut exported_skill = skill;
+        exported_skill.file_path.clear();
+        exported_skill.canonical_path = None;
         skill_backups.push(SkillBackup {
-            skill,
+            skill: exported_skill,
             source,
             metadata,
             storage_kind: storage_kind.to_string(),
@@ -893,30 +1006,25 @@ fn write_files(root: &Path, files: &[SkillFileBackup]) -> Result<(), String> {
     Ok(())
 }
 
-async fn upsert_agent_backup(pool: &DbPool, agent: &Agent) -> Result<(), String> {
+async fn update_existing_custom_agent_backup(
+    pool: &DbPool,
+    agent: &AgentBackup,
+) -> Result<(), String> {
     sqlx::query(
-        "INSERT INTO agents
-         (id, display_name, category, global_skills_dir, project_skills_dir,
-          icon_name, is_detected, is_builtin, is_enabled)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           display_name = excluded.display_name,
-           category = excluded.category,
-           global_skills_dir = excluded.global_skills_dir,
-           project_skills_dir = excluded.project_skills_dir,
-           icon_name = excluded.icon_name,
-           is_detected = excluded.is_detected,
-           is_enabled = excluded.is_enabled",
+        "UPDATE agents SET
+           display_name = ?,
+           category = ?,
+           icon_name = ?,
+           is_detected = ?,
+           is_enabled = ?
+         WHERE id = ? AND is_builtin = 0",
     )
-    .bind(&agent.id)
     .bind(&agent.display_name)
     .bind(&agent.category)
-    .bind(&agent.global_skills_dir)
-    .bind(&agent.project_skills_dir)
     .bind(&agent.icon_name)
     .bind(agent.is_detected)
-    .bind(agent.is_builtin)
     .bind(agent.is_enabled)
+    .bind(&agent.id)
     .execute(pool)
     .await
     .map(|_| ())
@@ -1054,7 +1162,6 @@ const BACKUP_SETTING_ALLOWLIST: &[&str] = &[
     "theme",
     "accent",
     "accent_color",
-    "skill_resource_library_dir",
     "ai_provider",
     "ai_region",
     "ai_model",
@@ -1417,7 +1524,7 @@ mod tests {
             .await
             .expect("export");
         assert!(json.contains("\"language\""));
-        assert!(json.contains("skill_resource_library_dir"));
+        assert!(!json.contains("skill_resource_library_dir"));
         assert!(!json.contains("should-not-export"));
         assert!(!json.contains("https://user:pass@example.com/dav"));
 
@@ -1626,6 +1733,7 @@ mod tests {
             r"\server\share\backup.json",
             r"C:\backups\skillshub-backup.json",
             "C:/backups/skillshub-backup.json",
+            r"safe\..\secret.json",
         ] {
             assert!(
                 normalize_webdav_remote_path(value).is_err(),
@@ -1684,9 +1792,10 @@ mod tests {
             remote_dir: "nested folder".to_string(),
         };
 
-        let url = build_webdav_url(&config, "backup name%2e%2e?x#frag.json").expect("WebDAV URL");
+        let url =
+            build_webdav_url(&config, "backup name%2e%2e%3Fx%23frag.json").expect("WebDAV URL");
         assert!(url.contains("/dav/nested%20folder/"));
-        assert!(url.contains("backup%20name%252e%252e%3Fx%23frag.json"));
+        assert!(url.contains("backup%20name%252e%252e%253Fx%2523frag.json"));
         let parsed = Url::parse(&url).expect("encoded URL");
         assert_eq!(parsed.query(), None);
         assert_eq!(parsed.fragment(), None);
@@ -1698,7 +1807,7 @@ mod tests {
             vec![
                 "dav",
                 "nested%20folder",
-                "backup%20name%252e%252e%3Fx%23frag.json"
+                "backup%20name%252e%252e%253Fx%2523frag.json"
             ]
         );
     }
@@ -1857,5 +1966,190 @@ mod tests {
                 "skillshub-backup-2026-01-01-010000.json",
             ]
         );
+    }
+
+    #[test]
+    fn webdav_parse_sorts_by_newest_available_http_or_filename_timestamp() {
+        let xml = r#"
+            <d:multistatus xmlns:d="DAV:">
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup-2026-07-17-090000.json</d:href>
+                <d:propstat><d:prop><d:getlastmodified>Wed, 15 Jul 2026 08:00:00 GMT</d:getlastmodified></d:prop></d:propstat>
+              </d:response>
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup-2026-07-15-100000.json</d:href>
+                <d:propstat><d:prop><d:getlastmodified>Thu, 16 Jul 2026 09:00:00 GMT</d:getlastmodified></d:prop></d:propstat>
+              </d:response>
+            </d:multistatus>
+        "#;
+
+        let files = parse_webdav_backup_files(xml).expect("PROPFIND XML");
+        assert_eq!(
+            files.first().map(|file| file.name.as_str()),
+            Some("skillshub-backup-2026-07-17-090000.json")
+        );
+    }
+
+    #[tokio::test]
+    async fn export_omits_local_filesystem_paths() {
+        let (pool, dir) = setup_test_db().await;
+        let private_root = dir.path().join("private-export-root");
+        let central = central_root(&pool).await.expect("central");
+        let skill_dir = central.join("portable-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: Portable\n---\n").expect("skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "portable-demo".to_string(),
+                name: "Portable".to_string(),
+                description: None,
+                file_path: path_to_string(&private_root.join("file-path").join("SKILL.md")),
+                canonical_path: Some(path_to_string(&skill_dir)),
+                is_central: true,
+                source: None,
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+        db::set_setting(
+            &pool,
+            "skill_resource_library_dir",
+            &path_to_string(&private_root),
+        )
+        .await
+        .expect("resource setting");
+
+        let json = export_app_backup_impl(&pool, BackupOptions::default())
+            .await
+            .expect("export");
+
+        assert!(!json.contains(&path_to_string(&private_root)));
+        assert!(!json.contains("central_root"));
+        assert!(!json.contains("global_skills_dir"));
+    }
+
+    #[tokio::test]
+    async fn import_uses_current_resource_root_and_ignores_backup_root() {
+        let (pool, dir) = setup_test_db().await;
+        let current_root = dir.path().join("current-resource-root");
+        let malicious_root = dir.path().join("malicious-resource-root");
+        db::set_skill_resource_library_dir(&pool, &current_root.to_string_lossy())
+            .await
+            .expect("current resource root");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "central_root": malicious_root.join("central").to_string_lossy(),
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "collections": [],
+            "collection_skills": [],
+            "settings": [{"key": "skill_resource_library_dir", "value": malicious_root.to_string_lossy()}],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skills": [{
+                "skill": {
+                    "id": "resource-root-demo",
+                    "name": "Resource Root Demo",
+                    "description": null,
+                    "file_path": malicious_root.join("file").to_string_lossy(),
+                    "canonical_path": malicious_root.to_string_lossy(),
+                    "is_central": false,
+                    "source": null,
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "storage_kind": "resource",
+                "relative_dir": "resource-root-demo",
+                "files": [{"relative_path": "SKILL.md", "content_base64": "LS0tCm5hbWU6IERlbW8KLS0tCg=="}]
+            }]
+        });
+
+        import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect("import");
+
+        assert!(current_root.join("resource-root-demo/SKILL.md").exists());
+        assert!(!malicious_root.exists());
+        assert_eq!(
+            db::get_skill_resource_library_dir(&pool)
+                .await
+                .expect("resource root"),
+            current_root
+        );
+    }
+
+    #[tokio::test]
+    async fn import_does_not_create_custom_agents_or_use_backup_paths() {
+        let (pool, dir) = setup_test_db().await;
+        let malicious_root = dir.path().join("malicious-agent-root");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [{
+                "id": "backup-custom-agent",
+                "display_name": "Backup Agent",
+                "category": "coding",
+                "global_skills_dir": malicious_root.to_string_lossy(),
+                "project_skills_dir": malicious_root.to_string_lossy(),
+                "icon_name": null,
+                "is_detected": true,
+                "is_builtin": false,
+                "is_enabled": true
+            }],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": [{"skill_id": "missing-skill", "agent_id": "backup-custom-agent", "method": "copy"}]
+        });
+
+        import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect("missing custom agent is skipped");
+
+        assert!(db::get_agent_by_id(&pool, "backup-custom-agent")
+            .await
+            .expect("agent lookup")
+            .is_none());
+        assert!(!malicious_root.exists());
+    }
+
+    #[tokio::test]
+    async fn import_skips_installations_with_missing_dependencies() {
+        let (pool, _dir) = setup_test_db().await;
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": [
+                {"skill_id": "missing-skill", "agent_id": "claude-code", "method": "copy"},
+                {"skill_id": "missing-skill", "agent_id": "missing-agent", "method": "copy"}
+            ]
+        });
+
+        import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect("missing installation dependencies are skipped");
+        assert!(db::get_skill_installations(&pool, "missing-skill")
+            .await
+            .expect("installations")
+            .is_empty());
     }
 }
