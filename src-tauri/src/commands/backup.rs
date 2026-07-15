@@ -781,7 +781,11 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         }
     }
 
-    for registry in backup.skill_registries {
+    for registry in backup
+        .skill_registries
+        .into_iter()
+        .filter_map(sanitize_registry_backup)
+    {
         upsert_registry_backup(pool, &registry).await?;
     }
 
@@ -816,9 +820,10 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         db_skill.file_path = path_to_string(&target_dir.join("SKILL.md"));
         db_skill.canonical_path = Some(path_to_string(&target_dir));
         db_skill.is_central = !is_resource_skill;
+        db_skill.source = sanitize_skill_origin(db_skill.source);
         db_skill.content = None;
         db::upsert_skill(pool, &db_skill).await?;
-        if let Some(mut source) = skill.source {
+        if let Some(mut source) = sanitize_skill_source(skill.source) {
             source.skill_id = db_skill.id.clone();
             db::upsert_skill_source(pool, &source).await?;
         }
@@ -885,7 +890,11 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         .map_err(|e| e.to_string())?;
     }
 
-    for skill in backup.marketplace_skills {
+    for skill in backup
+        .marketplace_skills
+        .into_iter()
+        .filter(|skill| is_safe_backup_url(&skill.download_url))
+    {
         upsert_marketplace_skill_backup(pool, &skill).await?;
     }
 
@@ -1006,7 +1015,7 @@ fn normalize_relative_path(value: &str) -> Result<PathBuf, String> {
     let portable = trimmed.replace('\\', "/");
     let mut normalized = PathBuf::new();
     for part in portable.split('/') {
-        if part.is_empty() || part == "." || part == ".." {
+        if part.is_empty() || part == "." || part == ".." || part.contains(':') {
             return Err("Backup contains an unsafe relative path".to_string());
         }
         normalized.push(part);
@@ -1039,11 +1048,30 @@ fn path_to_portable_relative(path: &Path) -> Option<String> {
 
 fn validate_skill_backup(skill: &SkillBackup) -> Result<(), String> {
     normalize_relative_path(&skill.relative_dir)?;
+    let mut paths: Vec<PathBuf> = Vec::new();
     for file in &skill.files {
-        normalize_relative_path(&file.relative_path)?;
+        let relative_path = normalize_relative_path(&file.relative_path)?;
         STANDARD
             .decode(&file.content_base64)
             .map_err(|e| format!("Invalid base64 content for '{}': {}", file.relative_path, e))?;
+        paths.push(relative_path);
+    }
+    paths.sort();
+    for index in 0..paths.len() {
+        if index > 0 && paths[index] == paths[index - 1] {
+            return Err("Backup contains duplicate file paths".to_string());
+        }
+        for ancestor in paths[index].ancestors().skip(1) {
+            if ancestor.as_os_str().is_empty() {
+                break;
+            }
+            if paths[..index]
+                .binary_search(&ancestor.to_path_buf())
+                .is_ok()
+            {
+                return Err("Backup contains conflicting file and directory paths".to_string());
+            }
+        }
     }
     Ok(())
 }
@@ -1880,6 +1908,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn import_sanitizes_credential_urls_and_sync_errors() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [{
+                "skill": {
+                    "id": "import-url-safety",
+                    "name": "Import URL Safety",
+                    "description": null,
+                    "file_path": "",
+                    "canonical_path": null,
+                    "is_central": true,
+                    "source": "https://example.com/raw/SKILL.md?token=secret",
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "source": {
+                    "skill_id": "import-url-safety",
+                    "source_type": "github",
+                    "source_url": "https://user:secret@example.com/SKILL.md",
+                    "source_author": "example",
+                    "source_repo": "example/repo",
+                    "source_path": "C:\\private\\skill",
+                    "updated_at": "2026-01-01T00:00:00Z"
+                },
+                "storage_kind": "central",
+                "relative_dir": "import-url-safety",
+                "files": [{"relative_path": "SKILL.md", "content_base64": "LS0tCm5hbWU6IERlbW8KLS0tCg=="}]
+            }],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [{
+                "id": "unsafe-registry",
+                "name": "Unsafe Registry",
+                "source_type": "github",
+                "url": "https://example.com/private?token=secret",
+                "is_builtin": false,
+                "is_enabled": true,
+                "last_synced": null,
+                "last_attempted_sync": null,
+                "last_sync_status": "failed",
+                "last_sync_error": "token=secret",
+                "cache_updated_at": null,
+                "cache_expires_at": null,
+                "etag": null,
+                "last_modified": null,
+                "created_at": "2026-01-01T00:00:00Z"
+            }],
+            "marketplace_skills": [{
+                "id": "unsafe-marketplace",
+                "registry_id": "unsafe-registry",
+                "name": "unsafe-marketplace",
+                "description": null,
+                "download_url": "https://token:secret@example.com/SKILL.md",
+                "is_installed": false,
+                "synced_at": "2026-01-01T00:00:00Z",
+                "cache_updated_at": null
+            }],
+            "skill_installations": []
+        });
+
+        import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect("import");
+        let restored = db::get_skill_by_id(&pool, "import-url-safety")
+            .await
+            .expect("skill")
+            .expect("skill row");
+        assert_eq!(restored.source, None);
+        let source = db::get_skill_source(&pool, "import-url-safety")
+            .await
+            .expect("source")
+            .expect("source row");
+        assert_eq!(source.source_url, None);
+        assert_eq!(source.source_path, None);
+        assert!(!central.join("unsafe-registry").exists());
+        assert!(sqlx::query_scalar::<_, String>(
+            "SELECT id FROM skill_registries WHERE id = 'unsafe-registry'"
+        )
+        .fetch_optional(&pool)
+        .await
+        .expect("registry lookup")
+        .is_none());
+        assert!(sqlx::query_scalar::<_, String>(
+            "SELECT id FROM marketplace_skills WHERE id = 'unsafe-marketplace'"
+        )
+        .fetch_optional(&pool)
+        .await
+        .expect("marketplace lookup")
+        .is_none());
+    }
+
+    #[tokio::test]
     async fn backup_options_resource_only_excludes_central_and_app_config() {
         let (pool, dir) = setup_test_db().await;
         db::set_setting(&pool, "language", "zh")
@@ -2542,6 +2669,62 @@ mod tests {
             std::fs::read_to_string(skill_dir.join("SKILL.md")).expect("existing skill content"),
             "---\nname: Existing\n---\n"
         );
+    }
+
+    #[tokio::test]
+    async fn import_rejects_conflicting_file_tree_before_replacing_existing_skill_directory() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let skill_dir = central.join("conflict-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: Existing\n---\n")
+            .expect("existing skill");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [{
+                "skill": {
+                    "id": "conflict-demo",
+                    "name": "Conflict Demo",
+                    "description": null,
+                    "file_path": "",
+                    "canonical_path": null,
+                    "is_central": true,
+                    "source": null,
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "storage_kind": "central",
+                "relative_dir": "conflict-demo",
+                "files": [
+                    {"relative_path": "node", "content_base64": "bm9kZQ=="},
+                    {"relative_path": "node/child", "content_base64": "Y2hpbGQ="}
+                ]
+            }],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": []
+        });
+
+        let error = import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect_err("conflicting backup accepted");
+        assert!(error.contains("conflicting file and directory paths"));
+        assert_eq!(
+            std::fs::read_to_string(skill_dir.join("SKILL.md")).expect("existing skill content"),
+            "---\nname: Existing\n---\n"
+        );
+    }
+
+    #[test]
+    fn normalize_relative_path_rejects_nested_windows_drive_segments() {
+        assert!(normalize_relative_path("safe/C:/escape").is_err());
     }
 
     #[tokio::test]
