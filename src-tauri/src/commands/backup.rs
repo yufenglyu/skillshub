@@ -13,6 +13,26 @@ use crate::{
 
 const BACKUP_SCHEMA_VERSION: u32 = 1;
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupOptions {
+    pub include_resource_library: bool,
+    pub include_central_library: bool,
+    pub include_app_config: bool,
+    pub include_installations: bool,
+}
+
+impl Default for BackupOptions {
+    fn default() -> Self {
+        Self {
+            include_resource_library: true,
+            include_central_library: true,
+            include_app_config: true,
+            include_installations: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 struct CollectionSkillBackup {
     collection_id: String,
@@ -79,6 +99,8 @@ struct AppBackup {
     schema_version: u32,
     exported_at: String,
     central_root: String,
+    #[serde(default)]
+    included: BackupOptions,
     skills: Vec<SkillBackup>,
     collections: Vec<Collection>,
     collection_skills: Vec<CollectionSkillBackup>,
@@ -90,8 +112,11 @@ struct AppBackup {
 }
 
 #[tauri::command]
-pub async fn export_app_backup(state: State<'_, AppState>) -> Result<String, String> {
-    export_app_backup_impl(&state.db).await
+pub async fn export_app_backup(
+    state: State<'_, AppState>,
+    options: Option<BackupOptions>,
+) -> Result<String, String> {
+    export_app_backup_impl(&state.db, options.unwrap_or_default()).await
 }
 
 #[tauri::command]
@@ -99,69 +124,105 @@ pub async fn import_app_backup(state: State<'_, AppState>, json: String) -> Resu
     import_app_backup_impl(&state.db, &json).await
 }
 
-async fn export_app_backup_impl(pool: &DbPool) -> Result<String, String> {
+pub async fn export_app_backup_impl(
+    pool: &DbPool,
+    options: BackupOptions,
+) -> Result<String, String> {
     let central_root = central_root(pool).await?;
     let resource_root = db::get_skill_resource_library_dir(pool).await?;
-    let central_skills = db::get_central_skills(pool).await?;
-    let resource_skills = db::get_resource_library_skills(pool).await?;
-    let mut skill_backups = Vec::with_capacity(central_skills.len() + resource_skills.len());
-    append_skill_backups(
-        pool,
-        &mut skill_backups,
-        central_skills,
-        &central_root,
-        "central",
-    )
-    .await?;
-    append_skill_backups(
-        pool,
-        &mut skill_backups,
-        resource_skills,
-        &resource_root,
-        "resource",
-    )
-    .await?;
+    let mut skill_backups = Vec::new();
+    if options.include_central_library {
+        let central_skills = db::get_central_skills(pool).await?;
+        append_skill_backups(
+            pool,
+            &mut skill_backups,
+            central_skills,
+            &central_root,
+            "central",
+        )
+        .await?;
+    }
+    if options.include_resource_library {
+        let resource_skills = db::get_resource_library_skills(pool).await?;
+        append_skill_backups(
+            pool,
+            &mut skill_backups,
+            resource_skills,
+            &resource_root,
+            "resource",
+        )
+        .await?;
+    }
+
+    let (
+        collections,
+        collection_skills,
+        settings,
+        agents,
+        scan_directories,
+        skill_registries,
+        marketplace_skills,
+    ) = if options.include_app_config {
+        (
+            db::get_all_collections(pool).await?,
+            sqlx::query_as::<_, CollectionSkillBackup>(
+                "SELECT collection_id, skill_id, added_at FROM collection_skills ORDER BY collection_id, added_at",
+            )
+            .fetch_all(pool)
+            .await
+            .map_err(|e| e.to_string())?,
+            sqlx::query_as::<_, SettingBackup>("SELECT key, value FROM settings ORDER BY key")
+                .fetch_all(pool)
+                .await
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .filter(|setting| !is_sensitive_setting_key(&setting.key))
+                .collect(),
+            db::get_all_agents(pool).await?,
+            db::get_scan_directories(pool).await?,
+            sqlx::query_as::<_, SkillRegistryBackup>(
+                "SELECT id, name, source_type, url, is_builtin, is_enabled, last_synced,
+                        last_attempted_sync, last_sync_status, last_sync_error,
+                        cache_updated_at, cache_expires_at, etag, last_modified, created_at
+                 FROM skill_registries ORDER BY is_builtin DESC, name",
+            )
+            .fetch_all(pool)
+            .await
+            .map_err(|e| e.to_string())?,
+            sqlx::query_as::<_, MarketplaceSkillBackup>(
+                "SELECT id, registry_id, name, description, download_url, is_installed,
+                        synced_at, cache_updated_at
+                 FROM marketplace_skills ORDER BY registry_id, name",
+            )
+            .fetch_all(pool)
+            .await
+            .map_err(|e| e.to_string())?,
+        )
+    } else {
+        (
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+    };
 
     let backup = AppBackup {
         schema_version: BACKUP_SCHEMA_VERSION,
         exported_at: Utc::now().to_rfc3339(),
         central_root: path_to_string(&central_root),
+        included: options,
         skills: skill_backups,
-        collections: db::get_all_collections(pool).await?,
-        collection_skills: sqlx::query_as::<_, CollectionSkillBackup>(
-            "SELECT collection_id, skill_id, added_at FROM collection_skills ORDER BY collection_id, added_at",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| e.to_string())?,
-        settings: sqlx::query_as::<_, SettingBackup>(
-            "SELECT key, value FROM settings ORDER BY key",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter(|setting| !is_sensitive_setting_key(&setting.key))
-        .collect(),
-        agents: db::get_all_agents(pool).await?,
-        scan_directories: db::get_scan_directories(pool).await?,
-        skill_registries: sqlx::query_as::<_, SkillRegistryBackup>(
-            "SELECT id, name, source_type, url, is_builtin, is_enabled, last_synced,
-                    last_attempted_sync, last_sync_status, last_sync_error,
-                    cache_updated_at, cache_expires_at, etag, last_modified, created_at
-             FROM skill_registries ORDER BY is_builtin DESC, name",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| e.to_string())?,
-        marketplace_skills: sqlx::query_as::<_, MarketplaceSkillBackup>(
-            "SELECT id, registry_id, name, description, download_url, is_installed,
-                    synced_at, cache_updated_at
-             FROM marketplace_skills ORDER BY registry_id, name",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| e.to_string())?,
+        collections,
+        collection_skills,
+        settings,
+        agents,
+        scan_directories,
+        skill_registries,
+        marketplace_skills,
     };
 
     serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())
@@ -616,7 +677,9 @@ mod tests {
         .await
         .expect("metadata");
 
-        let json = export_app_backup_impl(&pool).await.expect("export");
+        let json = export_app_backup_impl(&pool, BackupOptions::default())
+            .await
+            .expect("export");
         std::fs::remove_dir_all(&skill_dir).expect("remove original files");
         db::delete_skill(&pool, "demo").await.expect("delete db");
 
@@ -659,8 +722,11 @@ mod tests {
             .join("skills")
             .join("resource-demo");
         std::fs::create_dir_all(&skill_dir).expect("skill dir");
-        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: Resource Demo\n---\n")
-            .expect("skill");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: Resource Demo\n---\n",
+        )
+        .expect("skill");
 
         db::upsert_skill(
             &pool,
@@ -679,7 +745,9 @@ mod tests {
         .await
         .expect("skill");
 
-        let json = export_app_backup_impl(&pool).await.expect("export");
+        let json = export_app_backup_impl(&pool, BackupOptions::default())
+            .await
+            .expect("export");
         assert!(json.contains("\"storage_kind\": \"resource\""));
         std::fs::remove_dir_all(&skill_dir).expect("remove original files");
         db::delete_skill(&pool, "resource-demo")
@@ -716,7 +784,9 @@ mod tests {
             .await
             .expect("api key");
 
-        let json = export_app_backup_impl(&pool).await.expect("export");
+        let json = export_app_backup_impl(&pool, BackupOptions::default())
+            .await
+            .expect("export");
         assert!(json.contains("\"language\""));
         assert!(!json.contains("should-not-export"));
 
@@ -742,5 +812,173 @@ mod tests {
             db::get_setting(&pool, "github_pat").await.expect("pat"),
             Some("existing".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn backup_options_resource_only_excludes_central_and_app_config() {
+        let (pool, dir) = setup_test_db().await;
+        db::set_setting(&pool, "language", "zh")
+            .await
+            .expect("setting");
+
+        let central = central_root(&pool).await.expect("central");
+        let central_skill_dir = central.join("central-demo");
+        std::fs::create_dir_all(&central_skill_dir).expect("central skill dir");
+        std::fs::write(
+            central_skill_dir.join("SKILL.md"),
+            "---\nname: Central Demo\n---\n",
+        )
+        .expect("central skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "central-demo".to_string(),
+                name: "Central Demo".to_string(),
+                description: None,
+                file_path: path_to_string(&central_skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&central_skill_dir)),
+                is_central: true,
+                source: None,
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("central db skill");
+
+        let resource_root = dir.path().join("resource-library");
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .expect("resource dir");
+        let resource_skill_dir = resource_root.join("resource-demo");
+        std::fs::create_dir_all(&resource_skill_dir).expect("resource skill dir");
+        std::fs::write(
+            resource_skill_dir.join("SKILL.md"),
+            "---\nname: Resource Demo\n---\n",
+        )
+        .expect("resource skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "resource-demo".to_string(),
+                name: "Resource Demo".to_string(),
+                description: None,
+                file_path: path_to_string(&resource_skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&resource_skill_dir)),
+                is_central: false,
+                source: None,
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("resource db skill");
+
+        let json = export_app_backup_impl(
+            &pool,
+            BackupOptions {
+                include_resource_library: true,
+                include_central_library: false,
+                include_app_config: false,
+                include_installations: false,
+            },
+        )
+        .await
+        .expect("export");
+        let backup: AppBackup = serde_json::from_str(&json).expect("backup json");
+
+        assert!(backup
+            .skills
+            .iter()
+            .any(|skill| skill.skill.id == "resource-demo"));
+        assert!(!backup
+            .skills
+            .iter()
+            .any(|skill| skill.skill.id == "central-demo"));
+        assert!(backup.settings.is_empty());
+        assert!(backup.agents.is_empty());
+        assert!(backup.collections.is_empty());
+        assert!(backup.collection_skills.is_empty());
+        assert!(backup.skill_registries.is_empty());
+        assert!(backup.marketplace_skills.is_empty());
+    }
+
+    #[tokio::test]
+    async fn backup_options_central_only_excludes_resource_skills() {
+        let (pool, dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let central_skill_dir = central.join("central-only-demo");
+        std::fs::create_dir_all(&central_skill_dir).expect("central skill dir");
+        std::fs::write(
+            central_skill_dir.join("SKILL.md"),
+            "---\nname: Central Only Demo\n---\n",
+        )
+        .expect("central skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "central-only-demo".to_string(),
+                name: "Central Only Demo".to_string(),
+                description: None,
+                file_path: path_to_string(&central_skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&central_skill_dir)),
+                is_central: true,
+                source: None,
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("central db skill");
+
+        let resource_root = dir.path().join("resource-library");
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .expect("resource dir");
+        let resource_skill_dir = resource_root.join("resource-only-demo");
+        std::fs::create_dir_all(&resource_skill_dir).expect("resource skill dir");
+        std::fs::write(
+            resource_skill_dir.join("SKILL.md"),
+            "---\nname: Resource Only Demo\n---\n",
+        )
+        .expect("resource skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "resource-only-demo".to_string(),
+                name: "Resource Only Demo".to_string(),
+                description: None,
+                file_path: path_to_string(&resource_skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&resource_skill_dir)),
+                is_central: false,
+                source: None,
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("resource db skill");
+
+        let json = export_app_backup_impl(
+            &pool,
+            BackupOptions {
+                include_resource_library: false,
+                include_central_library: true,
+                include_app_config: false,
+                include_installations: false,
+            },
+        )
+        .await
+        .expect("export");
+        let backup: AppBackup = serde_json::from_str(&json).expect("backup json");
+
+        assert!(backup
+            .skills
+            .iter()
+            .any(|skill| skill.skill.id == "central-only-demo"));
+        assert!(!backup
+            .skills
+            .iter()
+            .any(|skill| skill.skill.id == "resource-only-demo"));
     }
 }
