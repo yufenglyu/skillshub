@@ -813,6 +813,11 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         db_skill.source = sanitize_skill_origin(db_skill.source);
         db_skill.content = None;
         db::upsert_skill(pool, &db_skill).await?;
+        sqlx::query("DELETE FROM skill_sources WHERE skill_id = ?")
+            .bind(&db_skill.id)
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
         if let Some(mut source) = sanitize_skill_source(skill.source) {
             source.skill_id = db_skill.id.clone();
             db::upsert_skill_source(pool, &source).await?;
@@ -841,24 +846,34 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         }
         match validated_install_method(installation.method.as_deref()) {
             BackupInstallMethod::Copy => {
-                prepare_copy_installation_replay(
-                    pool,
-                    &installation.skill_id,
-                    &installation.agent_id,
-                    &central_root,
-                    &agent.global_skills_dir,
-                )
-                .await?;
-                install_skill_to_agent_copy_impl(
-                    pool,
-                    &installation.skill_id,
-                    &installation.agent_id,
-                )
-                .await?;
+                let result = async {
+                    prepare_copy_installation_replay(
+                        pool,
+                        &installation.skill_id,
+                        &installation.agent_id,
+                        &central_root,
+                        &agent.global_skills_dir,
+                    )
+                    .await?;
+                    install_skill_to_agent_copy_impl(
+                        pool,
+                        &installation.skill_id,
+                        &installation.agent_id,
+                    )
+                    .await
+                }
+                .await;
+                if result.is_err() {
+                    continue;
+                }
             }
             BackupInstallMethod::Symlink => {
-                install_skill_to_agent_impl(pool, &installation.skill_id, &installation.agent_id)
-                    .await?;
+                if install_skill_to_agent_impl(pool, &installation.skill_id, &installation.agent_id)
+                    .await
+                    .is_err()
+                {
+                    continue;
+                }
             }
         }
     }
@@ -1035,12 +1050,15 @@ fn validate_skill_backup(skill: &SkillBackup) -> Result<(), String> {
     for file in &skill.files {
         let relative_path = normalize_relative_path(&file.relative_path)?;
         let key = relative_path_key(&relative_path)?;
-        if key == "skill.md" {
-            has_skill_md = true;
-        }
-        STANDARD
+        let bytes = STANDARD
             .decode(&file.content_base64)
             .map_err(|e| format!("Invalid base64 content for '{}': {}", file.relative_path, e))?;
+        if key == "skill.md" {
+            let content = std::str::from_utf8(&bytes)
+                .map_err(|_| "Backup skill SKILL.md is not valid UTF-8".to_string())?;
+            validate_skill_md_content(content)?;
+            has_skill_md = true;
+        }
         paths.push((relative_path, key));
     }
     if !has_skill_md {
@@ -1058,6 +1076,28 @@ fn validate_skill_backup(skill: &SkillBackup) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn validate_skill_md_content(content: &str) -> Result<(), String> {
+    let after_open = content
+        .strip_prefix("---\n")
+        .or_else(|| content.strip_prefix("---\r\n"))
+        .ok_or_else(|| "Backup skill SKILL.md is missing valid frontmatter".to_string())?;
+    let close_pos = after_open
+        .find("\n---")
+        .ok_or_else(|| "Backup skill SKILL.md is missing valid frontmatter".to_string())?;
+    let frontmatter = &after_open[..close_pos];
+    let yaml: serde_yaml::Value = serde_yaml::from_str(frontmatter)
+        .map_err(|_| "Backup skill SKILL.md has invalid frontmatter".to_string())?;
+    let has_name = yaml
+        .get("name")
+        .and_then(|value| value.as_str())
+        .is_some_and(|name| !name.trim().is_empty());
+    if has_name {
+        Ok(())
+    } else {
+        Err("Backup skill SKILL.md is missing a name".to_string())
+    }
 }
 
 fn validate_restore_plan(skills: &[SkillBackup]) -> Result<(), String> {
@@ -1095,8 +1135,17 @@ fn replace_skill_directory(target_dir: &Path, files: &[SkillFileBackup]) -> Resu
     let parent = target_dir
         .parent()
         .ok_or_else(|| "Backup target has no parent directory".to_string())?;
+    ensure_existing_ancestors_are_directories(parent)?;
     std::fs::create_dir_all(parent)
         .map_err(|e| format!("Failed to create directory '{}': {}", parent.display(), e))?;
+    if let Ok(metadata) = std::fs::symlink_metadata(target_dir) {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(format!(
+                "Backup target '{}' is not a replaceable skill directory",
+                target_dir.display()
+            ));
+        }
+    }
     let name = target_dir
         .file_name()
         .and_then(|name| name.to_str())
@@ -1138,6 +1187,35 @@ fn replace_skill_directory(target_dir: &Path, files: &[SkillFileBackup]) -> Resu
 
     if had_existing {
         let _ = std::fs::remove_dir_all(&old_dir);
+    }
+    Ok(())
+}
+
+fn ensure_existing_ancestors_are_directories(path: &Path) -> Result<(), String> {
+    let mut current = Some(path);
+    while let Some(candidate) = current {
+        if candidate.as_os_str().is_empty() {
+            break;
+        }
+        match std::fs::symlink_metadata(candidate) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                    return Err(format!(
+                        "Backup target parent '{}' is not a safe directory",
+                        candidate.display()
+                    ));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "Failed to inspect backup target parent '{}': {}",
+                    candidate.display(),
+                    error
+                ));
+            }
+        }
+        current = candidate.parent();
     }
     Ok(())
 }
@@ -2296,6 +2374,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn import_clears_stale_skill_source_when_backup_omits_source() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let skill_dir = central.join("stale-source-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: Stale Source\n---\n")
+            .expect("skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "stale-source-demo".to_string(),
+                name: "Stale Source".to_string(),
+                description: None,
+                file_path: path_to_string(&skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&skill_dir)),
+                is_central: true,
+                source: Some("github:old/repo".to_string()),
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+        db::upsert_skill_source(
+            &pool,
+            &SkillSource {
+                skill_id: "stale-source-demo".to_string(),
+                source_type: "github".to_string(),
+                source_url: Some("https://example.com/old/SKILL.md".to_string()),
+                source_author: Some("old".to_string()),
+                source_repo: Some("old/repo".to_string()),
+                source_path: Some("old/SKILL.md".to_string()),
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("source");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [{
+                "skill": {
+                    "id": "stale-source-demo",
+                    "name": "Stale Source",
+                    "description": null,
+                    "file_path": "",
+                    "canonical_path": null,
+                    "is_central": true,
+                    "source": null,
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "source": null,
+                "metadata": null,
+                "storage_kind": "central",
+                "relative_dir": "stale-source-demo",
+                "files": [{"relative_path": "SKILL.md", "content_base64": "LS0tCm5hbWU6IFN0YWxlIFNvdXJjZQotLS0K"}]
+            }],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": []
+        });
+
+        import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect("import");
+
+        assert!(db::get_skill_source(&pool, "stale-source-demo")
+            .await
+            .expect("source lookup")
+            .is_none());
+    }
+
+    #[tokio::test]
     async fn backup_options_resource_only_excludes_central_and_app_config() {
         let (pool, dir) = setup_test_db().await;
         db::set_setting(&pool, "language", "zh")
@@ -2897,6 +3055,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn import_skips_installations_that_fail_to_replay() {
+        let (pool, dir) = setup_test_db().await;
+        let blocked_agent_root = dir.path().join("blocked-agent-root");
+        std::fs::write(&blocked_agent_root, "not a directory").expect("blocked root");
+        db::insert_custom_agent(
+            &pool,
+            &Agent {
+                id: "blocked-agent".to_string(),
+                display_name: "Blocked Agent".to_string(),
+                category: "coding".to_string(),
+                global_skills_dir: path_to_string(&blocked_agent_root),
+                project_skills_dir: None,
+                icon_name: None,
+                is_detected: true,
+                is_builtin: false,
+                is_enabled: true,
+            },
+        )
+        .await
+        .expect("agent");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [{
+                "skill": {
+                    "id": "skip-install-failure",
+                    "name": "Skip Install Failure",
+                    "description": null,
+                    "file_path": "",
+                    "canonical_path": null,
+                    "is_central": true,
+                    "source": null,
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "storage_kind": "central",
+                "relative_dir": "skip-install-failure",
+                "files": [{"relative_path": "SKILL.md", "content_base64": "LS0tCm5hbWU6IFNraXAgSW5zdGFsbCBGYWlsdXJlCi0tLQo="}]
+            }],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": [{"skill_id": "skip-install-failure", "agent_id": "blocked-agent", "method": "copy"}]
+        });
+
+        import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect("installation replay failure is skipped");
+        assert!(db::get_skill_by_id(&pool, "skip-install-failure")
+            .await
+            .expect("skill")
+            .is_some());
+        assert!(db::get_skill_installations(&pool, "skip-install-failure")
+            .await
+            .expect("installations")
+            .is_empty());
+    }
+
+    #[tokio::test]
     async fn import_validates_files_before_replacing_existing_skill_directory() {
         let (pool, _dir) = setup_test_db().await;
         let central = central_root(&pool).await.expect("central");
@@ -2957,6 +3179,101 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(skill_dir.join("SKILL.md")).expect("existing skill content"),
             "---\nname: Existing\n---\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn import_rejects_invalid_skill_md_frontmatter_before_replacing_existing_skill_directory()
+    {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let skill_dir = central.join("invalid-frontmatter-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: Existing\n---\n")
+            .expect("existing skill");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [{
+                "skill": {
+                    "id": "invalid-frontmatter-demo",
+                    "name": "Invalid Frontmatter Demo",
+                    "description": null,
+                    "file_path": "",
+                    "canonical_path": null,
+                    "is_central": true,
+                    "source": null,
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "storage_kind": "central",
+                "relative_dir": "invalid-frontmatter-demo",
+                "files": [{"relative_path": "SKILL.md", "content_base64": "IyBub3Bl"}]
+            }],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": []
+        });
+
+        let error = import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect_err("invalid SKILL.md accepted");
+        assert!(error.contains("valid frontmatter"));
+        assert_eq!(
+            std::fs::read_to_string(skill_dir.join("SKILL.md")).expect("existing skill content"),
+            "---\nname: Existing\n---\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn import_rejects_existing_non_directory_target_without_replacing_it() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let target_file = central.join("file-collision-demo");
+        std::fs::write(&target_file, "keep me").expect("target file");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [{
+                "skill": {
+                    "id": "file-collision-demo",
+                    "name": "File Collision Demo",
+                    "description": null,
+                    "file_path": "",
+                    "canonical_path": null,
+                    "is_central": true,
+                    "source": null,
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "storage_kind": "central",
+                "relative_dir": "file-collision-demo",
+                "files": [{"relative_path": "SKILL.md", "content_base64": "LS0tCm5hbWU6IEZpbGUgQ29sbGlzaW9uIERlbW8KLS0tCg=="}]
+            }],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": []
+        });
+
+        let error = import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect_err("existing file target accepted");
+        assert!(error.contains("not a replaceable skill directory"));
+        assert_eq!(
+            std::fs::read_to_string(&target_file).expect("target file"),
+            "keep me"
         );
     }
 
