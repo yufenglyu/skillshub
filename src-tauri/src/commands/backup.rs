@@ -758,6 +758,9 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         .map_err(|e| format!("Failed to create Central Skills root: {}", e))?;
     std::fs::create_dir_all(&resource_root)
         .map_err(|e| format!("Failed to create Skill Resource Library root: {}", e))?;
+    for skill in &backup.skills {
+        validate_skill_backup(skill)?;
+    }
 
     for setting in backup.settings {
         if !is_exportable_setting_key(&setting.key) {
@@ -843,6 +846,14 @@ async fn import_app_backup_impl(pool: &DbPool, json: &str) -> Result<(), String>
         }
         match validated_install_method(installation.method.as_deref()) {
             BackupInstallMethod::Copy => {
+                prepare_copy_installation_replay(
+                    pool,
+                    &installation.skill_id,
+                    &installation.agent_id,
+                    &central_root,
+                    &agent.global_skills_dir,
+                )
+                .await?;
                 install_skill_to_agent_copy_impl(
                     pool,
                     &installation.skill_id,
@@ -901,6 +912,7 @@ async fn append_skill_backups(
         let mut exported_skill = skill;
         exported_skill.file_path.clear();
         exported_skill.canonical_path = None;
+        exported_skill.source = sanitize_skill_origin(exported_skill.source);
         skill_backups.push(SkillBackup {
             skill: exported_skill,
             source,
@@ -932,7 +944,7 @@ fn skill_directory(skill: &Skill) -> PathBuf {
 fn relative_to_root(path: &Path, root: &Path) -> Option<String> {
     path.strip_prefix(root)
         .ok()
-        .map(|path| path.to_string_lossy().into_owned())
+        .and_then(path_to_portable_relative)
 }
 
 fn collect_files(root: &Path) -> Result<Vec<SkillFileBackup>, String> {
@@ -963,9 +975,14 @@ fn collect_files_inner(
         if metadata.is_file() {
             let relative_path = path
                 .strip_prefix(root)
-                .map_err(|e| e.to_string())?
-                .to_string_lossy()
-                .into_owned();
+                .ok()
+                .and_then(path_to_portable_relative)
+                .ok_or_else(|| {
+                    format!(
+                        "File path '{}' cannot be represented as a portable backup path",
+                        path.display()
+                    )
+                })?;
             let bytes = std::fs::read(&path)
                 .map_err(|e| format!("Failed to read '{}': {}", path.display(), e))?;
             files.push(SkillFileBackup {
@@ -978,21 +995,57 @@ fn collect_files_inner(
 }
 
 fn normalize_relative_path(value: &str) -> Result<PathBuf, String> {
-    let path = Path::new(value);
-    if path.is_absolute() {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with('/')
+        || trimmed.starts_with('\\')
+        || looks_like_windows_drive_path(trimmed)
+    {
         return Err("Backup contains an absolute path".to_string());
     }
+    let portable = trimmed.replace('\\', "/");
     let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(part) => normalized.push(part),
-            _ => return Err("Backup contains an unsafe relative path".to_string()),
+    for part in portable.split('/') {
+        if part.is_empty() || part == "." || part == ".." {
+            return Err("Backup contains an unsafe relative path".to_string());
         }
+        normalized.push(part);
     }
     if normalized.as_os_str().is_empty() {
         return Err("Backup contains an empty relative path".to_string());
     }
     Ok(normalized)
+}
+
+fn looks_like_windows_drive_path(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+fn path_to_portable_relative(path: &Path) -> Option<String> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        let Component::Normal(part) = component else {
+            return None;
+        };
+        parts.push(part.to_string_lossy().to_string());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("/"))
+    }
+}
+
+fn validate_skill_backup(skill: &SkillBackup) -> Result<(), String> {
+    normalize_relative_path(&skill.relative_dir)?;
+    for file in &skill.files {
+        normalize_relative_path(&file.relative_path)?;
+        STANDARD
+            .decode(&file.content_base64)
+            .map_err(|e| format!("Invalid base64 content for '{}': {}", file.relative_path, e))?;
+    }
+    Ok(())
 }
 
 fn write_files(root: &Path, files: &[SkillFileBackup]) -> Result<(), String> {
@@ -1008,6 +1061,67 @@ fn write_files(root: &Path, files: &[SkillFileBackup]) -> Result<(), String> {
             .map_err(|e| format!("Invalid base64 content for '{}': {}", file.relative_path, e))?;
         std::fs::write(&target, bytes)
             .map_err(|e| format!("Failed to write '{}': {}", target.display(), e))?;
+    }
+    Ok(())
+}
+
+async fn prepare_copy_installation_replay(
+    pool: &DbPool,
+    skill_id: &str,
+    agent_id: &str,
+    central_root: &Path,
+    agent_root: &str,
+) -> Result<(), String> {
+    let Some(existing) = db::get_skill_installations(pool, skill_id)
+        .await?
+        .into_iter()
+        .find(|installation| installation.agent_id == agent_id)
+    else {
+        return Ok(());
+    };
+    if existing.link_type != "copy" {
+        return Ok(());
+    }
+    let Some(skill) = db::get_skill_by_id(pool, skill_id).await? else {
+        return Ok(());
+    };
+    let canonical_path = skill.canonical_path.as_deref().unwrap_or(&skill.file_path);
+    let canonical_dir = if canonical_path.ends_with("SKILL.md") {
+        Path::new(canonical_path)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(canonical_path))
+    } else {
+        PathBuf::from(canonical_path)
+    };
+    let relative = canonical_dir
+        .strip_prefix(central_root)
+        .ok()
+        .and_then(path_to_portable_relative)
+        .unwrap_or_else(|| skill_id.to_string());
+    let expected_path = PathBuf::from(agent_root).join(normalize_relative_path(&relative)?);
+    let existing_path = PathBuf::from(&existing.installed_path);
+    if existing_path != expected_path || !expected_path.exists() {
+        return Ok(());
+    }
+    if !expected_path.starts_with(agent_root) {
+        return Err("Existing copy installation is outside the current agent root".to_string());
+    }
+    let metadata = std::fs::symlink_metadata(&expected_path).map_err(|e| {
+        format!(
+            "Failed to inspect existing copy installation '{}': {}",
+            expected_path.display(),
+            e
+        )
+    })?;
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        std::fs::remove_dir_all(&expected_path).map_err(|e| {
+            format!(
+                "Failed to refresh existing copy installation '{}': {}",
+                expected_path.display(),
+                e
+            )
+        })?;
     }
     Ok(())
 }
@@ -1210,7 +1324,22 @@ fn is_safe_backup_url(value: &str) -> bool {
         return false;
     };
     let scheme = url.scheme();
-    matches!(scheme, "http" | "https") && url.username().is_empty() && url.password().is_none()
+    matches!(scheme, "http" | "https")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+}
+
+fn sanitize_skill_origin(source: Option<String>) -> Option<String> {
+    let source = source?;
+    if Url::parse(&source).is_ok() {
+        is_safe_backup_url(&source).then_some(source)
+    } else if source.contains("://") {
+        None
+    } else {
+        Some(source)
+    }
 }
 
 fn is_portable_backup_path(value: &str) -> bool {
@@ -1286,7 +1415,7 @@ mod tests {
                 file_path: path_to_string(&skill_dir.join("SKILL.md")),
                 canonical_path: Some(path_to_string(&skill_dir)),
                 is_central: true,
-                source: None,
+                source: Some("https://example.com/raw/SKILL.md?token=secret".to_string()),
                 content: None,
                 scanned_at: "2026-01-01T00:00:00Z".to_string(),
             },
@@ -1327,6 +1456,20 @@ mod tests {
         );
         assert!(target_agent_root.join("installed-demo").is_dir());
         assert_eq!(installations[0].symlink_target.as_deref(), None);
+
+        std::fs::write(
+            target_agent_root.join("installed-demo").join("stale.txt"),
+            "stale copy content",
+        )
+        .expect("stale copy marker");
+        import_app_backup_impl(&target_pool, &json)
+            .await
+            .expect("repeat import refreshes copy");
+        assert!(target_agent_root.join("installed-demo").is_dir());
+        assert!(!target_agent_root
+            .join("installed-demo")
+            .join("stale.txt")
+            .exists());
     }
 
     #[tokio::test]
@@ -1669,6 +1812,21 @@ mod tests {
              (id, name, source_type, url, is_builtin, is_enabled, last_sync_status, last_sync_error, created_at)
              VALUES (?, ?, ?, ?, 0, 1, ?, ?, ?)",
         )
+        .bind("query-registry")
+        .bind("Query Registry")
+        .bind("github")
+        .bind("https://example.com/private?token=secret")
+        .bind("failed")
+        .bind("query-error")
+        .bind("2026-01-01T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("query registry");
+        sqlx::query(
+            "INSERT INTO skill_registries
+             (id, name, source_type, url, is_builtin, is_enabled, last_sync_status, last_sync_error, created_at)
+             VALUES (?, ?, ?, ?, 0, 1, ?, ?, ?)",
+        )
         .bind("unsafe-registry")
         .bind("Unsafe Registry")
         .bind("github")
@@ -1714,7 +1872,9 @@ mod tests {
         assert!(json.contains("https://example.com/safe/SKILL.md"));
         assert!(!json.contains("https://user:secret@example.com/private"));
         assert!(!json.contains("https://token:secret@example.com"));
+        assert!(!json.contains("token=secret"));
         assert!(!json.contains("should-not-export"));
+        assert!(!json.contains("query-error"));
         assert!(!json.contains("sync.log"));
         assert!(!json.contains("C:\\\\private"));
     }
@@ -2318,5 +2478,113 @@ mod tests {
             .await
             .expect("installations")
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn import_validates_files_before_replacing_existing_skill_directory() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let skill_dir = central.join("invalid-content-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: Existing\n---\n")
+            .expect("existing skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "invalid-content-demo".to_string(),
+                name: "Existing".to_string(),
+                description: None,
+                file_path: path_to_string(&skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&skill_dir)),
+                is_central: true,
+                source: None,
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [{
+                "skill": {
+                    "id": "invalid-content-demo",
+                    "name": "Invalid Content Demo",
+                    "description": null,
+                    "file_path": "",
+                    "canonical_path": null,
+                    "is_central": true,
+                    "source": null,
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "storage_kind": "central",
+                "relative_dir": "invalid-content-demo",
+                "files": [{"relative_path": "SKILL.md", "content_base64": "not base64"}]
+            }],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": []
+        });
+
+        let error = import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect_err("invalid backup accepted");
+        assert!(error.contains("Invalid base64 content"));
+        assert_eq!(
+            std::fs::read_to_string(skill_dir.join("SKILL.md")).expect("existing skill content"),
+            "---\nname: Existing\n---\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn import_accepts_legacy_backslash_relative_paths_as_portable_segments() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let backup = serde_json::json!({
+            "schema_version": BACKUP_SCHEMA_VERSION,
+            "exported_at": "2026-01-01T00:00:00Z",
+            "included": {"includeResourceLibrary": true, "includeCentralLibrary": true, "includeAppConfig": true, "includeInstallations": true},
+            "skills": [{
+                "skill": {
+                    "id": "legacy-path-demo",
+                    "name": "Legacy Path Demo",
+                    "description": null,
+                    "file_path": "",
+                    "canonical_path": null,
+                    "is_central": true,
+                    "source": null,
+                    "content": null,
+                    "scanned_at": "2026-01-01T00:00:00Z"
+                },
+                "storage_kind": "central",
+                "relative_dir": "nested\\legacy-path-demo",
+                "files": [{"relative_path": "docs\\guide.md", "content_base64": "Z3VpZGU="}]
+            }],
+            "collections": [],
+            "collection_skills": [],
+            "settings": [],
+            "agents": [],
+            "scan_directories": [],
+            "skill_registries": [],
+            "marketplace_skills": [],
+            "skill_installations": []
+        });
+
+        import_app_backup_impl(&pool, &backup.to_string())
+            .await
+            .expect("import");
+        assert_eq!(
+            std::fs::read_to_string(central.join("nested/legacy-path-demo/docs/guide.md"))
+                .expect("restored file"),
+            "guide"
+        );
     }
 }
