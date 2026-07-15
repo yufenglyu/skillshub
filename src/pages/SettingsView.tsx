@@ -64,6 +64,32 @@ const CTP_VAR_MAP: Record<CatppuccinAccent, string> = {
 
 const FLAVOR_ORDER: CatppuccinFlavor[] = ["mocha", "macchiato", "frappe", "latte"];
 
+function webDavErrorDetail(t: (key: string) => string, error: unknown): string {
+  const message = String(error);
+  if (/timed out/i.test(message)) {
+    return t("settings.webdavErrorTimeout");
+  }
+  if (/connection failed/i.test(message)) {
+    return t("settings.webdavErrorConnection");
+  }
+  if (/status (401|403)\b/i.test(message)) {
+    return t("settings.webdavErrorUnauthorized");
+  }
+  if (/status [45]\d\d\b/i.test(message)) {
+    return t("settings.webdavErrorRemote");
+  }
+  if (/Invalid WebDAV XML|invalid percent encoding|unsafe filename/i.test(message)) {
+    return t("settings.webdavErrorResponse");
+  }
+  if (/URL cannot be empty|URL is invalid|URL must use|URL must not include|remote path|path segments/i.test(message)) {
+    return t("settings.webdavErrorConfig");
+  }
+  if (/^WebDAV (list|upload|download) failed:/i.test(message)) {
+    return t("settings.webdavErrorRemote");
+  }
+  return t("settings.webdavErrorUnknown");
+}
+
 // ─── ScanDirectoryRow ─────────────────────────────────────────────────────────
 
 interface ScanDirectoryRowProps {
@@ -612,7 +638,7 @@ export function SettingsView() {
       setSelectedWebDavPath(files[0]?.remotePath ?? "");
       toast.success(t("settings.webdavRefreshed"));
     } catch (err) {
-      toast.error(t("settings.webdavRefreshError", { error: String(err) }));
+      toast.error(t("settings.webdavRefreshError", { error: webDavErrorDetail(t, err) }));
     } finally {
       setIsRefreshingWebDav(false);
     }
@@ -626,12 +652,18 @@ export function SettingsView() {
     setIsUploadingWebDav(true);
     try {
       await uploadWebDavBackup(currentWebDavConfig(), backupOptions);
-      toast.success(t("settings.webdavUploaded"));
+    } catch (err) {
+      toast.error(t("settings.webdavUploadError", { error: webDavErrorDetail(t, err) }));
+      setIsUploadingWebDav(false);
+      return;
+    }
+    toast.success(t("settings.webdavUploaded"));
+    try {
       const files = await listWebDavBackups(currentWebDavConfig());
       setWebDavFiles(files);
       setSelectedWebDavPath(files[0]?.remotePath ?? "");
     } catch (err) {
-      toast.error(t("settings.webdavUploadError", { error: String(err) }));
+      toast.error(t("settings.webdavUploadRefreshError", { error: webDavErrorDetail(t, err) }));
     } finally {
       setIsUploadingWebDav(false);
     }
@@ -655,7 +687,7 @@ export function SettingsView() {
       ]);
       toast.success(t("settings.webdavImported"));
     } catch (err) {
-      toast.error(t("settings.webdavImportError", { error: String(err) }));
+      toast.error(t("settings.webdavImportError", { error: webDavErrorDetail(t, err) }));
     } finally {
       setIsImportingWebDav(false);
     }
@@ -840,7 +872,7 @@ export function SettingsView() {
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
                   <label htmlFor="webdav-url" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavUrlLabel")}</label>
-                  <Input id="webdav-url" value={webDavBaseUrl} onChange={(event) => setWebDavBaseUrl(event.target.value)} placeholder="https://example.com/dav" />
+                  <Input id="webdav-url" value={webDavBaseUrl} onChange={(event) => setWebDavBaseUrl(event.target.value)} placeholder={t("settings.webdavUrlPlaceholder")} />
                 </div>
                 <div>
                   <label htmlFor="webdav-remote-dir" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavRemoteDirLabel")}</label>

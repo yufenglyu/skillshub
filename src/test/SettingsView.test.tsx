@@ -31,10 +31,18 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+vi.mock("sonner", () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
 import { useSettingsStore } from "../stores/settingsStore";
 import { usePlatformStore } from "../stores/platformStore";
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
 import { useThemeStore } from "../stores/themeStore";
+import { toast } from "sonner";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -239,6 +247,13 @@ describe("SettingsView", () => {
     expect(screen.getByRole("checkbox", { name: "技能安装的平台" })).toBeChecked();
   });
 
+  it("uses the localized WebDAV URL placeholder", () => {
+    setupMocks();
+    renderSettingsView();
+
+    expect(screen.getByPlaceholderText("例如 https://dav.example.com/backups")).toBeTruthy();
+  });
+
   it("local export uses selected backup options", async () => {
     const exportAppBackup = vi.fn().mockResolvedValue("{}");
     setupMocks({ exportAppBackup });
@@ -301,6 +316,51 @@ describe("SettingsView", () => {
       expect(uploadWebDavBackup).toHaveBeenCalled();
     });
     expect(listWebDavBackups).toHaveBeenCalled();
+  });
+
+  it("shows a distinct localized error when refresh fails after upload", async () => {
+    const listWebDavBackups = vi.fn().mockRejectedValue("WebDAV list failed: connection failed");
+    const uploadWebDavBackup = vi.fn().mockResolvedValue({
+      name: "skillshub-backup.json",
+      remotePath: "skillshub-backup.json",
+    });
+    setupMocks({ listWebDavBackups, uploadWebDavBackup });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://example.com/dav" },
+    });
+    fireEvent.change(screen.getByLabelText("远端目录"), {
+      target: { value: "skillshub" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "上传到 WebDAV" }));
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("备份已上传到 WebDAV");
+      expect(toast.error).toHaveBeenCalledWith("上传成功，但刷新远端备份列表失败: 网络连接失败");
+    });
+    expect(toast.error).not.toHaveBeenCalledWith(expect.stringContaining("上传 WebDAV 备份失败"));
+  });
+
+  it("localizes WebDAV backend errors without exposing raw details", async () => {
+    const rawError = "WebDAV list failed: internal transport detail 12345";
+    const listWebDavBackups = vi.fn().mockRejectedValue(rawError);
+    setupMocks({ listWebDavBackups });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://example.com/dav" },
+    });
+    fireEvent.change(screen.getByLabelText("远端目录"), {
+      target: { value: "skillshub" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("刷新远端备份失败: 远端服务请求失败");
+    });
+    expect(toast.error).not.toHaveBeenCalledWith(expect.stringContaining(rawError));
+    expect(toast.error).not.toHaveBeenCalledWith(expect.stringContaining("12345"));
   });
 
   it("imports the selected WebDAV backup", async () => {

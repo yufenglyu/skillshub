@@ -1,9 +1,11 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use chrono::Utc;
+use chrono::{DateTime, NaiveDateTime, Utc};
+use percent_encoding::percent_decode_str;
 use quick_xml::events::Event;
 use reqwest::{Client, Method, Url};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::cmp::Ordering;
 use std::path::{Component, Path, PathBuf};
 use tauri::State;
 
@@ -398,11 +400,39 @@ fn parse_webdav_backup_files(xml: &str) -> Result<Vec<WebDavBackupFile>, String>
     }
 
     files.sort_by(|a, b| {
-        b.modified_at
-            .cmp(&a.modified_at)
-            .then_with(|| a.name.cmp(&b.name))
+        match (
+            parse_webdav_modified_at(a.modified_at.as_deref()),
+            parse_webdav_modified_at(b.modified_at.as_deref()),
+        ) {
+            (Some(a_date), Some(b_date)) => b_date.cmp(&a_date),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        }
+        .then_with(|| generated_backup_timestamp(&b.name).cmp(&generated_backup_timestamp(&a.name)))
+        .then_with(|| a.name.cmp(&b.name))
+        .then_with(|| a.remote_path.cmp(&b.remote_path))
     });
     Ok(files)
+}
+
+fn parse_webdav_modified_at(value: Option<&str>) -> Option<DateTime<Utc>> {
+    let value = value?.trim();
+    DateTime::parse_from_rfc2822(value)
+        .map(|date| date.with_timezone(&Utc))
+        .ok()
+        .or_else(|| {
+            httpdate::parse_http_date(value)
+                .ok()
+                .map(DateTime::<Utc>::from)
+        })
+}
+
+fn generated_backup_timestamp(name: &str) -> Option<NaiveDateTime> {
+    let timestamp = name
+        .strip_prefix("skillshub-backup-")?
+        .strip_suffix(".json")?;
+    NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d-%H%M%S").ok()
 }
 
 fn webdav_entry_to_backup_file(
@@ -411,13 +441,20 @@ fn webdav_entry_to_backup_file(
     let Some(href) = entry.href.as_deref() else {
         return Ok(None);
     };
-    let decoded = href.trim_end_matches('/');
-    if !decoded.ends_with(".json") {
-        return Ok(None);
-    }
-    let name = decoded.rsplit('/').next().unwrap_or(decoded).to_string();
+    let href = href.trim().trim_end_matches('/');
+    let encoded_name = href.rsplit('/').next().unwrap_or(href);
+    let name = percent_decode_str(encoded_name)
+        .decode_utf8()
+        .map_err(|_| "WebDAV href contains invalid percent encoding".to_string())?
+        .into_owned();
     if name.is_empty() {
         return Ok(None);
+    }
+    if !name.ends_with(".json") {
+        return Ok(None);
+    }
+    if name == "." || name == ".." || name.contains('/') || name.contains('\\') {
+        return Err("WebDAV href contains unsafe filename".to_string());
     }
     Ok(Some(WebDavBackupFile {
         name: name.clone(),
@@ -1490,6 +1527,112 @@ mod tests {
                 size: Some(42),
                 modified_at: Some("Wed, 15 Jul 2026 08:00:00 GMT".to_string()),
             }]
+        );
+    }
+
+    #[test]
+    fn webdav_parse_decodes_one_href_filename_segment() {
+        let xml = r#"
+            <d:multistatus xmlns:d="DAV:">
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup%20copy.json</d:href>
+              </d:response>
+            </d:multistatus>
+        "#;
+
+        let files = parse_webdav_backup_files(xml).expect("PROPFIND XML");
+
+        assert_eq!(files[0].name, "skillshub-backup copy.json");
+        assert_eq!(files[0].remote_path, "skillshub-backup copy.json");
+        let url = build_webdav_url(
+            &WebDavConfig {
+                base_url: "https://example.com/dav".to_string(),
+                username: None,
+                password: None,
+                remote_dir: "backups".to_string(),
+            },
+            &files[0].remote_path,
+        )
+        .expect("WebDAV URL");
+        assert!(url.ends_with("/dav/backups/skillshub-backup%20copy.json"));
+    }
+
+    #[test]
+    fn webdav_parse_rejects_decoded_href_separators() {
+        let xml = r#"
+            <d:multistatus xmlns:d="DAV:">
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup%2Fnested.json</d:href>
+              </d:response>
+            </d:multistatus>
+        "#;
+
+        assert!(parse_webdav_backup_files(xml).is_err());
+    }
+
+    #[test]
+    fn webdav_parse_sorts_valid_http_dates_newest_first() {
+        let xml = r#"
+            <d:multistatus xmlns:d="DAV:">
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup-2026-07-15-100000.json</d:href>
+                <d:propstat><d:prop><d:getlastmodified>Wed, 15 Jul 2026 10:00:00 GMT</d:getlastmodified></d:prop></d:propstat>
+              </d:response>
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup-2026-07-16-090000.json</d:href>
+                <d:propstat><d:prop><d:getlastmodified>Thu, 16 Jul 2026 09:00:00 GMT</d:getlastmodified></d:prop></d:propstat>
+              </d:response>
+            </d:multistatus>
+        "#;
+
+        let files = parse_webdav_backup_files(xml).expect("PROPFIND XML");
+
+        assert_eq!(
+            files
+                .iter()
+                .map(|file| file.name.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "skillshub-backup-2026-07-16-090000.json",
+                "skillshub-backup-2026-07-15-100000.json",
+            ]
+        );
+    }
+
+    #[test]
+    fn webdav_parse_sorts_missing_or_invalid_dates_by_filename_timestamp() {
+        let xml = r#"
+            <d:multistatus xmlns:d="DAV:">
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup-2026-01-01-010000.json</d:href>
+              </d:response>
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup-2026-07-01-010000.json</d:href>
+                <d:propstat><d:prop><d:getlastmodified>not a date</d:getlastmodified></d:prop></d:propstat>
+              </d:response>
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup-2026-06-01-010000.json</d:href>
+              </d:response>
+              <d:response>
+                <d:href>/dav/backups/skillshub-backup-2026-08-01-010000.json</d:href>
+                <d:propstat><d:prop><d:getlastmodified>Thu, 01 Jan 2026 00:00:00 GMT</d:getlastmodified></d:prop></d:propstat>
+              </d:response>
+            </d:multistatus>
+        "#;
+
+        let files = parse_webdav_backup_files(xml).expect("PROPFIND XML");
+
+        assert_eq!(
+            files
+                .iter()
+                .map(|file| file.name.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "skillshub-backup-2026-08-01-010000.json",
+                "skillshub-backup-2026-07-01-010000.json",
+                "skillshub-backup-2026-06-01-010000.json",
+                "skillshub-backup-2026-01-01-010000.json",
+            ]
         );
     }
 }
