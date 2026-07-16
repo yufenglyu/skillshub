@@ -2167,11 +2167,12 @@ mod tests {
         let result = start_project_scan_impl(&pool, roots, &central_dir, |_| {})
             .await
             .unwrap();
-        let project_names: Vec<_> = result
+        let mut project_names: Vec<_> = result
             .projects
             .iter()
             .map(|project| project.project_name.as_str())
             .collect();
+        project_names.sort_unstable();
 
         assert_eq!(project_names, vec!["0412", "happy-geek"]);
         assert_eq!(result.total_skills, 2);
