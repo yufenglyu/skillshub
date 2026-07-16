@@ -3092,8 +3092,14 @@ mod tests {
         assert_eq!(fixture_skill.platform_id, OBSIDIAN_PLATFORM_ID);
         assert_eq!(fixture_skill.platform_name, OBSIDIAN_PLATFORM_NAME);
         assert_eq!(fixture_skill.project_path, CROSS_AREA_FIXTURE_VAULT_PATH);
-        assert_eq!(normalize_test_path(&fixture_skill.dir_path), CROSS_AREA_FIXTURE_SOURCE_DIR);
-        assert_eq!(normalize_test_path(&fixture_skill.file_path), CROSS_AREA_FIXTURE_SOURCE_FILE);
+        assert_eq!(
+            normalize_test_path(&fixture_skill.dir_path),
+            CROSS_AREA_FIXTURE_SOURCE_DIR
+        );
+        assert_eq!(
+            normalize_test_path(&fixture_skill.file_path),
+            CROSS_AREA_FIXTURE_SOURCE_FILE
+        );
 
         let ordinary = result
             .projects
@@ -3113,8 +3119,14 @@ mod tests {
             .expect("Obsidian fixture should be persisted");
         assert_eq!(persisted.id, CROSS_AREA_FIXTURE_SKILL_ID);
         assert_eq!(persisted.project_path, CROSS_AREA_FIXTURE_VAULT_PATH);
-        assert_eq!(normalize_test_path(&persisted.file_path), CROSS_AREA_FIXTURE_SOURCE_FILE);
-        assert_eq!(normalize_test_path(&persisted.dir_path), CROSS_AREA_FIXTURE_SOURCE_DIR);
+        assert_eq!(
+            normalize_test_path(&persisted.file_path),
+            CROSS_AREA_FIXTURE_SOURCE_FILE
+        );
+        assert_eq!(
+            normalize_test_path(&persisted.dir_path),
+            CROSS_AREA_FIXTURE_SOURCE_DIR
+        );
 
         let cached = get_discovered_skills_impl(&pool, &central_dir)
             .await

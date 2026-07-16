@@ -1861,9 +1861,7 @@ mod tests {
             .expect_err("expected connect failure");
         let msg = format_reqwest_error(&err);
         assert!(
-            msg.contains("切换区域端点")
-                || msg.contains("建立连接")
-                || msg.contains("请求超时"),
+            msg.contains("切换区域端点") || msg.contains("建立连接") || msg.contains("请求超时"),
             "expected actionable Chinese hint in formatted error, got: {msg}"
         );
     }

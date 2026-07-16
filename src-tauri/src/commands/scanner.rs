@@ -1844,9 +1844,7 @@ mod tests {
             .expect("central scan should persist the shared skill");
         assert!(skill.is_central);
         assert_eq!(
-            skill.canonical_path
-                .as_deref()
-                .map(normalize_test_path),
+            skill.canonical_path.as_deref().map(normalize_test_path),
             Some(normalize_test_path(
                 shared_root
                     .join("superpowers/using-superpowers")

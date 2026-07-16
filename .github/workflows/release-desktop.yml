@@ -150,8 +150,10 @@ jobs:
         include:
           - runner: ubuntu-22.04
             asset-arch: x86_64
+            apt-options: "-oAcquire::ForceIPv4=true"
           - runner: ubuntu-22.04-arm
             asset-arch: arm64
+            apt-options: ""
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -179,10 +181,15 @@ jobs:
             src-tauri -> target
 
       - name: Install Linux system deps
+        env:
+          APT_OPTIONS: ${{ matrix.apt-options }}
         run: |
-          APT_GET="sudo apt-get -o Acquire::ForceIPv4=true"
-          $APT_GET update
-          $APT_GET install -y --no-install-recommends \
+          APT_GET=(sudo apt-get)
+          if [ -n "${APT_OPTIONS:-}" ]; then
+            APT_GET+=("$APT_OPTIONS")
+          fi
+          "${APT_GET[@]}" update
+          "${APT_GET[@]}" install -y --no-install-recommends \
             build-essential \
             curl \
             file \
@@ -195,10 +202,10 @@ jobs:
             pkg-config \
             rpm \
             wget
-          $APT_GET install -y --no-install-recommends libwebkit2gtk-4.1-dev \
-            || $APT_GET install -y --no-install-recommends libwebkit2gtk-4.0-dev
-          $APT_GET install -y --no-install-recommends libsoup-3.0-dev \
-            || $APT_GET install -y --no-install-recommends libsoup2.4-dev
+          "${APT_GET[@]}" install -y --no-install-recommends libwebkit2gtk-4.1-dev \
+            || "${APT_GET[@]}" install -y --no-install-recommends libwebkit2gtk-4.0-dev
+          "${APT_GET[@]}" install -y --no-install-recommends libsoup-3.0-dev \
+            || "${APT_GET[@]}" install -y --no-install-recommends libsoup2.4-dev
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

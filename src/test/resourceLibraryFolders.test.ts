@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitResourceLibrarySkillsByFolder } from "@/pages/ResourceLibraryView";
+import { splitResourceLibrarySkillsByFolder } from "@/lib/skillFolders";
 import type { SkillWithLinks } from "@/types";
 
 function resourceSkill(overrides: Partial<SkillWithLinks>): SkillWithLinks {

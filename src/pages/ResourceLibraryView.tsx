@@ -34,9 +34,7 @@ import { isInstallTargetAgent } from "@/lib/agents";
 import { formatPathForDisplay } from "@/lib/path";
 import { buildSearchText, normalizeSearchQuery } from "@/lib/search";
 import {
-  dirnameFromSkillFile,
-  normalizeFsPath,
-  splitSkillsByTopLevel,
+  splitResourceLibrarySkillsByFolder,
   type SkillFolderGroup,
 } from "@/lib/skillFolders";
 import { cn } from "@/lib/utils";
@@ -58,12 +56,6 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-function sortSkillsByName(skills: SkillWithLinks[]) {
-  return [...skills].sort((a, b) =>
-    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
-  );
-}
-
 type ResourceSortField = "name" | "createdAt" | "updatedAt";
 type ResourceSortDirection = "asc" | "desc";
 
@@ -82,89 +74,6 @@ function getSkillSortTimestamp(
       ? skill.created_at ?? skill.scanned_at
       : skill.updated_at ?? skill.scanned_at
   );
-}
-
-function uniqueCount(values: Iterable<string>) {
-  return new Set(values).size;
-}
-
-function resourceSourceFolderName(skill: SkillWithLinks): string | null {
-  const repoOwner = skill.source_repo?.split("/").filter(Boolean)[0];
-  return skill.source_author || repoOwner || null;
-}
-
-function resourceSourceFolderPath(rootPath: string, folderName: string, skill: SkillWithLinks) {
-  if (rootPath) {
-    return `${normalizeFsPath(rootPath)}/${folderName}`;
-  }
-  const candidatePath = normalizeFsPath(skill.canonical_path ?? dirnameFromSkillFile(skill.file_path));
-  const marker = `/${folderName}/`;
-  const markerIndex = candidatePath.toLowerCase().indexOf(marker.toLowerCase());
-  if (markerIndex >= 0) {
-    return candidatePath.slice(0, markerIndex + marker.length - 1);
-  }
-  return candidatePath;
-}
-
-export function splitResourceLibrarySkillsByFolder(
-  skills: SkillWithLinks[],
-  rootPath: string
-) {
-  const baseSplit = splitSkillsByTopLevel({
-    skills,
-    rootPath,
-    getDirPaths: (skill) => [
-      skill.canonical_path,
-      dirnameFromSkillFile(skill.file_path),
-    ],
-    getLinkedAgentIds: (skill) => skill.linked_agents,
-    getReadOnlyAgentIds: (skill) => skill.read_only_agents ?? [],
-  });
-  const rootSkills: SkillWithLinks[] = [];
-  const groups = new Map<string, SkillFolderGroup<SkillWithLinks>>();
-
-  for (const group of baseSplit.groups) {
-    groups.set(group.relativePath, { ...group, skills: [...group.skills] });
-  }
-
-  for (const skill of baseSplit.rootSkills) {
-    const folderName = resourceSourceFolderName(skill);
-    if (!folderName) {
-      rootSkills.push(skill);
-      continue;
-    }
-
-    const groupKey = `source:${folderName.toLowerCase()}`;
-    const group =
-      groups.get(groupKey) ??
-      {
-        name: folderName,
-        relativePath: groupKey,
-        path: resourceSourceFolderPath(rootPath, folderName, skill),
-        skillCount: 0,
-        linkedAgentCount: 0,
-        readOnlyAgentCount: 0,
-        skills: [],
-      };
-
-    group.skills.push(skill);
-    group.skills = sortSkillsByName(group.skills);
-    group.skillCount = group.skills.length;
-    group.linkedAgentCount = uniqueCount(
-      group.skills.flatMap((item) => item.linked_agents)
-    );
-    group.readOnlyAgentCount = uniqueCount(
-      group.skills.flatMap((item) => item.read_only_agents ?? [])
-    );
-    groups.set(groupKey, group);
-  }
-
-  return {
-    rootSkills,
-    groups: [...groups.values()].sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
-    ),
-  };
 }
 
 export function ResourceLibraryView() {
