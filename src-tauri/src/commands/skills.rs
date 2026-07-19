@@ -1207,8 +1207,16 @@ async fn get_skill_detail_with_row_impl(
     row_id: Option<&str>,
 ) -> Result<SkillDetail, String> {
     if let Some(agent_id) = agent_id {
-        if let Some(detail) = get_observation_detail(pool, skill_id, agent_id, row_id).await? {
-            return Ok(detail);
+        let has_managed_installation = db::get_skill_installations(pool, skill_id)
+            .await?
+            .iter()
+            .any(|installation| installation.agent_id == agent_id);
+        let selects_observation = row_id.is_some_and(|row_id| row_id != skill_id);
+
+        if !has_managed_installation || selects_observation {
+            if let Some(detail) = get_observation_detail(pool, skill_id, agent_id, row_id).await? {
+                return Ok(detail);
+            }
         }
     }
 
@@ -1490,16 +1498,16 @@ pub async fn get_resource_library_skills_impl(
     let resource_root = db::get_skill_resource_library_dir(pool).await?;
     sync_resource_library_skills(pool, &resource_root).await?;
 
-    let skills = db::get_resource_library_skills(pool).await?;
-
-    let mut result = Vec::with_capacity(skills.len());
-    for skill in skills {
-        let Some(canonical_path) = skill.canonical_path.as_deref() else {
+    let scanned = scan_skill_root(&resource_root, false, ScanDirectoryOptions::nested());
+    let mut result = Vec::with_capacity(scanned.len());
+    for resource_skill in scanned {
+        let Some(mut skill) = db::get_skill_by_id(pool, &resource_skill.id).await? else {
             continue;
         };
-        if !Path::new(canonical_path).starts_with(&resource_root) {
-            continue;
-        }
+        skill.name = resource_skill.name;
+        skill.description = resource_skill.description;
+        skill.file_path = resource_skill.file_path;
+        skill.canonical_path = Some(resource_skill.dir_path);
         result.push(skill_with_links(pool, skill).await?);
     }
 
@@ -1661,11 +1669,14 @@ async fn sync_resource_library_skills(pool: &DbPool, resource_root: &Path) -> Re
     std::fs::create_dir_all(resource_root)
         .map_err(|e| format!("Failed to create Skill Resource Library directory: {}", e))?;
 
+    let central_root = db::get_agent_by_id(pool, "central")
+        .await?
+        .map(|agent| PathBuf::from(agent.global_skills_dir));
+
     let scanned = scan_skill_root(resource_root, false, ScanDirectoryOptions::nested());
     for skill in scanned {
-        let existing_source = db::get_skill_by_id(pool, &skill.id)
-            .await?
-            .and_then(|existing| existing.source);
+        let existing = db::get_skill_by_id(pool, &skill.id).await?;
+        let existing_source = existing.as_ref().and_then(|skill| skill.source.clone());
         let source_metadata = db::get_skill_source(pool, &skill.id).await?;
         let inferred_source = source_metadata
             .as_ref()
@@ -1687,10 +1698,114 @@ async fn sync_resource_library_skills(pool: &DbPool, resource_root: &Path) -> Re
             content: None,
             scanned_at: Utc::now().to_rfc3339(),
         };
+
+        if repair_legacy_resource_skill_centralization(
+            pool,
+            existing.as_ref(),
+            &db_skill,
+            central_root.as_deref(),
+        )
+        .await?
+        {
+            continue;
+        }
+
+        let has_real_central_copy = existing.as_ref().is_some_and(|skill| {
+            if !skill.is_central {
+                return false;
+            }
+            let Some(central_root) = central_root.as_deref() else {
+                return false;
+            };
+            let Some(canonical_path) = skill.canonical_path.as_deref().map(Path::new) else {
+                return false;
+            };
+            canonical_path.starts_with(central_root)
+                && canonical_path.join("SKILL.md").exists()
+                && std::fs::symlink_metadata(canonical_path)
+                    .map(|metadata| !metadata.file_type().is_symlink())
+                    .unwrap_or(false)
+        });
+        if has_real_central_copy {
+            continue;
+        }
         db::upsert_skill(pool, &db_skill).await?;
     }
 
     Ok(())
+}
+
+async fn repair_legacy_resource_skill_centralization(
+    pool: &DbPool,
+    existing: Option<&db::Skill>,
+    resource_skill: &db::Skill,
+    central_root: Option<&Path>,
+) -> Result<bool, String> {
+    let (Some(central_root), Some(legacy_path)) = (
+        central_root,
+        existing
+            .filter(|skill| skill.is_central)
+            .and_then(|skill| skill.canonical_path.as_deref()),
+    ) else {
+        return Ok(false);
+    };
+
+    let legacy_path = PathBuf::from(legacy_path);
+    let Some(resource_path) = resource_skill.canonical_path.as_deref().map(PathBuf::from) else {
+        return Ok(false);
+    };
+    if !legacy_path.starts_with(central_root) || resource_path.starts_with(central_root) {
+        return Ok(false);
+    }
+
+    let matching_installation =
+        db::get_skill_installations_for_legacy_repair(pool, &resource_skill.id)
+            .await?
+            .into_iter()
+            .any(|installation| {
+                installation.link_type == "symlink"
+                    && Path::new(&installation.installed_path) == legacy_path
+                    && installation
+                        .symlink_target
+                        .as_deref()
+                        .map(Path::new)
+                        .is_some_and(|target| paths_resolve_to_same_entry(target, &resource_path))
+            });
+    if !matching_installation {
+        return Ok(false);
+    }
+
+    match std::fs::symlink_metadata(&legacy_path) {
+        Ok(metadata)
+            if metadata.file_type().is_symlink()
+                && paths_resolve_to_same_entry(&legacy_path, &resource_path) =>
+        {
+            remove_symlink_path(&legacy_path).map_err(|error| {
+                format!(
+                    "Failed to remove legacy platform link from Central Skills '{}': {}",
+                    legacy_path.display(),
+                    error
+                )
+            })?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        _ => return Ok(false),
+    }
+
+    db::repair_legacy_centralized_resource_skill(
+        pool,
+        resource_skill,
+        &legacy_path.to_string_lossy(),
+    )
+    .await?;
+    Ok(true)
+}
+
+fn paths_resolve_to_same_entry(left: &Path, right: &Path) -> bool {
+    matches!(
+        (std::fs::canonicalize(left), std::fs::canonicalize(right)),
+        (Ok(left), Ok(right)) if left == right
+    )
 }
 
 #[tauri::command]
@@ -2518,6 +2633,147 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_resource_scan_preserves_real_central_copy_and_resource_listing() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("resource-library");
+        let central_root = tmp.path().join("central");
+        let resource_skill_dir = resource_root.join("shared-skill");
+        let central_skill_dir = central_root.join("shared-skill");
+        fs::create_dir_all(&resource_skill_dir).unwrap();
+        fs::create_dir_all(&central_skill_dir).unwrap();
+        fs::write(
+            resource_skill_dir.join("SKILL.md"),
+            "---\nname: Shared Skill\ndescription: Resource copy\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            central_skill_dir.join("SKILL.md"),
+            "---\nname: Shared Skill\ndescription: Central copy\n---\n",
+        )
+        .unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .unwrap();
+        set_agent_dir(&pool, "central", &central_root).await;
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "shared-skill".to_string(),
+                name: "Shared Skill".to_string(),
+                description: Some("Central copy".to_string()),
+                file_path: central_skill_dir
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(central_skill_dir.to_string_lossy().into_owned()),
+                is_central: true,
+                source: Some("resource-library".to_string()),
+                content: None,
+                scanned_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let resources = get_resource_library_skills_impl(&pool).await.unwrap();
+
+        assert!(resources.iter().any(|skill| {
+            skill.id == "shared-skill"
+                && skill.canonical_path.as_deref()
+                    == Some(resource_skill_dir.to_string_lossy().as_ref())
+        }));
+        let persisted = db::get_skill_by_id(&pool, "shared-skill")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(persisted.is_central);
+        assert_eq!(
+            persisted.canonical_path.as_deref(),
+            Some(central_skill_dir.to_string_lossy().as_ref())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_resource_scan_repairs_legacy_platform_link_created_in_central() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("resource-library");
+        let central_root = tmp.path().join("central");
+        let resource_skill_dir = resource_root.join("legacy-skill");
+        let central_link = central_root.join("legacy-skill");
+        fs::create_dir_all(&resource_skill_dir).unwrap();
+        fs::create_dir_all(&central_root).unwrap();
+        fs::write(
+            resource_skill_dir.join("SKILL.md"),
+            "---\nname: Legacy Skill\ndescription: Resource skill\n---\n",
+        )
+        .unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .unwrap();
+        set_agent_dir(&pool, "central", &central_root).await;
+
+        create_symlink(&resource_skill_dir, &central_link).unwrap();
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "legacy-skill".to_string(),
+                name: "Legacy Skill".to_string(),
+                description: Some("Resource skill".to_string()),
+                file_path: central_link.join("SKILL.md").to_string_lossy().into_owned(),
+                canonical_path: Some(central_link.to_string_lossy().into_owned()),
+                is_central: true,
+                source: Some("resource-library".to_string()),
+                content: None,
+                scanned_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO skill_installations
+             (skill_id, agent_id, installed_path, link_type, symlink_target, is_managed, created_at)
+             VALUES (?, 'codex', ?, 'symlink', ?, 0, ?)",
+        )
+        .bind("legacy-skill")
+        .bind(central_link.to_string_lossy().into_owned())
+        .bind(resource_skill_dir.to_string_lossy().into_owned())
+        .bind(Utc::now().to_rfc3339())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        db::delete_stale_skill_installations(&pool, "codex", &[])
+            .await
+            .unwrap();
+
+        let skills = get_resource_library_skills_impl(&pool).await.unwrap();
+
+        assert!(skills.iter().any(|skill| skill.id == "legacy-skill"));
+        assert!(
+            fs::symlink_metadata(&central_link).is_err(),
+            "legacy platform link must be removed from the central library"
+        );
+        let repaired = db::get_skill_by_id(&pool, "legacy-skill")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!repaired.is_central);
+        assert_eq!(
+            repaired.canonical_path.as_deref(),
+            Some(resource_skill_dir.to_string_lossy().as_ref())
+        );
+        assert!(
+            db::get_skill_installations(&pool, "legacy-skill")
+                .await
+                .unwrap()
+                .is_empty(),
+            "obsolete installation record must be removed"
+        );
+    }
+
+    #[tokio::test]
     async fn test_get_resource_library_skills_impl_preserves_existing_source() {
         let pool = setup_test_db().await;
         let tmp = TempDir::new().unwrap();
@@ -2799,6 +3055,35 @@ mod tests {
             skills_with_links[0].linked_agents.is_empty(),
             "plugin observations must not pollute linked_agents state"
         );
+    }
+
+    #[tokio::test]
+    async fn test_unmanaged_installation_is_not_exposed_as_managed_status() {
+        let pool = setup_test_db().await;
+        let central_skill = make_skill("external-skill", "External Skill", true);
+        db::upsert_skill(&pool, &central_skill).await.unwrap();
+        sqlx::query(
+            "INSERT INTO skill_installations
+             (skill_id, agent_id, installed_path, link_type, symlink_target, is_managed, created_at)
+             VALUES (?, ?, ?, ?, ?, 0, ?)",
+        )
+        .bind("external-skill")
+        .bind("claude-code")
+        .bind("/tmp/.claude/skills/external-skill")
+        .bind("symlink")
+        .bind("/tmp/outside/external-skill")
+        .bind("2026-01-01T00:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let central_skills = get_central_skills_impl(&pool).await.unwrap();
+        let detail = get_skill_detail_impl(&pool, "external-skill")
+            .await
+            .unwrap();
+
+        assert!(central_skills[0].linked_agents.is_empty());
+        assert!(detail.installations.is_empty());
     }
 
     #[tokio::test]
@@ -4018,6 +4303,11 @@ mod tests {
             Some("/tmp/central/meta-skill"),
             "symlink_target must be forwarded from installation record"
         );
+        assert_eq!(
+            s.source.as_deref(),
+            Some("copy"),
+            "logical skill source must be forwarded independently of link type"
+        );
     }
 
     #[tokio::test]
@@ -4031,7 +4321,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_skills_by_agent_impl_claude_uses_observations_for_duplicate_rows() {
+    async fn test_get_skills_by_agent_impl_excludes_external_claude_observations() {
         let pool = setup_test_db().await;
 
         db::upsert_agent_skill_observation(
@@ -4061,23 +4351,18 @@ mod tests {
         .await
         .unwrap();
 
-        let mut skills = get_skills_by_agent_impl(&pool, "claude-code")
+        let skills = get_skills_by_agent_impl(&pool, "claude-code")
             .await
             .unwrap();
-        skills.sort_by(|a, b| a.dir_path.cmp(&b.dir_path));
 
-        assert_eq!(
-            skills.len(),
-            2,
-            "Claude queries should surface duplicate logical skills from different sources"
+        assert!(
+            skills.is_empty(),
+            "Claude observations without managed installation rows must not enter the platform management list"
         );
-        assert_eq!(skills[0].id, "shared-skill");
-        assert_eq!(skills[1].id, "shared-skill");
-        assert_ne!(skills[0].dir_path, skills[1].dir_path);
     }
 
     #[tokio::test]
-    async fn test_get_skills_by_agent_impl_claude_includes_source_identity_and_conflict_grouping() {
+    async fn test_claude_observation_identity_remains_separate_from_platform_management_list() {
         let pool = setup_test_db().await;
 
         db::upsert_agent_skill_observation(
@@ -4107,46 +4392,25 @@ mod tests {
         .await
         .unwrap();
 
-        let mut skills = get_skills_by_agent_impl(&pool, "claude-code")
+        let skills = get_skills_by_agent_impl(&pool, "claude-code")
             .await
             .unwrap();
-        skills.sort_by(|a, b| a.dir_path.cmp(&b.dir_path));
+        let observations = db::get_agent_skill_observations(&pool, "claude-code")
+            .await
+            .unwrap();
 
-        assert_eq!(skills.len(), 2);
-        assert_eq!(
-            skills[0].row_id,
-            "claude-code::/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill"
-        );
-        assert_eq!(
-            skills[1].row_id,
-            "claude-code::/tmp/.claude/skills/shared-skill"
-        );
-        assert_eq!(skills[0].source_kind.as_deref(), Some("plugin"));
-        assert_eq!(skills[1].source_kind.as_deref(), Some("user"));
-        assert_eq!(
-            skills[0].source_root.as_deref(),
-            Some("/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0")
-        );
-        assert_eq!(
-            skills[1].source_root.as_deref(),
-            Some("/tmp/.claude/skills")
-        );
-        assert!(skills[0].is_read_only);
-        assert!(!skills[1].is_read_only);
-        assert_eq!(
-            skills[0].conflict_group.as_deref(),
-            Some("claude-code::shared-skill")
-        );
-        assert_eq!(
-            skills[1].conflict_group.as_deref(),
-            Some("claude-code::shared-skill")
-        );
-        assert_eq!(skills[0].conflict_count, 2);
-        assert_eq!(skills[1].conflict_count, 2);
+        assert!(skills.is_empty());
+        assert_eq!(observations.len(), 2);
+        assert!(observations
+            .iter()
+            .any(|observation| observation.source_kind == "plugin" && observation.is_read_only));
+        assert!(observations
+            .iter()
+            .any(|observation| observation.source_kind == "user" && !observation.is_read_only));
     }
 
     #[tokio::test]
-    async fn test_get_skills_by_agent_impl_includes_generic_read_only_observations() {
+    async fn test_get_skills_by_agent_impl_excludes_generic_read_only_observations() {
         let pool = setup_test_db().await;
 
         let skill = make_skill("shared-skill", "Shared Skill", true);
@@ -4170,13 +4434,9 @@ mod tests {
         let skills = get_skills_by_agent_impl(&pool, "factory-droid")
             .await
             .unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].id, "shared-skill");
-        assert_eq!(skills[0].source_kind.as_deref(), Some("compatibility"));
-        assert!(skills[0].is_read_only);
-        assert_eq!(
-            skills[0].source_root.as_deref(),
-            Some("/tmp/.agents/skills")
+        assert!(
+            skills.is_empty(),
+            "compatibility observations must stay out of the platform management list"
         );
     }
 
@@ -4223,6 +4483,55 @@ mod tests {
         assert!(!skills[0].is_read_only);
         assert_eq!(skills[0].dir_path, "/tmp/.factory/skills/shared-skill");
         assert!(skills[0].source_kind.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_skill_detail_with_row_impl_prefers_managed_install_for_skill_row_id() {
+        let pool = setup_test_db().await;
+
+        let skill = make_skill("shared-skill", "Shared Skill", false);
+        db::upsert_skill(&pool, &skill).await.unwrap();
+        db::upsert_skill_installation(
+            &pool,
+            &SkillInstallation {
+                skill_id: "shared-skill".to_string(),
+                agent_id: "claude-code".to_string(),
+                installed_path: "/tmp/.claude/skills/shared-skill".to_string(),
+                link_type: "copy".to_string(),
+                symlink_target: None,
+                created_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+        db::upsert_agent_skill_observation(
+            &pool,
+            &make_observation(
+                "claude-code::/tmp/.claude/skills/shared-skill",
+                "shared-skill",
+                "Shared Skill",
+                "/tmp/.claude/skills/shared-skill",
+                "user",
+                false,
+            ),
+        )
+        .await
+        .unwrap();
+
+        let detail = get_skill_detail_with_row_impl(
+            &pool,
+            "shared-skill",
+            Some("claude-code"),
+            Some("shared-skill"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(detail.row_id, "shared-skill");
+        assert_eq!(detail.dir_path, "/tmp/shared-skill");
+        assert!(detail.source_kind.is_none());
+        assert!(!detail.is_read_only);
+        assert_eq!(detail.installations.len(), 1);
     }
 
     #[tokio::test]

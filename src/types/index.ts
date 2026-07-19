@@ -66,6 +66,7 @@ export interface ScannedSkill {
   link_type: string;
   symlink_target?: string;
   is_central: boolean;
+  source?: string | null;
   source_kind?: ClaudeSourceKind | null;
   source_root?: string | null;
   is_read_only?: boolean;

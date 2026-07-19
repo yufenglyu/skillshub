@@ -670,7 +670,9 @@ export function ResourceLibraryView() {
                       tags={(skill.tags ?? []).map((tag) => ({ key: tag, label: tag }))}
                       onDetail={() => handleOpenDrawer(skill.id)}
                       onInstallTo={() => handleInstallClick(skill)}
-                      onInstallToCentral={() => void handleAddToCentral(skill)}
+                      onInstallToCentral={
+                        skill.is_central ? undefined : () => void handleAddToCentral(skill)
+                      }
                       installToCentralLabel={t("resource.addToCentralLabel", { name: skill.name })}
                       onDeleteFromCentral={() => handleDeleteClick(skill)}
                       deleteFromCentralLabel={t("resource.deleteLabel", { name: skill.name })}

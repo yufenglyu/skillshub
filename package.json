@@ -1,7 +1,7 @@
 {
   "name": "skillshub",
   "private": true,
-  "version": "0.11.0",
+  "version": "0.11.1",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "icon:desktop": "tauri icon src-tauri/icons/icon-source.png && node scripts/cleanup-mobile-icons.mjs",
     "package:release": "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1",
     "test": "vitest run",
     "test:watch": "vitest",

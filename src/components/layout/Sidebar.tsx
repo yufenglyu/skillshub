@@ -18,6 +18,7 @@ import { usePlatformStore } from "@/stores/platformStore";
 import { useCollectionStore } from "@/stores/collectionStore";
 import { useDiscoverStore } from "@/stores/discoverStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
+import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useObsidianStore } from "@/stores/obsidianStore";
 import { cn } from "@/lib/utils";
 import { isEnabledInstallTargetAgent } from "@/lib/agents";
@@ -120,6 +121,8 @@ export function Sidebar() {
   const loadDiscoveredSkills = useDiscoverStore((s) => s.loadDiscoveredSkills);
   const resourceSkillsCount = useResourceLibraryStore((s) => s.skills.length);
   const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
+  const centralSkillsCount = useCentralSkillsStore((s) => s.skills.length);
+  const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
   const obsidianVaults = useObsidianStore((s) => s.vaults);
   const loadObsidianVaults = useObsidianStore((s) => s.loadVaults);
 
@@ -136,8 +139,9 @@ export function Sidebar() {
     loadCollections();
     loadDiscoveredSkills();
     loadResourceLibrary();
+    loadCentralSkills();
     loadObsidianVaults();
-  }, [loadCollections, loadDiscoveredSkills, loadObsidianVaults, loadResourceLibrary]);
+  }, [loadCentralSkills, loadCollections, loadDiscoveredSkills, loadObsidianVaults, loadResourceLibrary]);
 
   function toggleShowAllPlatforms() {
     setShowAllPlatforms((previous) => {
@@ -223,7 +227,7 @@ export function Sidebar() {
           onClick={() => navigate("/central")}
           icon={<Blocks className="size-4" />}
           expanded={expanded}
-          count={skillsByAgent["central"]}
+          count={centralSkillsCount}
         />
 
         {/* Discover */}

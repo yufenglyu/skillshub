@@ -85,6 +85,7 @@ pub fn run() {
             commands::linker::add_resource_skill_to_central,
             commands::linker::uninstall_skill_from_agent,
             commands::linker::batch_install_to_agents,
+            commands::linker::batch_install_resource_skill_to_agents,
             // Skills
             commands::skills::get_skills_by_agent,
             commands::skills::get_central_skills,

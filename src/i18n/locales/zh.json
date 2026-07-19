@@ -62,6 +62,7 @@
     "noSkills": "该平台暂无技能：{{name}}",
     "noMatch": "没有匹配的技能「{{query}}」",
     "sourceCentral": "中央技能库",
+    "sourceResourceLibrary": "技能资源库",
     "sourceStandalone": "独立安装",
     "sourceSymlinkLabel": "符号链接",
     "sourceCopyLabel": "复制安装",

@@ -4,6 +4,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { Sidebar } from "../components/layout/Sidebar";
 import { usePlatformStore } from "../stores/platformStore";
 import { useResourceLibraryStore } from "../stores/resourceLibraryStore";
+import { useCentralSkillsStore } from "../stores/centralSkillsStore";
 import type { DiscoveredProject, DiscoveredSkill, ObsidianVault } from "../types";
 import {
   OBSIDIAN_CROSS_AREA_FIXTURE,
@@ -17,6 +18,10 @@ vi.mock("../stores/platformStore", () => ({
 
 vi.mock("../stores/resourceLibraryStore", () => ({
   useResourceLibraryStore: vi.fn(),
+}));
+
+vi.mock("../stores/centralSkillsStore", () => ({
+  useCentralSkillsStore: vi.fn(),
 }));
 
 // Mock the collectionStore
@@ -136,6 +141,11 @@ const defaultResourceLibraryState = {
   addToCentral: vi.fn(),
 };
 
+const defaultCentralSkillsState = {
+  skills: [],
+  loadCentralSkills: vi.fn(),
+};
+
 function LocationProbe() {
   const location = useLocation();
   return <div data-testid="location-path">{location.pathname}</div>;
@@ -177,6 +187,7 @@ function renderSidebar(
     discoverProjects?: DiscoveredProject[];
     obsidianVaults?: ObsidianVault[];
     platformState?: SidebarPlatformState;
+    centralSkillsCount?: number;
   } = {}
 ) {
   const discoveredProjects = options.discoverProjects ?? defaultDiscoverState.discoveredProjects;
@@ -197,6 +208,15 @@ function renderSidebar(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   vi.mocked(useResourceLibraryStore).mockImplementation((selector: any) =>
     selector(defaultResourceLibraryState)
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  vi.mocked(useCentralSkillsStore).mockImplementation((selector: any) =>
+    selector({
+      ...defaultCentralSkillsState,
+      skills: Array.from({ length: options.centralSkillsCount ?? 0 }, (_, index) => ({
+        id: `central-${index}`,
+      })),
+    })
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   vi.mocked(useDiscoverStore).mockImplementation((selector: any) =>
@@ -232,6 +252,10 @@ describe("Sidebar", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(useResourceLibraryStore).mockImplementation((selector: any) =>
       selector(defaultResourceLibraryState)
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(useCentralSkillsStore).mockImplementation((selector: any) =>
+      selector(defaultCentralSkillsState)
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(useDiscoverStore).mockImplementation((selector: any) =>
@@ -331,6 +355,19 @@ describe("Sidebar", () => {
     renderSidebar("/central");
     const centralButton = screen.getByRole("button", { name: /中央技能库/ });
     expect(centralButton.className).toContain("bg-hover-bg");
+  });
+
+  it("shows the central skill count from the central library state", () => {
+    renderSidebar("/central", {
+      centralSkillsCount: 2,
+      platformState: {
+        ...defaultStoreState,
+        skillsByAgent: { ...defaultStoreState.skillsByAgent, central: 0 },
+      },
+    });
+
+    const centralButton = screen.getByRole("button", { name: /中央技能库|Central Skills/i });
+    expect(within(centralButton).getByText("2")).toBeInTheDocument();
   });
 
   it("highlights Skill Resource Library when on root route", () => {

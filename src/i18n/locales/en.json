@@ -62,6 +62,7 @@
     "noSkills": "No skills installed for {{name}}",
     "noMatch": "No skills match \"{{query}}\"",
     "sourceCentral": "Central Skills",
+    "sourceResourceLibrary": "Resource Library",
     "sourceStandalone": "Standalone",
     "sourceSymlinkLabel": "symlink",
     "sourceCopyLabel": "copy",

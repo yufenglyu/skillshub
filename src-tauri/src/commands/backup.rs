@@ -46,6 +46,10 @@ impl Default for BackupOptions {
     }
 }
 
+fn complete_backup_options(_requested: Option<BackupOptions>) -> BackupOptions {
+    BackupOptions::default()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebDavConfig {
@@ -209,7 +213,7 @@ pub async fn export_app_backup(
     state: State<'_, AppState>,
     options: Option<BackupOptions>,
 ) -> Result<Vec<u8>, String> {
-    export_app_backup_archive_impl(&state.db, options.unwrap_or_default()).await
+    export_app_backup_archive_impl(&state.db, complete_backup_options(options)).await
 }
 
 #[tauri::command]
@@ -228,7 +232,8 @@ pub async fn upload_webdav_backup(
     config: WebDavConfig,
     options: Option<BackupOptions>,
 ) -> Result<WebDavBackupFile, String> {
-    let archive = export_app_backup_archive_impl(&state.db, options.unwrap_or_default()).await?;
+    let archive =
+        export_app_backup_archive_impl(&state.db, complete_backup_options(options)).await?;
     upload_webdav_backup_impl(config, archive).await
 }
 
@@ -714,6 +719,7 @@ async fn export_app_backup_data_impl(
         sqlx::query_as::<_, SkillInstallationMethodRow>(
             "SELECT skill_id, agent_id, link_type
              FROM skill_installations
+             WHERE is_managed = 1
              ORDER BY skill_id, agent_id",
         )
         .fetch_all(pool)
@@ -1691,6 +1697,21 @@ mod tests {
     use std::io::{Cursor, Read};
     use tempfile::tempdir;
 
+    #[test]
+    fn public_backup_commands_always_use_complete_options() {
+        let requested = BackupOptions {
+            include_resource_library: false,
+            include_central_library: false,
+            include_app_config: false,
+            include_installations: false,
+        };
+
+        assert_eq!(
+            complete_backup_options(Some(requested)),
+            BackupOptions::default()
+        );
+    }
+
     async fn setup_test_db() -> (DbPool, tempfile::TempDir) {
         let dir = tempdir().expect("tempdir");
         let db_path = dir.path().join("db.sqlite");
@@ -1988,6 +2009,56 @@ mod tests {
             .join("installed-demo")
             .join("stale.txt")
             .exists());
+    }
+
+    #[tokio::test]
+    async fn backup_excludes_unmanaged_skill_installations() {
+        let (pool, _dir) = setup_test_db().await;
+        let central = central_root(&pool).await.expect("central");
+        let skill_dir = central.join("external-demo");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: External Demo\n---\n",
+        )
+        .expect("skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "external-demo".to_string(),
+                name: "External Demo".to_string(),
+                description: None,
+                file_path: path_to_string(&skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&skill_dir)),
+                is_central: true,
+                source: None,
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+        sqlx::query(
+            "INSERT INTO skill_installations
+             (skill_id, agent_id, installed_path, link_type, symlink_target, is_managed, created_at)
+             VALUES (?, ?, ?, ?, ?, 0, ?)",
+        )
+        .bind("external-demo")
+        .bind("cursor")
+        .bind(path_to_string(&skill_dir))
+        .bind("native")
+        .bind(Option::<String>::None)
+        .bind("2026-01-01T00:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("unmanaged relation");
+
+        let json = export_app_backup_impl(&pool, BackupOptions::default())
+            .await
+            .expect("export");
+        let manifest: serde_json::Value = serde_json::from_str(&json).expect("manifest");
+
+        assert_eq!(manifest["skill_installations"], serde_json::json!([]));
     }
 
     #[tokio::test]

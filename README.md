@@ -21,16 +21,16 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 ## Highlights
 
 - Resource library first workflow for GitHub imports, marketplace installs, and local skill storage.
-- One-click promotion from the resource library to Central Skills while preserving source grouping such as `owner/repo/skill`.
+- One-click promotion from the resource library to Central Skills while preserving source grouping such as `owner/repo/skill`; promoted skills are synchronized to enabled and detected platforms.
 - Manual skill creation, sorting by name/created/updated time, folder view, and safe folder deletion in the Skill Resource Library.
-- Manual platform selection for installs, with symlink, copy, and automatic fallback modes.
+- Direct platform installation from the resource library, with symlink, copy, and automatic fallback modes. A direct install only affects the selected platform and never adds the skill to Central Skills.
 - Central Skills management focused on the central directory, with folder mode, bulk platform uninstall, and safe delete previews.
 - Full-width skill detail view with Markdown preview, raw source, basic/source metadata, install status, notes, tags, and AI-generated notes.
 - Search across names, descriptions, notes, tags, and source metadata.
 - Tag filtering and collection management for reusable skill sets.
 - GitHub repository import with preview, rename/overwrite/skip conflict handling, and source metadata tracking.
 - Marketplace browsing, source sync, and per-source updates.
-- Local ZIP backup and WebDAV backup/import with selectable resource library, central library, app configuration, and platform installation state. WebDAV connection details can be saved locally, while passwords, tokens, and API keys are excluded from backup files.
+- Local ZIP backup and WebDAV backup/import. Every backup includes the resource library files, Central Skills files, app configuration, and platform installation state; WebDAV connection details can be saved locally, while passwords, tokens, and API keys are excluded from backup files.
 - Project skill discovery, including Obsidian vault grouping and local project skill directories.
 - Bilingual UI, VS Code-inspired light/dark themes, system theme cycling, responsive navigation, and compact shortcut buttons.
 
@@ -83,7 +83,7 @@ Then launch the app again from Finder. If your app is stored somewhere else, rep
 | Category | Platform | Skills Directory |
 |----------|----------|-----------------|
 | Coding | Claude Code | `~/.claude/skills/` |
-| Coding | Codex CLI | `~/.agents/skills/` |
+| Coding | Codex CLI | `~/.codex/skills/` (with read-only compatibility for `~/.agents/skills/`) |
 | Coding | Cursor | `~/.cursor/skills/` |
 | Coding | Gemini CLI | `~/.gemini/skills/` |
 | Coding | Trae | `~/.trae/skills/` |
@@ -120,8 +120,8 @@ Custom platforms can be added from Settings.
 SkillsHub keeps three concepts separate:
 
 1. **Resource Library** stores imported or downloaded skills for long-term management.
-2. **Central Skills** stores skills that should be shared through `~/.agents/skills/` or copied/symlinked to platforms.
-3. **Platform Directories** contain symlinks or copies created only when you install a skill to selected tools.
+2. **Central Skills** stores skills intentionally promoted for sharing through `~/.agents/skills/`; promotion synchronizes the skill to enabled and detected platforms.
+3. **Platform Directories** contain symlinks or copies created for that platform. Installing directly from the Resource Library affects only the selected platform and does not create a Central Skills copy.
 
 Changing the Resource Library path does not move existing platform installs. Changing the Central Skills path keeps the old database and settings, but existing platform links may need to be reinstalled.
 
@@ -184,7 +184,7 @@ cd src-tauri && cargo clippy -- -D warnings
 ### Package a Release
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1
 ```
 
 The script updates version metadata, runs type and Rust compile checks unless skipped, builds Tauri packages, and writes release assets under `release-assets/`.
@@ -192,16 +192,16 @@ The script updates version metadata, runs type and Rust compile checks unless sk
 Target the current OS:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms auto
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms auto
 ```
 
 Target one or more platforms:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms windows
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms linux
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms macos
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms windows,linux,macos
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms windows
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms linux
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms macos
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms windows,linux,macos
 ```
 
 `-Platforms all` expands to Windows, Linux, and macOS. The macOS target builds two packages: `macos_x64` for Intel Macs and `macos_arm64` for Apple Silicon / M-series Macs. Each target still requires the corresponding Tauri toolchain and OS packaging dependencies; macOS packages should be built on macOS, Linux bundles on Linux, and Windows MSI packages on Windows.

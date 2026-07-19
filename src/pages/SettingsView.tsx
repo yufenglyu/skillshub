@@ -28,8 +28,14 @@ import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/p
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.11.0";
+const APP_VERSION = "0.11.1";
 const DB_PATH_FALLBACK = "~/.skillshub/db.sqlite";
+const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
+  includeResourceLibrary: true,
+  includeCentralLibrary: true,
+  includeAppConfig: true,
+  includeInstallations: true,
+};
 
 function webDavErrorDetail(t: (key: string) => string, error: unknown): string {
   const message = String(error);
@@ -398,12 +404,6 @@ export function SettingsView() {
   const [resourcePathMessage, setResourcePathMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [isImportingBackup, setIsImportingBackup] = useState(false);
-  const [backupOptions, setBackupOptions] = useState<BackupOptions>({
-    includeResourceLibrary: true,
-    includeCentralLibrary: true,
-    includeAppConfig: true,
-    includeInstallations: true,
-  });
   const [webDavBaseUrl, setWebDavBaseUrl] = useState("");
   const [webDavUsername, setWebDavUsername] = useState("");
   const [webDavPassword, setWebDavPassword] = useState("");
@@ -657,7 +657,7 @@ export function SettingsView() {
   async function handleExportBackup() {
     setIsExportingBackup(true);
     try {
-      const backup = await exportAppBackup(backupOptions);
+      const backup = await exportAppBackup(COMPLETE_BACKUP_OPTIONS);
       const blob = new Blob([backup], { type: "application/zip" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -696,10 +696,6 @@ export function SettingsView() {
       setIsImportingBackup(false);
       if (backupInputRef.current) backupInputRef.current.value = "";
     }
-  }
-
-  function updateBackupOption(key: keyof BackupOptions, checked: boolean) {
-    setBackupOptions((current) => ({ ...current, [key]: checked }));
   }
 
   function currentWebDavConfig() {
@@ -754,7 +750,7 @@ export function SettingsView() {
     }
     setIsUploadingWebDav(true);
     try {
-      await uploadWebDavBackup(currentWebDavConfig(), backupOptions);
+      await uploadWebDavBackup(currentWebDavConfig(), COMPLETE_BACKUP_OPTIONS);
     } catch (err) {
       toast.error(t("settings.webdavUploadError", { error: webDavErrorDetail(t, err) }));
       setIsUploadingWebDav(false);
@@ -934,26 +930,6 @@ export function SettingsView() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">{t("settings.backupContent")}</div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {[
-                  ["includeResourceLibrary", "settings.backupIncludeResourceLibrary"],
-                  ["includeCentralLibrary", "settings.backupIncludeCentralLibrary"],
-                  ["includeAppConfig", "settings.backupIncludeAppConfig"],
-                  ["includeInstallations", "settings.backupIncludeInstallations"],
-                ].map(([key, labelKey]) => (
-                  <label key={key} className="flex items-center gap-2 rounded-md border border-border/70 px-3 py-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={backupOptions[key as keyof BackupOptions]}
-                      onChange={(event) => updateBackupOption(key as keyof BackupOptions, event.target.checked)}
-                    />
-                    <span>{t(labelKey)}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={handleExportBackup} disabled={isBackupBusy}>
                 {isExportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}

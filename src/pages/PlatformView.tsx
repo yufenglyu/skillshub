@@ -605,6 +605,7 @@ export function PlatformView() {
                           : undefined
                       }
                       sourceType={skill.link_type as "symlink" | "copy" | "native"}
+                      sourceLocation={getSourceLocation(skill)}
                       originKind={skill.source_kind ?? null}
                       isReadOnly={skill.is_read_only ?? false}
                       sourceAuthor={skill.source_author}
@@ -694,4 +695,23 @@ export function PlatformView() {
       />
     </div>
   );
+}
+
+function getSourceLocation(
+  skill: Pick<ScannedSkill, "is_central" | "source" | "source_url" | "source_repo">
+): "central" | "resource-library" | "standalone" {
+  if (skill.is_central) return "central";
+
+  const source = skill.source?.toLowerCase();
+  if (
+    source === "resource-library" ||
+    source === "manual" ||
+    source?.startsWith("github:") ||
+    skill.source_url ||
+    skill.source_repo
+  ) {
+    return "resource-library";
+  }
+
+  return "standalone";
 }

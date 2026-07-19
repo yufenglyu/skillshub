@@ -5,6 +5,7 @@ import { Blocks, Database, Monitor, Moon, RefreshCw, Search, Settings, Store, Su
 import { usePlatformStore } from "@/stores/platformStore";
 import { useDiscoverStore } from "@/stores/discoverStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
+import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useThemeStore } from "@/stores/themeStore";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,7 @@ export function TopBar({ onSearchClick, onRescan }: TopBarProps) {
   const totalDiscovered = useDiscoverStore((s) => s.totalSkillsFound);
   const isScanning = useDiscoverStore((s) => s.isScanning);
   const resourceSkillsCount = useResourceLibraryStore((s) => s.skills.length);
+  const centralSkillsCount = useCentralSkillsStore((s) => s.skills.length);
   const themeMode = useThemeStore((s) => s.mode);
   const cycleThemeMode = useThemeStore((s) => s.cycleMode);
 
@@ -32,8 +34,7 @@ export function TopBar({ onSearchClick, onRescan }: TopBarProps) {
       return { label: t("sidebar.resourceLibrary"), count: resourceSkillsCount };
     }
     if (pathname === "/central") {
-      const count = skillsByAgent["central"] ?? 0;
-      return { label: t("sidebar.centralSkills"), count };
+      return { label: t("sidebar.centralSkills"), count: centralSkillsCount };
     }
     if (pathname.startsWith("/platform/")) {
       const agentId = pathname.split("/platform/")[1];

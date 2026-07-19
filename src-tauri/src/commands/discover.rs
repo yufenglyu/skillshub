@@ -1605,6 +1605,15 @@ async fn import_discovered_skill_to_platform_from_pool(
         .to_string();
 
     let agent_dir = PathBuf::from(&agent.global_skills_dir);
+    let central = db::get_agent_by_id(pool, "central")
+        .await?
+        .ok_or_else(|| "Central agent not found in database".to_string())?;
+    super::linker::validate_platform_install_target(
+        agent_id,
+        Path::new(&skill.dir_path),
+        &agent_dir,
+        Path::new(&central.global_skills_dir),
+    )?;
     let target_path = agent_dir.join(&skill_dir_name);
 
     // Ensure agent skills dir exists.

@@ -135,6 +135,17 @@ const mockSkills: ScannedSkill[] = [
     link_type: "copy",
     is_central: false,
   },
+  {
+    id: "resource-linked-skill",
+    name: "resource-linked-skill",
+    description: "Installed directly from the resource library",
+    file_path: "~/.claude/skills/resource-linked-skill/SKILL.md",
+    dir_path: "~/.claude/skills/resource-linked-skill",
+    link_type: "symlink",
+    symlink_target: "~/Skills/resource-linked-skill",
+    is_central: false,
+    source: "resource-library",
+  },
 ];
 
 const mockCursorSkills: ScannedSkill[] = [
@@ -528,6 +539,10 @@ describe("PlatformView", () => {
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "独立安装 - 复制安装")
+        .length
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "技能资源库 - 符号链接")
         .length
     ).toBeGreaterThan(0);
   });

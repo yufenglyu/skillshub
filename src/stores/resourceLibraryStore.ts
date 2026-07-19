@@ -108,7 +108,7 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
   installSkill: async (skillId, agentIds, method) => {
     set({ isInstalling: true, error: null });
     try {
-      const result = await invoke<BatchInstallResult>("batch_install_to_agents", {
+      const result = await invoke<BatchInstallResult>("batch_install_resource_skill_to_agents", {
         skillId,
         agentIds,
         method,
@@ -137,7 +137,11 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
       if (isLinked) {
         await invoke("uninstall_skill_from_agent", { skillId, agentId });
       } else {
-        await invoke("install_skill_to_agent", { skillId, agentId, method: "auto" });
+        await invoke("batch_install_resource_skill_to_agents", {
+          skillId,
+          agentIds: [agentId],
+          method: "auto",
+        });
       }
 
       const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");

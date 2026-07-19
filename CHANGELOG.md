@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.11.1 - 2026-07-19
+
+Maintenance release that makes Resource Library, Central Skills, and platform installation ownership explicit and consistent.
+
+### Improvements
+
+- Give SkillsHub a refreshed desktop icon with a high-contrast background and remove unused Android and iOS icon outputs.
+- Always include all four backup domains: Resource Library files, Central Skills files, app configuration, and platform installation state.
+- Store skill directories as files inside ZIP and WebDAV backups while keeping configuration and installation metadata in JSON.
+- Distinguish Resource Library, Central Skills, and standalone platform installations in platform source labels.
+- Exclude platform-native skills that SkillsHub did not install from managed platform lists and counts.
+- Update the documentation and application screenshots for the current interface and behavior.
+
+### Fixes
+
+- Installing a Resource Library skill directly to a selected platform now affects only that platform and never creates a Central Skills copy.
+- Promoting a Resource Library skill to Central Skills synchronizes it to enabled and detected platforms.
+- Preserve Central Skills counts after promotion and scanning.
+- Keep Codex CLI's own `~/.codex/skills/` directory separate from read-only Central Skills compatibility entries.
+- Preserve managed installation ownership and source type across rescans, restarts, symlink resolution, and copy fallback.
+- Persist WebDAV connection settings locally while continuing to exclude passwords, tokens, and API keys from backup archives.
+
 ## 0.11.0 - 2026-07-15
 
 Feature and maintenance release focused on the Resource Library workflow, backup portability, WebDAV migration, and a cleaner desktop UI.

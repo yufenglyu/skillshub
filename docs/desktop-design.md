@@ -1,6 +1,6 @@
 # SkillsHub Desktop 应用设计方案
 
-> 版本：v0.1 | 日期：2026-04-09
+> 版本：v0.11.1 | 更新日期：2026-07-19
 
 ---
 
@@ -11,7 +11,8 @@
 **核心价值**：
 - 一个界面管理所有 AI 工具（Claude Code、Codex、Cursor、Gemini CLI、Trae、Factory Droid、OpenClaw、QClaw 等）的 skills
 - 启动即全盘扫描，自动分类整理
-- `~/.agents/skills/` 作为 Central Skills（中央技能库）真实源，其他平台通过 **skill 级软链** 引用
+- 技能资源库是下载、导入和长期保存的真实源；`~/.agents/skills/` 只保存用户明确加入 Central Skills（中央技能库）的 skills
+- 加入中央技能库后自动同步到已启用且已检测到的平台；从资源库直接安装到平台时只写入目标平台，不会进入中央技能库
 - 自定义 Collection 支持批量安装 + 导入/导出
 
 **命名约定**：
@@ -495,7 +496,7 @@ CREATE TABLE settings (
 | id | display_name | category | global_skills_dir |
 |----|-------------|---------|-------------------|
 | claude-code | Claude Code | coding | `~/.claude/skills/` |
-| codex | Codex CLI | coding | `~/.agents/skills/` |
+| codex | Codex CLI | coding | `~/.codex/skills/`（并只读兼容 `~/.agents/skills/`） |
 | cursor | Cursor | coding | `~/.cursor/skills/` |
 | gemini-cli | Gemini CLI | coding | `~/.gemini/skills/` |
 | trae | Trae | coding | `~/.trae/skills/` |

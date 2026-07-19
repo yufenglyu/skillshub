@@ -21,16 +21,16 @@ SkillsHub 将长期存储和平台安装拆开处理：
 ## 核心能力
 
 - 以技能资源库为默认工作流，GitHub 导入、市场安装和下载默认进入资源库。
-- 资源库技能可一键加入中央技能库，并保留 `owner/repo/skill` 这样的来源分组路径，便于区分同名技能。
+- 资源库技能可一键加入中央技能库，并保留 `owner/repo/skill` 这样的来源分组路径；加入后会自动同步到已启用且已检测到的软件平台。
 - 技能资源库支持手动创建技能、按名称/创建时间/修改时间排序、目录视图和按目录安全删除。
-- 安装到平台时可手动选择目标平台，支持符号链接、复制安装和自动回退。
+- 资源库技能可直接安装到指定平台，支持符号链接、复制安装和自动回退；直接安装只影响所选平台，不会进入中央技能库。
 - 中央技能库专注于管理已进入中央目录的技能，支持目录视图、批量从平台卸载和安全删除预览。
 - 技能详情页支持全宽 Markdown 预览、原始源码、基础/来源信息、安装状态、备注、标签和 AI 生成备注。
 - 搜索支持名称、描述、备注、标签和来源元信息。
 - 标签筛选与技能集合，便于整理和批量安装复用技能。
 - GitHub 仓库导入支持预览、重命名/覆盖/跳过冲突处理，并记录来源元数据。
 - 技能市场支持源同步、技能下载、按来源更新和单个来源更新。
-- 支持本地 ZIP 备份和 WebDAV 备份/导入，可勾选技能资源库、中央技能库、软件配置和平台安装状态；WebDAV 登录配置可保存到本机设置，密钥类内容不会写入备份文件。
+- 支持本地 ZIP 备份和 WebDAV 备份/导入；每份备份固定包含技能资源库文件、中央技能库文件、软件配置和平台安装状态。WebDAV 登录配置可保存到本机设置，密钥类内容不会写入备份文件。
 - 支持扫描项目级 skills，包括 Obsidian vault 分组和本地项目 skill 目录。
 - 中英文界面、参考 VS Code 的浅色/深色主题、跟随系统主题切换、响应式导航和紧凑快捷按钮。
 
@@ -83,7 +83,7 @@ xattr -dr com.apple.quarantine "/Applications/SkillsHub.app"
 | 类别 | 平台 | Skills 目录 |
 |------|------|------------|
 | Coding | Claude Code | `~/.claude/skills/` |
-| Coding | Codex CLI | `~/.agents/skills/` |
+| Coding | Codex CLI | `~/.codex/skills/`（并只读兼容 `~/.agents/skills/`） |
 | Coding | Cursor | `~/.cursor/skills/` |
 | Coding | Gemini CLI | `~/.gemini/skills/` |
 | Coding | Trae | `~/.trae/skills/` |
@@ -120,8 +120,8 @@ Claude Code 还可以在平台视图中展示插件和兼容目录中的只读 s
 SkillsHub 将三个概念分开：
 
 1. **技能资源库**：长期保存导入或下载的 skills。
-2. **中央技能库**：保存需要通过 `~/.agents/skills/` 共享，或需要分发到平台的 skills。
-3. **平台目录**：只有当你选择安装到某个平台时，才会创建符号链接或复制安装。
+2. **中央技能库**：保存明确选择加入 `~/.agents/skills/` 共享的 skills；加入中央技能库后会同步到已启用且已检测到的平台。
+3. **平台目录**：保存该平台自己的符号链接或复制安装。从技能资源库直接安装时，只写入所选平台，不会在中央技能库创建副本。
 
 修改技能资源库路径不会移动已有平台安装。修改中央技能库路径会保留旧数据库和设置，但已有平台链接可能需要重新安装。
 
@@ -184,7 +184,7 @@ cd src-tauri && cargo clippy -- -D warnings
 ### 打包发布
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1
 ```
 
 脚本会更新版本元数据，默认执行 TypeScript 与 Rust 编译检查，构建 Tauri 安装包，并把产物写入 `release-assets/`。
@@ -192,16 +192,16 @@ powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.
 打包当前系统：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms auto
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms auto
 ```
 
 指定一个或多个平台：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms windows
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms linux
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms macos
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.0 -Platforms windows,linux,macos
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms windows
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms linux
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms macos
+powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms windows,linux,macos
 ```
 
 `-Platforms all` 会展开为 Windows、Linux 和 macOS。macOS 目标会构建两个安装包：`macos_x64` 用于 Intel Mac，`macos_arm64` 用于 Apple Silicon / M 系列 Mac。每个目标仍需要对应的 Tauri 工具链和系统打包依赖：macOS 安装包应在 macOS 上构建，Linux 包应在 Linux 上构建，Windows MSI 应在 Windows 上构建。

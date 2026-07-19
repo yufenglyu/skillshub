@@ -583,7 +583,7 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
             // Mark agent as not detected and record zero count.
             let _ = db::update_agent_detected(pool, &agent.id, false).await;
             skills_by_agent.insert(agent.id.clone(), 0);
-            // Remove every installation row for this agent — the directory is gone.
+            // Reconcile unmanaged rows and managed paths even when no scan root remains.
             let _ = db::delete_stale_skill_installations(pool, &agent.id, &[]).await;
             if tracks_observations {
                 let _ = db::delete_stale_agent_skill_observations(pool, &agent.id, &[]).await;
@@ -662,24 +662,24 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
                         symlink_target: skill.symlink_target.clone(),
                         created_at: now.clone(),
                     };
-                    db::upsert_skill_installation(pool, &installation).await?;
+                    db::upsert_scanned_skill_installation(pool, &installation).await?;
                 }
             }
 
             scanned.extend(root_scanned);
         }
 
-        // Reconciliation: remove installation rows for skills no longer present
-        // in this agent's directory.
+        // Reconcile unmanaged rows against the scan and managed rows against
+        // their recorded installation paths.
         db::delete_stale_skill_installations(pool, &agent.id, &found_install_ids).await?;
         if tracks_observations {
             db::delete_stale_agent_skill_observations(pool, &agent.id, &found_observation_row_ids)
                 .await?;
         }
 
-        let count = scanned.len();
-        total_skills += count;
-        skills_by_agent.insert(agent.id.clone(), count);
+        total_skills += scanned.len();
+        let managed_count = db::count_managed_skill_installations(pool, &agent.id).await?;
+        skills_by_agent.insert(agent.id.clone(), managed_count as usize);
     }
 
     // ── Custom scan directories ───────────────────────────────────────────────
@@ -713,8 +713,10 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
 
     // ── Global reconciliation ─────────────────────────────────────────────────
     // Remove skills (and their installation records) that were not found in
-    // any scanned scope during this run. This purges rows left behind when
-    // skills are deleted from disk between scans.
+    // any scanned scope during this run. Managed installations that survived
+    // path-based reconciliation remain authoritative even when their scan root
+    // is read-only.
+    all_found_skill_ids.extend(db::get_managed_skill_ids(pool).await?);
     let found_ids_vec: Vec<String> = all_found_skill_ids.into_iter().collect();
     db::delete_skills_not_in_scope(pool, &found_ids_vec).await?;
 
@@ -1212,6 +1214,17 @@ mod tests {
         pool
     }
 
+    async fn isolate_scan_test(pool: &DbPool) {
+        sqlx::query("DELETE FROM agents")
+            .execute(pool)
+            .await
+            .expect("delete seeded agents");
+        sqlx::query("DELETE FROM scan_directories")
+            .execute(pool)
+            .await
+            .expect("delete seeded scan directories");
+    }
+
     #[tokio::test]
     async fn test_scan_all_skills_impl_empty_dirs() {
         use sqlx::SqlitePool;
@@ -1258,11 +1271,343 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_external_skill_is_not_manageable() {
+        use crate::db;
+
+        let tmp = TempDir::new().unwrap();
+        let pool = setup_test_db().await;
+
+        sqlx::query("DELETE FROM agents")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM scan_directories")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let codex_agent = db::Agent {
+            id: "codex".to_string(),
+            display_name: "Codex".to_string(),
+            category: "coding".to_string(),
+            global_skills_dir: tmp.path().to_string_lossy().into_owned(),
+            project_skills_dir: None,
+            icon_name: None,
+            is_detected: false,
+            is_builtin: false,
+            is_enabled: true,
+        };
+        db::insert_custom_agent(&pool, &codex_agent).await.unwrap();
+
+        let skill_dir = create_skill_dir(
+            tmp.path(),
+            "external-codex-skill",
+            &valid_skill_md("External Codex Skill", "Installed outside SkillsHub"),
+        );
+
+        let result = scan_all_skills_impl(&pool).await.unwrap();
+
+        assert_eq!(
+            db::get_skills_for_agent(&pool, "codex")
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(result.skills_by_agent.get("codex").copied(), Some(0));
+        assert!(skill_dir.join("SKILL.md").is_file());
+    }
+
+    #[tokio::test]
+    async fn rescan_preserves_managed_resource_skill_installed_to_codex() {
+        use crate::{commands::linker::install_skill_to_agent_impl, db};
+
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let codex_dir = tmp.path().join("codex");
+        let resource_dir = tmp.path().join("resource-library");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&resource_dir).unwrap();
+
+        let pool = setup_test_db().await;
+        sqlx::query("DELETE FROM agents")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM scan_directories")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for agent in [
+            db::Agent {
+                id: "central".to_string(),
+                display_name: "Central".to_string(),
+                category: "central".to_string(),
+                global_skills_dir: central_dir.to_string_lossy().into_owned(),
+                project_skills_dir: None,
+                icon_name: None,
+                is_detected: false,
+                is_builtin: false,
+                is_enabled: true,
+            },
+            db::Agent {
+                id: "codex".to_string(),
+                display_name: "Codex".to_string(),
+                category: "coding".to_string(),
+                global_skills_dir: codex_dir.to_string_lossy().into_owned(),
+                project_skills_dir: None,
+                icon_name: None,
+                is_detected: false,
+                is_builtin: false,
+                is_enabled: true,
+            },
+        ] {
+            db::insert_custom_agent(&pool, &agent).await.unwrap();
+        }
+
+        let resource_skill_dir = create_skill_dir(
+            &resource_dir,
+            "resource-only",
+            &valid_skill_md("Resource Only", "Resource library skill"),
+        );
+        db::upsert_skill(
+            &pool,
+            &db::Skill {
+                id: "resource-only".to_string(),
+                name: "Resource Only".to_string(),
+                description: Some("Resource library skill".to_string()),
+                file_path: resource_skill_dir
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(resource_skill_dir.to_string_lossy().into_owned()),
+                is_central: false,
+                source: Some("resource-library".to_string()),
+                content: None,
+                scanned_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        install_skill_to_agent_impl(&pool, "resource-only", "codex")
+            .await
+            .unwrap();
+
+        let result = scan_all_skills_impl(&pool).await.unwrap();
+        let codex_skills = db::get_skills_for_agent(&pool, "codex").await.unwrap();
+
+        assert!(
+            codex_skills.iter().any(|skill| skill.id == "resource-only"),
+            "managed resource skill should remain listed after the rescan"
+        );
+        assert_eq!(result.skills_by_agent.get("codex").copied(), Some(1));
+    }
+
+    #[tokio::test]
+    async fn full_scan_preserves_managed_installation_seen_only_as_read_only_compatibility() {
+        use crate::{commands::linker::install_skill_to_agent_impl, db};
+
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let shared_dir = tmp.path().join(".agents/skills");
+        let resource_dir = tmp.path().join("resource-library");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&shared_dir).unwrap();
+        fs::create_dir_all(&resource_dir).unwrap();
+
+        let pool = setup_test_db().await;
+        sqlx::query("DELETE FROM agents")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM scan_directories")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for agent in [
+            db::Agent {
+                id: "central".to_string(),
+                display_name: "Central".to_string(),
+                category: "central".to_string(),
+                global_skills_dir: central_dir.to_string_lossy().into_owned(),
+                project_skills_dir: None,
+                icon_name: None,
+                is_detected: false,
+                is_builtin: false,
+                is_enabled: true,
+            },
+            db::Agent {
+                id: "antigravity".to_string(),
+                display_name: "Antigravity".to_string(),
+                category: "coding".to_string(),
+                global_skills_dir: shared_dir.to_string_lossy().into_owned(),
+                project_skills_dir: None,
+                icon_name: None,
+                is_detected: false,
+                is_builtin: false,
+                is_enabled: true,
+            },
+        ] {
+            db::insert_custom_agent(&pool, &agent).await.unwrap();
+        }
+
+        let resource_skill_dir = create_skill_dir(
+            &resource_dir,
+            "resource-only",
+            &valid_skill_md("Resource Only", "Resource library skill"),
+        );
+        db::upsert_skill(
+            &pool,
+            &db::Skill {
+                id: "resource-only".to_string(),
+                name: "Resource Only".to_string(),
+                description: Some("Resource library skill".to_string()),
+                file_path: resource_skill_dir
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(resource_skill_dir.to_string_lossy().into_owned()),
+                is_central: false,
+                source: Some("resource-library".to_string()),
+                content: None,
+                scanned_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        install_skill_to_agent_impl(&pool, "resource-only", "antigravity")
+            .await
+            .unwrap();
+        let before = db::get_skill_installations(&pool, "resource-only")
+            .await
+            .unwrap()
+            .pop()
+            .expect("managed installation before scan");
+        assert!(fs::symlink_metadata(&before.installed_path).is_ok());
+
+        scan_all_skills_impl(&pool).await.unwrap();
+
+        let after = db::get_skill_installations(&pool, "resource-only")
+            .await
+            .unwrap();
+        assert_eq!(after.len(), 1, "the existing managed path must survive");
+        assert_eq!(after[0].installed_path, before.installed_path);
+    }
+
+    #[tokio::test]
+    async fn full_scan_removes_missing_managed_path_despite_compatibility_name_match() {
+        use crate::db;
+
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let cursor_dir = tmp.path().join(".cursor/skills");
+        let shared_dir = tmp.path().join(".agents/skills");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&cursor_dir).unwrap();
+        fs::create_dir_all(&shared_dir).unwrap();
+        create_skill_dir(
+            &shared_dir,
+            "same-name",
+            &valid_skill_md("Same Name", "Compatibility observation"),
+        );
+
+        let pool = setup_test_db().await;
+        sqlx::query("DELETE FROM agents")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM scan_directories")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for agent in [
+            db::Agent {
+                id: "central".to_string(),
+                display_name: "Central".to_string(),
+                category: "central".to_string(),
+                global_skills_dir: central_dir.to_string_lossy().into_owned(),
+                project_skills_dir: None,
+                icon_name: None,
+                is_detected: false,
+                is_builtin: false,
+                is_enabled: true,
+            },
+            db::Agent {
+                id: "cursor".to_string(),
+                display_name: "Cursor".to_string(),
+                category: "coding".to_string(),
+                global_skills_dir: cursor_dir.to_string_lossy().into_owned(),
+                project_skills_dir: None,
+                icon_name: None,
+                is_detected: false,
+                is_builtin: false,
+                is_enabled: true,
+            },
+        ] {
+            db::insert_custom_agent(&pool, &agent).await.unwrap();
+        }
+
+        db::upsert_skill(
+            &pool,
+            &db::Skill {
+                id: "same-name".to_string(),
+                name: "Same Name".to_string(),
+                description: None,
+                file_path: tmp
+                    .path()
+                    .join("resource/same-name/SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(
+                    tmp.path()
+                        .join("resource/same-name")
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                is_central: false,
+                source: Some("resource-library".to_string()),
+                content: None,
+                scanned_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+        db::upsert_skill_installation(
+            &pool,
+            &db::SkillInstallation {
+                skill_id: "same-name".to_string(),
+                agent_id: "cursor".to_string(),
+                installed_path: cursor_dir.join("same-name").to_string_lossy().into_owned(),
+                link_type: "copy".to_string(),
+                symlink_target: None,
+                created_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        scan_all_skills_impl(&pool).await.unwrap();
+
+        assert!(
+            db::get_skill_installations(&pool, "same-name")
+                .await
+                .unwrap()
+                .is_empty(),
+            "a compatibility name match must not preserve a missing managed path"
+        );
+    }
+
+    #[tokio::test]
     async fn test_scan_all_skills_impl_persists_skills() {
         use crate::db;
 
         let tmp = TempDir::new().unwrap();
         let pool = setup_test_db().await;
+        isolate_scan_test(&pool).await;
 
         // Add a custom agent pointing to our temp directory
         let test_agent = db::Agent {
@@ -1292,12 +1637,21 @@ mod tests {
 
         let result = scan_all_skills_impl(&pool).await.unwrap();
 
-        // Test agent should have 2 skills
-        assert_eq!(result.skills_by_agent.get("test-agent").copied(), Some(2));
+        assert_eq!(result.total_skills, 2);
+        assert_eq!(result.skills_by_agent.get("test-agent").copied(), Some(0));
 
-        // Skills should be in the DB
+        // Scanned skills remain in the logical skills table but are not managed
+        // platform installations.
         let skills_in_db = db::get_skills_by_agent(&pool, "test-agent").await.unwrap();
-        assert_eq!(skills_in_db.len(), 2);
+        assert!(skills_in_db.is_empty());
+        assert!(db::get_skill_by_id(&pool, "alpha-skill")
+            .await
+            .unwrap()
+            .is_some());
+        assert!(db::get_skill_by_id(&pool, "beta-skill")
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
@@ -1373,6 +1727,7 @@ mod tests {
 
         let tmp = TempDir::new().unwrap();
         let pool = setup_test_db().await;
+        isolate_scan_test(&pool).await;
 
         let test_agent = db::Agent {
             id: "nested-agent".to_string(),
@@ -1395,13 +1750,13 @@ mod tests {
 
         let result = scan_all_skills_impl(&pool).await.unwrap();
 
-        assert_eq!(result.skills_by_agent.get("nested-agent").copied(), Some(1));
-        let skills = db::get_skills_for_agent(&pool, "nested-agent")
+        assert_eq!(result.total_skills, 1);
+        assert_eq!(result.skills_by_agent.get("nested-agent").copied(), Some(0));
+        let skill = db::get_skill_by_id(&pool, "apple-reminders")
             .await
-            .unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].id, "apple-reminders");
-        assert!(normalize_test_path(&skills[0].dir_path).contains("apple/apple-reminders"));
+            .unwrap()
+            .expect("nested skill should remain in the logical skills table");
+        assert!(normalize_test_path(&skill.file_path).contains("apple/apple-reminders/SKILL.md"));
     }
 
     #[tokio::test]
@@ -1411,6 +1766,7 @@ mod tests {
         let tmp_a = TempDir::new().unwrap();
         let tmp_b = TempDir::new().unwrap();
         let pool = setup_test_db().await;
+        isolate_scan_test(&pool).await;
 
         let agent_a = db::Agent {
             id: "agent-a".to_string(),
@@ -1447,8 +1803,9 @@ mod tests {
 
         let result = scan_all_skills_impl(&pool).await.unwrap();
 
-        assert_eq!(result.skills_by_agent.get("agent-a").copied(), Some(2));
-        assert_eq!(result.skills_by_agent.get("agent-b").copied(), Some(1));
+        assert_eq!(result.total_skills, 3);
+        assert_eq!(result.skills_by_agent.get("agent-a").copied(), Some(0));
+        assert_eq!(result.skills_by_agent.get("agent-b").copied(), Some(0));
     }
 
     #[tokio::test]
@@ -1507,12 +1864,13 @@ mod tests {
 
         let result = scan_all_skills_impl(&pool).await.unwrap();
         assert_eq!(result.agents_scanned, 1);
-        assert_eq!(result.skills_by_agent.get("claude-code").copied(), Some(3));
+        assert_eq!(result.skills_by_agent.get("claude-code").copied(), Some(0));
 
-        let mut skills = db::get_skills_by_agent(&pool, "claude-code").await.unwrap();
-        skills.sort_by(|a, b| a.id.cmp(&b.id));
-        let ids: Vec<&str> = skills.iter().map(|skill| skill.id.as_str()).collect();
-        assert_eq!(ids, vec!["plugin-a-skill", "plugin-b-skill", "user-skill"]);
+        let skills = db::get_skills_by_agent(&pool, "claude-code").await.unwrap();
+        assert!(
+            skills.is_empty(),
+            "external Claude observations must stay out of the managed platform list"
+        );
 
         let observations = db::get_agent_skill_observations(&pool, "claude-code")
             .await
@@ -1617,14 +1975,9 @@ mod tests {
         let installs = db::get_skill_installations(&pool, "shared-skill")
             .await
             .unwrap();
-        assert_eq!(
-            installs.len(),
-            1,
-            "only the user copy should remain manageable"
-        );
-        assert_eq!(
-            installs[0].installed_path,
-            user_root.join("shared-skill").to_string_lossy()
+        assert!(
+            installs.is_empty(),
+            "scanner observations should not create managed installs"
         );
 
         let stored_skill = db::get_skill_by_id(&pool, "shared-skill")
@@ -1686,7 +2039,7 @@ mod tests {
             .unwrap();
 
         let result = scan_all_skills_impl(&pool).await.unwrap();
-        assert_eq!(result.skills_by_agent.get("claude-code").copied(), Some(2));
+        assert_eq!(result.skills_by_agent.get("claude-code").copied(), Some(0));
 
         let detected = db::get_agent_by_id(&pool, "claude-code")
             .await
@@ -1761,11 +2114,14 @@ mod tests {
 
         let result = scan_all_skills_impl(&pool).await.unwrap();
         assert_eq!(result.agents_scanned, 1);
-        assert_eq!(result.skills_by_agent.get("not-claude").copied(), Some(1));
+        assert_eq!(result.skills_by_agent.get("not-claude").copied(), Some(0));
 
         let skills = db::get_skills_by_agent(&pool, "not-claude").await.unwrap();
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].id, "user-skill");
+        assert!(skills.is_empty());
+        assert!(db::get_skill_by_id(&pool, "user-skill")
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
@@ -1808,7 +2164,7 @@ mod tests {
 
         assert_eq!(
             result.skills_by_agent.get("factory-droid").copied(),
-            Some(1)
+            Some(0)
         );
         let observations = db::get_agent_skill_observations(&pool, "factory-droid")
             .await
@@ -1823,9 +2179,10 @@ mod tests {
         let platform_skills = db::get_skills_for_agent(&pool, "factory-droid")
             .await
             .unwrap();
-        assert_eq!(platform_skills.len(), 1);
-        assert_eq!(platform_skills[0].id, "using-superpowers");
-        assert!(platform_skills[0].is_read_only);
+        assert!(
+            platform_skills.is_empty(),
+            "read-only compatibility observations are not manageable platform skills"
+        );
 
         let factory_installations: Vec<_> = db::get_skill_installations(&pool, "using-superpowers")
             .await
@@ -1891,7 +2248,7 @@ mod tests {
 
         let result = scan_all_skills_impl(&pool).await.unwrap();
 
-        assert_eq!(result.skills_by_agent.get("cursor").copied(), Some(1));
+        assert_eq!(result.skills_by_agent.get("cursor").copied(), Some(0));
         let observations = db::get_agent_skill_observations(&pool, "cursor")
             .await
             .unwrap();
@@ -1964,7 +2321,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_scan_all_skills_impl_factory_droid_primary_root_wins_over_shared_duplicate() {
+    async fn test_scan_all_skills_impl_factory_droid_external_duplicates_stay_unmanaged() {
         let tmp = TempDir::new().unwrap();
         let pool = setup_test_db().await;
 
@@ -2006,26 +2363,29 @@ mod tests {
 
         scan_all_skills_impl(&pool).await.unwrap();
 
-        let factory_installation = db::get_skill_installations(&pool, "shared-skill")
+        let factory_installations = db::get_skill_installations(&pool, "shared-skill")
             .await
             .unwrap()
             .into_iter()
-            .find(|installation| installation.agent_id == "factory-droid")
-            .expect("Factory Droid primary root should remain a manageable install");
-        assert_eq!(
-            factory_installation.installed_path,
-            factory_root.join("shared-skill").to_string_lossy()
-        );
+            .filter(|installation| installation.agent_id == "factory-droid")
+            .collect::<Vec<_>>();
+        assert!(factory_installations.is_empty());
 
         let platform_skills = db::get_skills_for_agent(&pool, "factory-droid")
             .await
             .unwrap();
-        assert_eq!(platform_skills.len(), 1);
-        assert_eq!(platform_skills[0].id, "shared-skill");
-        assert!(!platform_skills[0].is_read_only);
+        assert!(
+            platform_skills.is_empty(),
+            "neither an external primary skill nor a compatibility observation is managed"
+        );
+        let observations = db::get_agent_skill_observations(&pool, "factory-droid")
+            .await
+            .unwrap();
+        assert_eq!(observations.len(), 1);
+        assert!(observations[0].is_read_only);
         assert_eq!(
-            platform_skills[0].dir_path,
-            factory_root.join("shared-skill").to_string_lossy()
+            observations[0].dir_path,
+            shared_root.join("shared-skill").to_string_lossy()
         );
     }
 
@@ -2144,10 +2504,9 @@ mod tests {
         let installs = db::get_skill_installations(&pool, "shared-skill")
             .await
             .unwrap();
-        assert_eq!(
-            installs.len(),
-            1,
-            "user install state should survive plugin cleanup"
+        assert!(
+            installs.is_empty(),
+            "scanner observations should not create managed installs"
         );
     }
 
@@ -2248,25 +2607,26 @@ mod tests {
 
         scan_all_skills_impl(&pool).await.unwrap();
 
-        let installations = db::get_skill_installations(&pool, "my-skill")
-            .await
-            .unwrap();
-        assert_eq!(
-            installations.len(),
-            1,
-            "Expected exactly one installation record"
-        );
+        let installation: db::SkillInstallation = sqlx::query_as(
+            "SELECT skill_id, agent_id, installed_path, link_type, symlink_target, created_at
+             FROM skill_installations
+             WHERE skill_id = ? AND agent_id = ?",
+        )
+        .bind("my-skill")
+        .bind("path-agent")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
-        let inst = &installations[0];
         // installed_path must NOT be the SKILL.md file path.
         assert!(
-            !inst.installed_path.ends_with("SKILL.md"),
+            !installation.installed_path.ends_with("SKILL.md"),
             "installed_path should not point to the SKILL.md file; got: {}",
-            inst.installed_path
+            installation.installed_path
         );
         // installed_path must equal the skill directory path.
         assert_eq!(
-            inst.installed_path,
+            installation.installed_path,
             skill_dir.to_string_lossy().as_ref(),
             "installed_path should be the skill directory, not the SKILL.md inside it"
         );
@@ -2310,12 +2670,14 @@ mod tests {
 
         // First scan — both skills should be persisted.
         scan_all_skills_impl(&pool).await.unwrap();
-        let skills_first = db::get_skills_by_agent(&pool, "stale-agent").await.unwrap();
-        assert_eq!(
-            skills_first.len(),
-            2,
-            "Both skills should be in DB after first scan"
-        );
+        assert!(db::get_skill_by_id(&pool, "skill-keep")
+            .await
+            .unwrap()
+            .is_some());
+        assert!(db::get_skill_by_id(&pool, "skill-remove")
+            .await
+            .unwrap()
+            .is_some());
 
         // Remove "skill-remove" from disk.
         fs::remove_dir_all(tmp.path().join("skill-remove")).unwrap();
@@ -2323,16 +2685,10 @@ mod tests {
         // Second scan — "skill-remove" must disappear from the DB.
         scan_all_skills_impl(&pool).await.unwrap();
 
-        let skills_after = db::get_skills_by_agent(&pool, "stale-agent").await.unwrap();
-        assert_eq!(
-            skills_after.len(),
-            1,
-            "Only one skill should remain after rescan"
-        );
-        assert_eq!(
-            skills_after[0].id, "skill-keep",
-            "The surviving skill should be 'skill-keep'"
-        );
+        assert!(db::get_skill_by_id(&pool, "skill-keep")
+            .await
+            .unwrap()
+            .is_some());
 
         // The deleted skill must also be gone from the skills table.
         let stale_skill = db::get_skill_by_id(&pool, "skill-remove").await.unwrap();

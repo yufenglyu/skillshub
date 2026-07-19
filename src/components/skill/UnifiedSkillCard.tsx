@@ -111,6 +111,7 @@ export interface UnifiedSkillCardProps {
 
   // ── platform variant ──
   sourceType?: "symlink" | "copy" | "native";
+  sourceLocation?: "central" | "resource-library" | "standalone";
   originKind?: ClaudeSourceKind | null;
   isReadOnly?: boolean;
 
@@ -158,6 +159,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
     projectBadge,
     platformIcons,
     sourceType,
+    sourceLocation,
     originKind,
     isReadOnly,
     isInstalled,
@@ -234,7 +236,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
               {description && (
                 <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{description}</p>
               )}
-              {sourceType && <SourceIndicator sourceType={sourceType} />}
+              {sourceType && <SourceIndicator sourceType={sourceType} sourceLocation={sourceLocation} />}
             </div>
             <ChevronRight className="size-4 text-muted-foreground shrink-0 mt-0.5" />
           </div>
@@ -408,7 +410,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
             {isReadOnly && <ReadOnlyBadge />}
 
             {/* Source indicator (platform) */}
-            {sourceType && <SourceIndicator sourceType={sourceType} />}
+            {sourceType && <SourceIndicator sourceType={sourceType} sourceLocation={sourceLocation} />}
 
             {/* "Already in Central" badge */}
             {isCentral && (
@@ -564,11 +566,21 @@ function formatDateLabel(value: string | null): string | null {
 
 // ─── Source Indicator (internal) ──────────────────────────────────────────────
 
-function SourceIndicator({ sourceType }: { sourceType: string }) {
+function SourceIndicator({
+  sourceType,
+  sourceLocation = "standalone",
+}: {
+  sourceType: string;
+  sourceLocation?: "central" | "resource-library" | "standalone";
+}) {
   const { t, i18n } = useTranslation();
   const isSymlink = sourceType === "symlink";
   const isNative = sourceType === "native";
-  const primaryLabel = isSymlink ? t("platform.sourceCentral") : t("platform.sourceStandalone");
+  const primaryLabel = sourceLocation === "central"
+    ? t("platform.sourceCentral")
+    : sourceLocation === "resource-library"
+      ? t("platform.sourceResourceLibrary")
+      : t("platform.sourceStandalone");
   const secondaryLabel = isSymlink
     ? t("platform.sourceSymlinkLabel")
     : isNative

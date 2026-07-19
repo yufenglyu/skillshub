@@ -247,14 +247,15 @@ describe("SettingsView", () => {
     expect(loadWebDavConfig).toHaveBeenCalled();
   });
 
-  it("renders backup content checkboxes checked by default", () => {
+  it("does not render backup content selectors because backups are always complete", () => {
     setupMocks();
     renderSettingsView();
 
-    expect(screen.getByRole("checkbox", { name: "技能资源库" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "中央技能库" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "软件配置" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "技能安装的平台" })).toBeChecked();
+    expect(screen.queryByText("备份内容")).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "技能资源库" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "中央技能库" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "软件配置" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "技能安装的平台" })).toBeNull();
   });
 
   it("uses the localized WebDAV URL placeholder", () => {
@@ -310,18 +311,17 @@ describe("SettingsView", () => {
     });
   });
 
-  it("local export uses selected backup options", async () => {
+  it("local export always includes all backup content", async () => {
     const exportAppBackup = vi.fn().mockResolvedValue(new Uint8Array([80, 75, 3, 4]));
     setupMocks({ exportAppBackup });
     renderSettingsView();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "中央技能库" }));
     fireEvent.click(screen.getByRole("button", { name: "导出备份" }));
 
     await waitFor(() => {
       expect(exportAppBackup).toHaveBeenCalledWith({
         includeResourceLibrary: true,
-        includeCentralLibrary: false,
+        includeCentralLibrary: true,
         includeAppConfig: true,
         includeInstallations: true,
       });
@@ -428,7 +428,18 @@ describe("SettingsView", () => {
     fireEvent.click(screen.getByRole("button", { name: "上传到 WebDAV" }));
 
     await waitFor(() => {
-      expect(uploadWebDavBackup).toHaveBeenCalled();
+      expect(uploadWebDavBackup).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseUrl: "https://example.com/dav",
+          remoteDir: "skillshub",
+        }),
+        {
+          includeResourceLibrary: true,
+          includeCentralLibrary: true,
+          includeAppConfig: true,
+          includeInstallations: true,
+        }
+      );
     });
     expect(listWebDavBackups).toHaveBeenCalled();
   });
@@ -779,7 +790,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.11.0")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.11.1")).toBeTruthy();
   });
 
   it("shows the database path in the about section", () => {

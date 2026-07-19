@@ -4,10 +4,7 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
     FromRow, Row, SqlitePool,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    str::FromStr,
-};
+use std::{collections::HashSet, str::FromStr};
 use uuid::Uuid;
 
 use crate::path_utils::{app_data_dir, expand_home_path, path_to_string, resolve_home_dir};
@@ -162,6 +159,7 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
             installed_path TEXT NOT NULL,
             link_type      TEXT NOT NULL,
             symlink_target TEXT,
+            is_managed     BOOLEAN NOT NULL DEFAULT 0,
             created_at     TEXT NOT NULL DEFAULT (datetime('now')),
             PRIMARY KEY (skill_id, agent_id)
         )",
@@ -254,6 +252,45 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     }
+
+    let mut managed_migration = pool.begin().await.map_err(|e| e.to_string())?;
+    let installation_columns = sqlx::query("PRAGMA table_info(skill_installations)")
+        .fetch_all(&mut *managed_migration)
+        .await
+        .map_err(|e| e.to_string())?;
+    let has_is_managed = installation_columns.iter().any(|row| {
+        row.try_get::<String, _>("name")
+            .map(|name| name == "is_managed")
+            .unwrap_or(false)
+    });
+    if !has_is_managed {
+        sqlx::query(
+            "ALTER TABLE skill_installations
+             ADD COLUMN is_managed BOOLEAN NOT NULL DEFAULT 0",
+        )
+        .execute(&mut *managed_migration)
+        .await
+        .map_err(|e| e.to_string())?;
+        sqlx::query(
+            "UPDATE skill_installations
+             SET is_managed = 1
+             WHERE link_type = 'symlink'
+               AND symlink_target IS NOT NULL
+               AND EXISTS (
+                 SELECT 1 FROM skills s
+                 WHERE s.id = skill_installations.skill_id
+                   AND s.canonical_path IS NOT NULL
+                   AND s.canonical_path = skill_installations.symlink_target
+             )",
+        )
+        .execute(&mut *managed_migration)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    managed_migration
+        .commit()
+        .await
+        .map_err(|e| e.to_string())?;
 
     // agents table
     sqlx::query(
@@ -526,8 +563,8 @@ async fn seed_builtin_agents(pool: &DbPool) -> Result<(), String> {
 /// Seed `scan_directories` with one row per unique `global_skills_dir` path
 /// across all built-in agents.  Rows are marked `is_builtin = 1` and cannot
 /// be removed by the user.  `INSERT OR IGNORE` keeps the operation idempotent:
-/// if two built-in agents share the same path (codex and central both use
-/// `~/.agents/skills`) only the first insert takes effect.
+/// if two built-in agents share the same path, only the first insert takes
+/// effect.
 async fn seed_builtin_scan_directories(pool: &DbPool) -> Result<(), String> {
     let now = Utc::now().to_rfc3339();
     let agents = get_all_agents(pool).await?;
@@ -693,8 +730,8 @@ pub fn builtin_agents() -> Vec<Agent> {
             "codex",
             "Codex CLI",
             "coding",
-            ".agents/skills",
-            None,
+            ".codex/skills",
+            Some(".agents/skills"),
             "codex",
         ),
         agent(
@@ -1122,10 +1159,9 @@ pub fn builtin_agents() -> Vec<Agent> {
 /// Insert or update a skill record.
 ///
 /// Uses `ON CONFLICT DO UPDATE` to preserve `is_central = true` if a prior
-/// scan already marked the skill as central (e.g., when the central agent and
-/// codex both point to `~/.agents/skills/` and are scanned in different
-/// orders). Once a skill is flagged as central it must never be downgraded to
-/// non-central by a subsequent scan of the same directory by a non-central agent.
+/// scan already marked the skill as central. Once a skill is flagged as
+/// central it must never be downgraded to non-central by a subsequent scan of
+/// the same directory by a non-central agent.
 pub async fn upsert_skill(pool: &DbPool, skill: &Skill) -> Result<(), String> {
     sqlx::query(
         "INSERT INTO skills
@@ -1174,33 +1210,54 @@ pub async fn upsert_skill(pool: &DbPool, skill: &Skill) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-fn observation_to_skill(observation: AgentSkillObservation) -> Skill {
-    Skill {
-        id: observation.skill_id,
-        name: observation.name,
-        description: observation.description,
-        file_path: observation.file_path,
-        canonical_path: None,
-        is_central: false,
-        source: Some(observation.link_type),
-        content: None,
-        scanned_at: observation.scanned_at,
-    }
+/// Restore a resource-library skill that an older platform install mistakenly
+/// represented as a central symlink. Callers must validate the filesystem link
+/// and its installation record before using this explicit central downgrade.
+pub async fn repair_legacy_centralized_resource_skill(
+    pool: &DbPool,
+    skill: &Skill,
+    legacy_central_path: &str,
+) -> Result<(), String> {
+    let mut transaction = pool.begin().await.map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "UPDATE skills SET
+           name = ?, description = ?, file_path = ?, canonical_path = ?,
+           is_central = 0, source = ?, content = ?, scanned_at = ?
+         WHERE id = ?",
+    )
+    .bind(&skill.name)
+    .bind(&skill.description)
+    .bind(&skill.file_path)
+    .bind(&skill.canonical_path)
+    .bind(&skill.source)
+    .bind(&skill.content)
+    .bind(&skill.scanned_at)
+    .bind(&skill.id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "DELETE FROM skill_installations
+         WHERE skill_id = ? AND installed_path = ? AND link_type = 'symlink'",
+    )
+    .bind(&skill.id)
+    .bind(legacy_central_path)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    transaction.commit().await.map_err(|e| e.to_string())
 }
 
-/// Retrieve all skills installed for a given agent.
+/// Retrieve all application-managed skills installed for a given agent.
 pub async fn get_skills_by_agent(pool: &DbPool, agent_id: &str) -> Result<Vec<Skill>, String> {
-    if agent_id == "claude-code" {
-        let observations = get_agent_skill_observations(pool, agent_id).await?;
-        if !observations.is_empty() {
-            return Ok(observations.into_iter().map(observation_to_skill).collect());
-        }
-    }
-
     sqlx::query_as::<_, Skill>(
         "SELECT s.* FROM skills s
          JOIN skill_installations si ON s.id = si.skill_id
-         WHERE si.agent_id = ?",
+         WHERE si.agent_id = ?
+           AND si.is_managed = 1",
     )
     .bind(agent_id)
     .fetch_all(pool)
@@ -1230,6 +1287,8 @@ pub struct SkillForAgent {
     /// Symlink target path, if `link_type` is "symlink".
     pub symlink_target: Option<String>,
     pub is_central: bool,
+    /// Logical origin of the managed skill (resource library, GitHub, etc.).
+    pub source: Option<String>,
     pub source_kind: Option<String>,
     pub source_root: Option<String>,
     pub is_read_only: bool,
@@ -1242,70 +1301,13 @@ pub struct SkillForAgent {
     pub created_at: Option<String>,
 }
 
-fn observation_to_skill_for_agent(observation: AgentSkillObservation) -> SkillForAgent {
-    SkillForAgent {
-        id: observation.skill_id,
-        row_id: observation.row_id,
-        name: observation.name,
-        description: observation.description,
-        file_path: observation.file_path,
-        dir_path: observation.dir_path,
-        link_type: observation.link_type,
-        symlink_target: observation.symlink_target,
-        is_central: false,
-        source_kind: Some(observation.source_kind),
-        source_root: Some(observation.source_root),
-        is_read_only: observation.is_read_only,
-        conflict_group: None,
-        conflict_count: 0,
-        source_url: None,
-        source_author: None,
-        source_repo: None,
-        source_path: None,
-        created_at: Some(observation.scanned_at),
-    }
-}
-
-fn claude_conflict_group(agent_id: &str, skill_id: &str) -> String {
-    format!("{agent_id}::{skill_id}")
-}
-
-/// Retrieve skills installed for a given agent, enriched with installation
-/// metadata (`dir_path`, `link_type`, `symlink_target`) required by the
-/// platform-view skill cards.
+/// Retrieve application-managed skills installed for a given agent, enriched
+/// with installation metadata required by the platform-view skill cards.
 pub async fn get_skills_for_agent(
     pool: &DbPool,
     agent_id: &str,
 ) -> Result<Vec<SkillForAgent>, String> {
-    if agent_id == "claude-code" {
-        let observations = get_agent_skill_observations(pool, agent_id).await?;
-        if !observations.is_empty() {
-            let mut conflict_counts: HashMap<String, i64> = HashMap::new();
-            for observation in &observations {
-                *conflict_counts
-                    .entry(observation.skill_id.clone())
-                    .or_insert(0) += 1;
-            }
-
-            return Ok(observations
-                .into_iter()
-                .map(|observation| {
-                    let conflict_count = conflict_counts
-                        .get(&observation.skill_id)
-                        .copied()
-                        .unwrap_or(0);
-                    let mut skill = observation_to_skill_for_agent(observation);
-                    if conflict_count > 1 {
-                        skill.conflict_group = Some(claude_conflict_group(agent_id, &skill.id));
-                        skill.conflict_count = conflict_count;
-                    }
-                    skill
-                })
-                .collect());
-        }
-    }
-
-    let mut skills = sqlx::query_as::<_, SkillForAgent>(
+    sqlx::query_as::<_, SkillForAgent>(
         "SELECT s.id,
                 s.id AS row_id,
                 s.name,
@@ -1315,6 +1317,7 @@ pub async fn get_skills_for_agent(
                 si.link_type,
                 si.symlink_target,
                 s.is_central,
+                s.source,
                 NULL AS source_kind,
                 NULL AS source_root,
                 0 AS is_read_only,
@@ -1328,29 +1331,13 @@ pub async fn get_skills_for_agent(
          FROM skills s
          JOIN skill_installations si ON s.id = si.skill_id
          LEFT JOIN skill_sources ss ON ss.skill_id = s.id
-         WHERE si.agent_id = ?",
+         WHERE si.agent_id = ?
+           AND si.is_managed = 1",
     )
     .bind(agent_id)
     .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?;
-
-    let installed_ids: HashSet<String> = skills.iter().map(|skill| skill.id.clone()).collect();
-    let observations = get_agent_skill_observations(pool, agent_id).await?;
-    skills.extend(
-        observations
-            .into_iter()
-            .filter(|observation| !installed_ids.contains(&observation.skill_id))
-            .map(observation_to_skill_for_agent),
-    );
-    skills.sort_by(|a, b| {
-        a.name
-            .to_lowercase()
-            .cmp(&b.name.to_lowercase())
-            .then_with(|| a.dir_path.cmp(&b.dir_path))
-    });
-
-    Ok(skills)
+    .map_err(|e| e.to_string())
 }
 
 pub async fn upsert_agent_skill_observation(
@@ -1709,12 +1696,49 @@ pub async fn upsert_skill_installation(
 ) -> Result<(), String> {
     sqlx::query(
         "INSERT INTO skill_installations
-         (skill_id, agent_id, installed_path, link_type, symlink_target, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+         (skill_id, agent_id, installed_path, link_type, symlink_target, is_managed, created_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?)
          ON CONFLICT(skill_id, agent_id) DO UPDATE SET
            installed_path = excluded.installed_path,
            link_type      = excluded.link_type,
-           symlink_target = excluded.symlink_target",
+           symlink_target = excluded.symlink_target,
+           is_managed     = 1",
+    )
+    .bind(&installation.skill_id)
+    .bind(&installation.agent_id)
+    .bind(&installation.installed_path)
+    .bind(&installation.link_type)
+    .bind(&installation.symlink_target)
+    .bind(&installation.created_at)
+    .execute(pool)
+    .await
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+/// Insert or update an installation observed during a platform scan.
+///
+/// Scanner observations are not application-managed unless the same row was
+/// already claimed by an application installation. On conflict, managed
+/// ownership and its recorded path metadata remain unchanged.
+pub async fn upsert_scanned_skill_installation(
+    pool: &DbPool,
+    installation: &SkillInstallation,
+) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO skill_installations
+         (skill_id, agent_id, installed_path, link_type, symlink_target, is_managed, created_at)
+         VALUES (?, ?, ?, ?, ?, 0, ?)
+         ON CONFLICT(skill_id, agent_id) DO UPDATE SET
+           installed_path = CASE WHEN skill_installations.is_managed = 1
+                                 THEN skill_installations.installed_path
+                                 ELSE excluded.installed_path END,
+           link_type      = CASE WHEN skill_installations.is_managed = 1
+                                 THEN skill_installations.link_type
+                                 ELSE excluded.link_type END,
+           symlink_target = CASE WHEN skill_installations.is_managed = 1
+                                 THEN skill_installations.symlink_target
+                                 ELSE excluded.symlink_target END",
     )
     .bind(&installation.skill_id)
     .bind(&installation.agent_id)
@@ -1743,38 +1767,76 @@ pub async fn delete_skill_installation(
         .map_err(|e| e.to_string())
 }
 
-/// Remove installation records for a given agent where the skill ID is NOT in
-/// `found_skill_ids`. Pass an empty slice to remove ALL installations for the
-/// agent (used when the agent's skills directory no longer exists).
+/// Reconcile installation records for an agent after a scan.
+///
+/// Unmanaged scanner rows follow the current scan result. Managed rows are
+/// removed only when their recorded installation path itself no longer exists.
 pub async fn delete_stale_skill_installations(
     pool: &DbPool,
     agent_id: &str,
     found_skill_ids: &[String],
 ) -> Result<(), String> {
-    if found_skill_ids.is_empty() {
-        return sqlx::query("DELETE FROM skill_installations WHERE agent_id = ?")
+    let found_skill_ids: HashSet<&str> = found_skill_ids.iter().map(String::as_str).collect();
+    let rows = sqlx::query(
+        "SELECT si.skill_id, si.installed_path, si.link_type, si.symlink_target,
+                si.is_managed, s.canonical_path, s.is_central
+         FROM skill_installations si
+         LEFT JOIN skills s ON s.id = si.skill_id
+         WHERE si.agent_id = ?",
+    )
+    .bind(agent_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let stale_skill_ids: Vec<String> = rows
+        .into_iter()
+        .filter_map(|row| {
+            let skill_id = row.get::<String, _>("skill_id");
+            let installed_path = row.get::<String, _>("installed_path");
+            let is_managed = row.get::<bool, _>("is_managed");
+            let is_stale = if is_managed {
+                matches!(
+                    std::fs::symlink_metadata(&installed_path),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound
+                )
+            } else {
+                let is_legacy_central_link =
+                    row.get::<Option<bool>, _>("is_central").unwrap_or(false)
+                        && row.get::<Option<String>, _>("canonical_path").as_deref()
+                            == Some(installed_path.as_str())
+                        && row.get::<String, _>("link_type") == "symlink"
+                        && row
+                            .get::<Option<String>, _>("symlink_target")
+                            .is_some_and(|target| {
+                                std::fs::symlink_metadata(&installed_path)
+                                    .map(|metadata| metadata.file_type().is_symlink())
+                                    .unwrap_or(false)
+                                    && matches!(
+                                        (
+                                            std::fs::canonicalize(&installed_path),
+                                            std::fs::canonicalize(target)
+                                        ),
+                                        (Ok(installed), Ok(target)) if installed == target
+                                    )
+                            });
+
+                !found_skill_ids.contains(skill_id.as_str()) && !is_legacy_central_link
+            };
+            is_stale.then_some(skill_id)
+        })
+        .collect();
+
+    let mut transaction = pool.begin().await.map_err(|e| e.to_string())?;
+    for skill_id in stale_skill_ids {
+        sqlx::query("DELETE FROM skill_installations WHERE skill_id = ? AND agent_id = ?")
+            .bind(skill_id)
             .bind(agent_id)
-            .execute(pool)
+            .execute(&mut *transaction)
             .await
-            .map(|_| ())
-            .map_err(|e| e.to_string());
+            .map_err(|e| e.to_string())?;
     }
-
-    let placeholders = found_skill_ids
-        .iter()
-        .map(|_| "?")
-        .collect::<Vec<_>>()
-        .join(",");
-    let sql = format!(
-        "DELETE FROM skill_installations WHERE agent_id = ? AND skill_id NOT IN ({})",
-        placeholders
-    );
-
-    let mut q = sqlx::query(&sql).bind(agent_id);
-    for id in found_skill_ids {
-        q = q.bind(id.as_str());
-    }
-    q.execute(pool).await.map(|_| ()).map_err(|e| e.to_string())
+    transaction.commit().await.map_err(|e| e.to_string())
 }
 
 pub async fn delete_stale_agent_skill_observations(
@@ -1897,11 +1959,64 @@ pub async fn get_skill_installations(
     pool: &DbPool,
     skill_id: &str,
 ) -> Result<Vec<SkillInstallation>, String> {
-    sqlx::query_as::<_, SkillInstallation>("SELECT * FROM skill_installations WHERE skill_id = ?")
-        .bind(skill_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| e.to_string())
+    sqlx::query_as::<_, SkillInstallation>(
+        "SELECT skill_id, agent_id, installed_path, link_type, symlink_target, created_at
+         FROM skill_installations
+         WHERE skill_id = ?
+           AND is_managed = 1",
+    )
+    .bind(skill_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Retrieve historical installation rows only for legacy centralization repair.
+///
+/// This deliberately includes unmanaged rows. Callers must independently
+/// validate the recorded path, link type, symlink target, and filesystem entry
+/// before mutating either the filesystem or ownership state.
+pub(crate) async fn get_skill_installations_for_legacy_repair(
+    pool: &DbPool,
+    skill_id: &str,
+) -> Result<Vec<SkillInstallation>, String> {
+    sqlx::query_as::<_, SkillInstallation>(
+        "SELECT skill_id, agent_id, installed_path, link_type, symlink_target, created_at
+         FROM skill_installations
+         WHERE skill_id = ?",
+    )
+    .bind(skill_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Count application-managed installations for a given agent.
+pub async fn count_managed_skill_installations(
+    pool: &DbPool,
+    agent_id: &str,
+) -> Result<i64, String> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM skill_installations
+         WHERE agent_id = ?
+           AND is_managed = 1",
+    )
+    .bind(agent_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+pub async fn get_managed_skill_ids(pool: &DbPool) -> Result<Vec<String>, String> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT DISTINCT skill_id
+         FROM skill_installations
+         WHERE is_managed = 1",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())
 }
 
 pub async fn get_read_only_observed_agent_ids_for_skill(
@@ -2688,6 +2803,29 @@ mod tests {
         assert!(!agents_by_id.contains_key("kiro-cli"));
     }
 
+    #[test]
+    fn test_codex_uses_private_skills_dir_separate_from_central() {
+        let home = resolve_home_dir();
+        let agents_by_id: std::collections::HashMap<String, Agent> = builtin_agents()
+            .into_iter()
+            .map(|agent| (agent.id.clone(), agent))
+            .collect();
+
+        let codex = agents_by_id.get("codex").expect("missing Codex agent");
+        let central = agents_by_id.get("central").expect("missing central agent");
+
+        assert_eq!(
+            codex.global_skills_dir,
+            path_to_string(&home.join(".codex/skills"))
+        );
+        assert_ne!(
+            codex.global_skills_dir, central.global_skills_dir,
+            "installing to Codex must not write into the central skills directory"
+        );
+        assert_eq!(codex.project_skills_dir.as_deref(), Some(".agents/skills"));
+        assert!(agent_supports_universal_agents_skills("codex"));
+    }
+
     #[tokio::test]
     async fn test_builtin_agents_are_marked_builtin() {
         let pool = setup_test_db().await;
@@ -2890,6 +3028,125 @@ mod tests {
 
         let empty = get_skills_by_agent(&pool, "codex").await.unwrap();
         assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_managed_installation_scanned_row_is_excluded_from_queries() {
+        let pool = setup_test_db().await;
+        upsert_skill(&pool, &make_skill("scanned-only", "Scanned Only", false))
+            .await
+            .unwrap();
+
+        upsert_scanned_skill_installation(
+            &pool,
+            &make_installation("scanned-only", "cursor", "native"),
+        )
+        .await
+        .unwrap();
+
+        assert!(get_skill_installations(&pool, "scanned-only")
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(get_skills_by_agent(&pool, "cursor")
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(get_skills_for_agent(&pool, "cursor")
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            count_managed_skill_installations(&pool, "cursor")
+                .await
+                .unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn test_managed_installation_application_upsert_upgrades_scanned_row() {
+        let pool = setup_test_db().await;
+        upsert_skill(&pool, &make_skill("upgraded", "Upgraded", false))
+            .await
+            .unwrap();
+        let installation = make_installation("upgraded", "cursor", "native");
+
+        upsert_scanned_skill_installation(&pool, &installation)
+            .await
+            .unwrap();
+        upsert_skill_installation(&pool, &installation)
+            .await
+            .unwrap();
+
+        let is_managed: i64 = sqlx::query_scalar(
+            "SELECT is_managed FROM skill_installations
+             WHERE skill_id = ? AND agent_id = ?",
+        )
+        .bind("upgraded")
+        .bind("cursor")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(is_managed, 1);
+        assert_eq!(
+            get_skill_installations(&pool, "upgraded")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            count_managed_skill_installations(&pool, "cursor")
+                .await
+                .unwrap(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_managed_installation_rescan_preserves_ownership_and_recorded_path() {
+        let pool = setup_test_db().await;
+        upsert_skill(&pool, &make_skill("re-scanned", "Re-scanned", false))
+            .await
+            .unwrap();
+        let managed = make_installation("re-scanned", "cursor", "symlink");
+        upsert_skill_installation(&pool, &managed).await.unwrap();
+
+        let mut scanned = managed.clone();
+        scanned.installed_path = "/tmp/cursor/re-scanned-updated".to_string();
+        scanned.link_type = "native".to_string();
+        scanned.symlink_target = None;
+        upsert_scanned_skill_installation(&pool, &scanned)
+            .await
+            .unwrap();
+
+        let row = sqlx::query(
+            "SELECT is_managed, installed_path, link_type, symlink_target
+             FROM skill_installations
+             WHERE skill_id = ? AND agent_id = ?",
+        )
+        .bind("re-scanned")
+        .bind("cursor")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.get::<i64, _>("is_managed"), 1);
+        assert_eq!(
+            row.get::<String, _>("installed_path"),
+            managed.installed_path
+        );
+        assert_eq!(row.get::<String, _>("link_type"), managed.link_type);
+        assert_eq!(
+            row.get::<Option<String>, _>("symlink_target"),
+            managed.symlink_target
+        );
+        assert_eq!(
+            count_managed_skill_installations(&pool, "cursor")
+                .await
+                .unwrap(),
+            1
+        );
     }
 
     // ── Agents ────────────────────────────────────────────────────────────────
@@ -3449,6 +3706,96 @@ mod tests {
             "Pre-existing rows must have a non-empty created_at value after migration (got: '{}')",
             created_at
         );
+    }
+
+    #[tokio::test]
+    async fn test_managed_installation_migration_requires_matching_symlink_target() {
+        let pool = SqlitePool::connect(":memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+
+        sqlx::query(
+            "CREATE TABLE skills (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                file_path TEXT NOT NULL,
+                canonical_path TEXT,
+                is_central BOOLEAN NOT NULL DEFAULT 0,
+                source TEXT,
+                content TEXT,
+                scanned_at TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TABLE skill_installations (
+                skill_id TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                installed_path TEXT NOT NULL,
+                link_type TEXT NOT NULL,
+                symlink_target TEXT,
+                created_at TEXT,
+                PRIMARY KEY (skill_id, agent_id)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO skills
+             (id, name, file_path, canonical_path, is_central, scanned_at)
+             VALUES
+             ('proven-symlink', 'Same Name', '/tmp/canonical/proven/SKILL.md', '/tmp/canonical/proven', 0, '2024-01-01'),
+             ('external-symlink', 'Same Name', '/tmp/canonical/external/SKILL.md', '/tmp/canonical/external', 0, '2024-01-01'),
+             ('legacy-copy', 'Legacy Copy', '/tmp/canonical/copy/SKILL.md', '/tmp/canonical/copy', 0, '2024-01-01'),
+             ('legacy-native', 'Legacy Native', '/tmp/canonical/native/SKILL.md', '/tmp/canonical/native', 0, '2024-01-01'),
+             ('unproven-symlink', 'Unproven Symlink', '/tmp/unproven/SKILL.md', NULL, 1, '2024-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO skill_installations
+             (skill_id, agent_id, installed_path, link_type, symlink_target, created_at)
+             VALUES
+             ('proven-symlink', 'cursor', '/tmp/cursor/proven', 'symlink', '/tmp/canonical/proven', '2024-01-01'),
+             ('external-symlink', 'cursor', '/tmp/cursor/external', 'symlink', '/tmp/outside/external', '2024-01-01'),
+             ('legacy-copy', 'cursor', '/tmp/cursor/copy', 'copy', NULL, '2024-01-01'),
+             ('legacy-native', 'cursor', '/tmp/cursor/native', 'native', NULL, '2024-01-01'),
+             ('unproven-symlink', 'cursor', '/tmp/cursor/unproven', 'symlink', '/tmp/unproven', '2024-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        init_database(&pool).await.unwrap();
+        init_database(&pool)
+            .await
+            .expect("managed ownership migration must be retryable");
+
+        let rows =
+            sqlx::query("SELECT skill_id, is_managed FROM skill_installations ORDER BY skill_id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(rows.len(), 5);
+        let ownership: std::collections::HashMap<String, i64> = rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.get::<String, _>("skill_id"),
+                    row.get::<i64, _>("is_managed"),
+                )
+            })
+            .collect();
+        assert_eq!(ownership.get("proven-symlink"), Some(&1));
+        assert_eq!(ownership.get("external-symlink"), Some(&0));
+        assert_eq!(ownership.get("legacy-copy"), Some(&0));
+        assert_eq!(ownership.get("legacy-native"), Some(&0));
+        assert_eq!(ownership.get("unproven-symlink"), Some(&0));
     }
 
     /// Verifies that calling `init_database` on a fresh database (one that already
