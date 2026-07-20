@@ -9,7 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "icon:desktop": "tauri icon src-tauri/icons/icon-source.png && node scripts/cleanup-mobile-icons.mjs",
+    "icon:desktop": "tauri icon src-tauri/icons/icon-source.png",
     "package:release:windows": "powershell -ExecutionPolicy Bypass -File scripts/package-release-windows.ps1",
     "package:release:macos": "bash scripts/package-release-macos.sh",
     "package:release:linux": "bash scripts/package-release-linux.sh",
