@@ -176,11 +176,13 @@ fn run_scan_test_hook(path: &Path) {
 // ─── Default scan roots ───────────────────────────────────────────────────────
 
 /// Returns a list of candidate scan roots, checking which ones exist on disk.
+#[cfg(test)]
 fn default_scan_roots() -> Vec<ScanRoot> {
     let home = resolve_home_dir();
     default_scan_roots_for_home(&home)
 }
 
+#[cfg(test)]
 fn default_scan_roots_for_home(home: &Path) -> Vec<ScanRoot> {
     let candidates = vec![
         (
@@ -210,6 +212,7 @@ fn default_scan_roots_for_home(home: &Path) -> Vec<ScanRoot> {
         .collect()
 }
 
+#[cfg(test)]
 fn scan_root_from_candidate(path: String, label: &str) -> ScanRoot {
     let path = normalize_scan_root_path(&path);
     let exists = Path::new(&path).exists();
@@ -430,7 +433,7 @@ async fn build_scan_roots(pool: &DbPool, defaults: Vec<ScanRoot>) -> Result<Vec<
 }
 
 async fn get_scan_roots_impl(pool: &DbPool) -> Result<Vec<ScanRoot>, String> {
-    build_scan_roots(pool, default_scan_roots()).await
+    build_scan_roots(pool, vec![]).await
 }
 
 /// Build the list of platform skill directory patterns to look for.
@@ -1320,7 +1323,7 @@ async fn get_obsidian_vault_skills_impl(
 /// Auto-detect candidate scan roots and return them.
 #[tauri::command]
 pub async fn discover_scan_roots() -> Result<Vec<ScanRoot>, String> {
-    Ok(default_scan_roots())
+    Ok(vec![])
 }
 
 /// Get scan roots with persisted enabled state from DB.
@@ -1428,11 +1431,26 @@ async fn get_discovered_skills_impl(
     pool: &DbPool,
     central_dir: &Path,
 ) -> Result<Vec<DiscoveredProject>, String> {
+    let scan_roots = get_scan_roots_impl(pool).await?;
+    let enabled_roots: Vec<&ScanRoot> = scan_roots
+        .iter()
+        .filter(|root| root.enabled && root.exists)
+        .collect();
+    if enabled_roots.is_empty() {
+        return Ok(vec![]);
+    }
+
     let rows = db::get_all_discovered_skills(pool).await?;
 
     // Convert DB rows to DiscoveredSkill structs, adding is_already_central.
     let skills: Vec<DiscoveredSkill> = rows
         .into_iter()
+        .filter(|row| {
+            let project_path = Path::new(&row.project_path);
+            enabled_roots
+                .iter()
+                .any(|root| scan_root_contains_path(root, project_path))
+        })
         .map(|row| {
             let skill_dir_name = Path::new(&row.dir_path)
                 .file_name()
@@ -3553,6 +3571,9 @@ mod tests {
             "from cache",
         );
         std::fs::create_dir_all(central_dir.join("cached-skill")).unwrap();
+        db::add_scan_directory(&pool, &tmp.path().to_string_lossy(), Some("Projects"))
+            .await
+            .unwrap();
 
         let now = Utc::now().to_rfc3339();
         db::insert_discovered_skill(
@@ -3589,6 +3610,44 @@ mod tests {
         assert!(
             !projects[0].skills[0].is_already_central,
             "central status should not be a stale cached snapshot"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_discovered_skills_hides_cached_rows_without_project_roots() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let pool = setup_test_db().await;
+        let central_dir = tmp.path().join("central");
+        let project_dir = tmp.path().join("project");
+        let skill_dir = create_skill(
+            &project_dir.join(".claude/skills"),
+            "cached-skill",
+            "Cached Skill",
+            "from stale cache",
+        );
+
+        let now = Utc::now().to_rfc3339();
+        db::insert_discovered_skill(
+            &pool,
+            "claude-code__project__cached-skill",
+            "Cached Skill",
+            Some("from stale cache"),
+            &skill_dir.join("SKILL.md").to_string_lossy(),
+            &skill_dir.to_string_lossy(),
+            &project_dir.to_string_lossy(),
+            "project",
+            "claude-code",
+            &now,
+        )
+        .await
+        .unwrap();
+
+        let projects = get_discovered_skills_impl(&pool, &central_dir)
+            .await
+            .unwrap();
+        assert!(
+            projects.is_empty(),
+            "cached project skills must not appear when no project directories are configured"
         );
     }
 

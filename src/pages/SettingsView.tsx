@@ -189,7 +189,6 @@ interface SoftwarePlatformsCardProps {
   isLoadingScanDirs: boolean;
   removingDir: string | null;
   removingAgent: string | null;
-  showBuiltinDirs: boolean;
   onAddDirectory: () => void;
   onAddPlatform: () => void;
   onRemoveDirectory: (path: string) => void;
@@ -197,7 +196,6 @@ interface SoftwarePlatformsCardProps {
   onViewPlatform: (agent: AgentWithStatus) => void;
   onEditPlatform: (agent: AgentWithStatus) => void;
   onRemovePlatform: (agentId: string) => void;
-  onToggleBuiltinDirs: () => void;
 }
 
 function SoftwarePlatformsCard({
@@ -208,7 +206,6 @@ function SoftwarePlatformsCard({
   isLoadingScanDirs,
   removingDir,
   removingAgent,
-  showBuiltinDirs,
   onAddDirectory,
   onAddPlatform,
   onRemoveDirectory,
@@ -216,11 +213,9 @@ function SoftwarePlatformsCard({
   onViewPlatform,
   onEditPlatform,
   onRemovePlatform,
-  onToggleBuiltinDirs,
 }: SoftwarePlatformsCardProps) {
   const { t } = useTranslation();
   const customDirs = scanDirectories.filter((d) => !d.is_builtin);
-  const builtinDirs = scanDirectories.filter((d) => d.is_builtin);
 
   return (
     <Card>
@@ -271,28 +266,6 @@ function SoftwarePlatformsCard({
                 )}
                 {customDirs.length === 0 && (
                   <p className="text-xs text-muted-foreground text-center py-2">{t("settings.noDirs")}</p>
-                )}
-                {builtinDirs.length > 0 && (
-                  <div>
-                    <button
-                      onClick={onToggleBuiltinDirs}
-                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                    >
-                      <span>{showBuiltinDirs ? "▾" : "▸"}</span>
-                      <span>{t("settings.builtinDir")} ({builtinDirs.length})</span>
-                    </button>
-                    {showBuiltinDirs && (
-                      <div className="grid grid-cols-2 gap-1.5 mt-2">
-                        {builtinDirs.map((dir) => (
-                          <div key={dir.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/30 text-xs text-muted-foreground truncate">
-                            <FolderOpen className="size-3 shrink-0" />
-                            <span className="truncate">{formatPathForDisplay(dir.path)}</span>
-                            {dir.label && <span className="shrink-0 opacity-60">· {dir.label}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 )}
               </div>
             )}
@@ -479,7 +452,6 @@ export function SettingsView() {
   const [showAiTestDetails, setShowAiTestDetails] = useState(false);
 
   const [isAddDirOpen, setIsAddDirOpen] = useState(false);
-  const [showBuiltinDirs, setShowBuiltinDirs] = useState(false);
   const [isPlatformDialogOpen, setIsPlatformDialogOpen] = useState(false);
   const [editingPlatform, setEditingPlatform] = useState<AgentWithStatus | null>(null);
   const [isViewingPlatform, setIsViewingPlatform] = useState(false);
@@ -1014,7 +986,6 @@ export function SettingsView() {
           isLoadingScanDirs={isLoadingScanDirs}
           removingDir={removingDir}
           removingAgent={removingAgent}
-          showBuiltinDirs={showBuiltinDirs}
           onAddDirectory={() => setIsAddDirOpen(true)}
           onAddPlatform={handleOpenAddPlatform}
           onRemoveDirectory={handleRemoveDirectory}
@@ -1022,7 +993,6 @@ export function SettingsView() {
           onViewPlatform={handleOpenViewPlatform}
           onEditPlatform={handleOpenEditPlatform}
           onRemovePlatform={handleRemovePlatform}
-          onToggleBuiltinDirs={() => setShowBuiltinDirs((v) => !v)}
         />
 
         {/* Section 2: Backup and migration */}

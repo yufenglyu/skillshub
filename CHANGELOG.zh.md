@@ -23,5 +23,6 @@
 ### 修复
 
 - 未配置项目目录时，浏览器 fixture 中的项目技能不再出现在项目技能库。
+- 项目技能库只显示来自已配置项目目录的结果；没有启用的项目目录时不再展示旧缓存项目技能。
 - 修复 Homebrew Rust 覆盖 rustup toolchain 时 macOS universal 打包找不到目标标准库的问题。
 - 修复 macOS 和 Linux 打包脚本中 `mktemp` 模板的跨平台兼容性。

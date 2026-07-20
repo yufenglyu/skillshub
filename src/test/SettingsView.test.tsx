@@ -577,13 +577,15 @@ describe("SettingsView", () => {
   it("shows empty state when no scan directories", () => {
     setupMocks({ scanDirs: [] });
     renderSettingsView();
-    expect(screen.getByText("暂无扫描目录")).toBeTruthy();
+    expect(screen.getByText("暂无项目目录")).toBeTruthy();
   });
 
-  it("renders builtin scan directory with 内置目录 label", () => {
+  it("does not render builtin scan directories as project directories", () => {
     setupMocks({ scanDirs: [mockBuiltinDir] });
     renderSettingsView();
-    expect(screen.getAllByText(/内置目录/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/内置目录/)).toBeNull();
+    expect(screen.queryByText("/Users/test/.agents/skills/")).toBeNull();
+    expect(screen.getByText("暂无项目目录")).toBeTruthy();
   });
 
   it("does not show remove button for builtin directories", () => {
@@ -826,7 +828,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.11.1")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.12.0")).toBeTruthy();
   });
 
   it("shows the database path in the about section", () => {

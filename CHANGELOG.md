@@ -23,5 +23,6 @@ Release focused on clearer platform management, project discovery behavior, and 
 ### Fixes
 
 - Prevent browser fixture project skills from appearing when no project directory is configured.
+- Show Project Skills only from configured project directories, and hide stale cached project-skill rows when no active project directory exists.
 - Fix macOS release packaging when Homebrew Rust shadows the rustup toolchain used to install universal targets.
 - Fix macOS and Linux release scripts to use a portable `mktemp` template.
