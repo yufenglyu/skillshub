@@ -57,6 +57,7 @@ desktop.ini
 *.swo
 
 # Local scratch / generated references
+docs/
 tmp/
 /tmp/
 reference/

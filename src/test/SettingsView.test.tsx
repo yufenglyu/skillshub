@@ -209,21 +209,24 @@ describe("SettingsView", () => {
   it("renders the existing settings sections", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("扫描目录")).toBeTruthy();
-    expect(screen.getByText("自定义平台")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "平台与项目目录" })).toBeTruthy();
+    expect(screen.getByText("项目目录")).toBeTruthy();
+    expect(screen.getByText("软件平台")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "扫描目录" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "自定义平台" })).toBeNull();
     expect(screen.getByText("关于")).toBeTruthy();
   });
 
-  it("groups directory settings in resource, central, scan order", () => {
+  it("groups directory settings in resource, central, software platform order", () => {
     setupMocks();
     renderSettingsView();
 
     const resource = screen.getByText("技能资源库目录");
     const central = screen.getByText("中央技能库目录");
-    const scan = screen.getByText("扫描目录");
+    const skillLocation = screen.getByRole("heading", { name: "平台与项目目录" });
 
     expect(resource.compareDocumentPosition(central) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(central.compareDocumentPosition(scan) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(central.compareDocumentPosition(skillLocation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("calls loadScanDirectories on mount", () => {
@@ -630,6 +633,19 @@ describe("SettingsView", () => {
     expect(screen.getByRole("button", { name: "添加项目目录" })).toBeTruthy();
   });
 
+  it("places add actions beside their matching project directory and software platform sections", () => {
+    setupMocks();
+    renderSettingsView();
+
+    const projectHeading = screen.getByText("项目目录").closest("[data-testid='settings-project-directories-header']");
+    const platformHeading = screen.getByText("软件平台").closest("[data-testid='settings-software-platforms-header']");
+
+    expect(projectHeading).toBeTruthy();
+    expect(platformHeading).toBeTruthy();
+    expect(projectHeading).toContainElement(screen.getByRole("button", { name: "添加项目目录" }));
+    expect(platformHeading).toContainElement(screen.getByRole("button", { name: "添加自定义平台" }));
+  });
+
   it("opens add directory dialog when button is clicked", async () => {
     setupMocks();
     renderSettingsView();
@@ -679,10 +695,20 @@ describe("SettingsView", () => {
 
   // ── Custom Platforms section ──────────────────────────────────────────────
 
-  it("shows empty state when no custom platforms", () => {
-    setupMocks({ agents: [mockBuiltinAgent] }); // only builtin agents
+  it("shows empty state when no software platforms", () => {
+    setupMocks({ agents: [] });
     renderSettingsView();
-    expect(screen.getByText("暂无自定义平台。点击「添加平台」注册新平台。")).toBeTruthy();
+    expect(screen.getByText("暂无软件平台。点击「添加平台」注册自定义平台。")).toBeTruthy();
+  });
+
+  it("renders builtin platform with a view action and no edit or remove actions", () => {
+    setupMocks({ agents: [mockBuiltinAgent] });
+    renderSettingsView();
+
+    expect(screen.getByText("Claude Code")).toBeTruthy();
+    expect(screen.getByRole("button", { name: `查看平台 ${mockBuiltinAgent.display_name}` })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: `编辑平台 ${mockBuiltinAgent.display_name}` })).toBeNull();
+    expect(screen.queryByRole("button", { name: `删除平台 ${mockBuiltinAgent.display_name}` })).toBeNull();
   });
 
   it("renders custom platform with name and path", () => {
@@ -708,13 +734,10 @@ describe("SettingsView", () => {
     ).toBeTruthy();
   });
 
-  it("does not show builtin agents in custom platforms list", () => {
+  it("shows builtin agents in the software platforms list", () => {
     setupMocks({ agents: [mockBuiltinAgent] });
     renderSettingsView();
-    // builtin agent should not appear in custom platforms section
-    expect(
-      screen.queryByRole("button", { name: `编辑平台 ${mockBuiltinAgent.display_name}` })
-    ).toBeNull();
+    expect(screen.getByText(mockBuiltinAgent.display_name)).toBeTruthy();
   });
 
   it("shows add platform button", () => {
@@ -740,6 +763,19 @@ describe("SettingsView", () => {
     );
     await waitFor(() => {
       expect(screen.getByText("编辑自定义平台")).toBeTruthy();
+    });
+  });
+
+  it("opens readonly platform dialog when builtin view button is clicked", async () => {
+    setupMocks({ agents: [mockBuiltinAgent] });
+    renderSettingsView();
+    fireEvent.click(
+      screen.getByRole("button", { name: `查看平台 ${mockBuiltinAgent.display_name}` })
+    );
+    await waitFor(() => {
+      expect(screen.getByText("查看内置平台")).toBeTruthy();
+      expect(screen.getByLabelText("平台名称 *")).toBeDisabled();
+      expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
     });
   });
 

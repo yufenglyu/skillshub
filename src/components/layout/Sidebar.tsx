@@ -158,6 +158,7 @@ export function Sidebar() {
   const platformAgents = agents.filter(
     (a) =>
       isEnabledInstallTargetAgent(a) &&
+      a.is_detected &&
       (showAllPlatforms || (skillsByAgent[a.id] ?? 0) > 0)
   );
   const lobsterAgents = platformAgents.filter((a) => a.category === "lobster");

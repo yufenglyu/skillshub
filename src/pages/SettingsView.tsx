@@ -1,5 +1,5 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload } from "lucide-react";
+import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, Eye } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -24,6 +24,7 @@ import { PlatformDialog } from "@/components/settings/PlatformDialog";
 import { Input } from "@/components/ui/input";
 import { AgentWithStatus, BackupOptions, ScanDirectory, WebDavBackupFile } from "@/types";
 import { AI_PROVIDERS, REGION_LABELS, RegionId } from "@/data/aiProviders";
+import { isInstallTargetAgent } from "@/lib/agents";
 import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/path";
 
 // ─── App constants ────────────────────────────────────────────────────────────
@@ -117,72 +118,106 @@ function ScanDirectoryRow({ dir, onRemove, onToggle, isRemoving }: ScanDirectory
   );
 }
 
-// ─── CustomPlatformRow ────────────────────────────────────────────────────────
+// ─── SoftwarePlatformRow ──────────────────────────────────────────────────────
 
-interface CustomPlatformRowProps {
+interface SoftwarePlatformRowProps {
   agent: AgentWithStatus;
+  onView: () => void;
   onEdit: () => void;
   onRemove: () => void;
   isRemoving: boolean;
 }
 
-function CustomPlatformRow({ agent, onEdit, onRemove, isRemoving }: CustomPlatformRowProps) {
+function SoftwarePlatformRow({ agent, onView, onEdit, onRemove, isRemoving }: SoftwarePlatformRowProps) {
   const { t } = useTranslation();
   return (
     <div className="flex items-center gap-3 py-2.5 px-4 border-b border-border/50 last:border-0">
       <Cpu className="size-4 text-muted-foreground shrink-0" />
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{agent.display_name}</div>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="text-sm font-medium truncate">{agent.display_name}</div>
+          <span className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+            {agent.is_builtin ? t("settings.builtinPlatform") : t("settings.customPlatform")}
+          </span>
+        </div>
         <div className="text-xs text-muted-foreground truncate mt-0.5">
           {formatPathForDisplay(agent.global_skills_dir)}
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onEdit}
-          aria-label={t("settings.editPlatformLabel", { name: agent.display_name })}
-        >
-          <Pencil className="size-3.5" />
-          <span>{t("common.edit")}</span>
-        </Button>
-        <InlineConfirmAction
-          onConfirm={onRemove}
-          isLoading={isRemoving}
-          idleAriaLabel={t("settings.removePlatformLabel", { name: agent.display_name })}
-          idleTitle={t("settings.removePlatformLabel", { name: agent.display_name })}
-          confirmLabel={t("common.confirmDelete")}
-          icon={<Trash2 className="size-3.5" />}
-        />
+        {agent.is_builtin ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onView}
+            aria-label={t("settings.viewPlatformLabel", { name: agent.display_name })}
+          >
+            <Eye className="size-3.5" />
+            <span>{t("common.view")}</span>
+          </Button>
+        ) : (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onEdit}
+              aria-label={t("settings.editPlatformLabel", { name: agent.display_name })}
+            >
+              <Pencil className="size-3.5" />
+              <span>{t("common.edit")}</span>
+            </Button>
+            <InlineConfirmAction
+              onConfirm={onRemove}
+              isLoading={isRemoving}
+              idleAriaLabel={t("settings.removePlatformLabel", { name: agent.display_name })}
+              idleTitle={t("settings.removePlatformLabel", { name: agent.display_name })}
+              confirmLabel={t("common.confirmDelete")}
+              icon={<Trash2 className="size-3.5" />}
+            />
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-interface ScanDirectoriesCardProps {
+interface SoftwarePlatformsCardProps {
   scanDirectories: ScanDirectory[];
+  softwarePlatforms: AgentWithStatus[];
   scanDirError: string | null;
+  platformError: string | null;
   isLoadingScanDirs: boolean;
   removingDir: string | null;
+  removingAgent: string | null;
   showBuiltinDirs: boolean;
   onAddDirectory: () => void;
+  onAddPlatform: () => void;
   onRemoveDirectory: (path: string) => void;
   onToggleDirectory: (path: string, active: boolean) => void;
+  onViewPlatform: (agent: AgentWithStatus) => void;
+  onEditPlatform: (agent: AgentWithStatus) => void;
+  onRemovePlatform: (agentId: string) => void;
   onToggleBuiltinDirs: () => void;
 }
 
-function ScanDirectoriesCard({
+function SoftwarePlatformsCard({
   scanDirectories,
+  softwarePlatforms,
   scanDirError,
+  platformError,
   isLoadingScanDirs,
   removingDir,
+  removingAgent,
   showBuiltinDirs,
   onAddDirectory,
+  onAddPlatform,
   onRemoveDirectory,
   onToggleDirectory,
+  onViewPlatform,
+  onEditPlatform,
+  onRemovePlatform,
   onToggleBuiltinDirs,
-}: ScanDirectoriesCardProps) {
+}: SoftwarePlatformsCardProps) {
   const { t } = useTranslation();
   const customDirs = scanDirectories.filter((d) => !d.is_builtin);
   const builtinDirs = scanDirectories.filter((d) => d.is_builtin);
@@ -190,66 +225,124 @@ function ScanDirectoriesCard({
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div>
           <div>
-            <CardTitle>{t("settings.scanDirs")}</CardTitle>
-            <CardDescription className="mt-1">{t("settings.scanDirsDesc")}</CardDescription>
+            <CardTitle role="heading" aria-level={2}>{t("settings.platformProjectLocations")}</CardTitle>
+            <CardDescription className="mt-1">{t("settings.platformProjectLocationsDesc")}</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={onAddDirectory} aria-label={t("settings.addDirAriaLabel")}>
-            <Plus className="size-3.5" />
-            <span>{t("settings.addDirectory")}</span>
-          </Button>
         </div>
       </CardHeader>
       <CardContent>
-        {scanDirError && <p className="text-xs text-destructive mb-3" role="alert">{scanDirError}</p>}
-        {isLoadingScanDirs ? (
-          <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm justify-center">
-            <Loader2 className="size-4 animate-spin" />
-            <span>{t("settings.loading")}</span>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {customDirs.length > 0 && (
-              <div className="rounded-lg border border-border overflow-hidden">
-                {customDirs.map((dir) => (
-                  <ScanDirectoryRow
-                    key={dir.id}
-                    dir={dir}
-                    onRemove={() => onRemoveDirectory(dir.path)}
-                    onToggle={(active) => onToggleDirectory(dir.path, active)}
-                    isRemoving={removingDir === dir.path}
-                  />
-                ))}
+        <div className="space-y-5">
+          <div>
+            <div
+              data-testid="settings-project-directories-header"
+              className="mb-2 flex items-center justify-between gap-3"
+            >
+              <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                <FolderOpen className="size-4 text-muted-foreground" />
+                <span>{t("settings.projectDirectories")}</span>
               </div>
-            )}
-            {customDirs.length === 0 && (
-              <p className="text-xs text-muted-foreground text-center py-2">{t("settings.noDirs")}</p>
-            )}
-            {builtinDirs.length > 0 && (
-              <div>
-                <button
-                  onClick={onToggleBuiltinDirs}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                >
-                  <span>{showBuiltinDirs ? "▾" : "▸"}</span>
-                  <span>{t("settings.builtinDir")} ({builtinDirs.length})</span>
-                </button>
-                {showBuiltinDirs && (
-                  <div className="grid grid-cols-2 gap-1.5 mt-2">
-                    {builtinDirs.map((dir) => (
-                      <div key={dir.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/30 text-xs text-muted-foreground truncate">
-                        <FolderOpen className="size-3 shrink-0" />
-                        <span className="truncate">{formatPathForDisplay(dir.path)}</span>
-                        {dir.label && <span className="shrink-0 opacity-60">· {dir.label}</span>}
-                      </div>
+              <Button variant="outline" size="sm" onClick={onAddDirectory} aria-label={t("settings.addDirAriaLabel")}>
+                <Plus className="size-3.5" />
+                <span>{t("settings.addDirectory")}</span>
+              </Button>
+            </div>
+            {scanDirError && <p className="text-xs text-destructive mb-3" role="alert">{scanDirError}</p>}
+            {isLoadingScanDirs ? (
+              <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm justify-center">
+                <Loader2 className="size-4 animate-spin" />
+                <span>{t("settings.loading")}</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {customDirs.length > 0 && (
+                  <div className="rounded-lg border border-border overflow-hidden">
+                    {customDirs.map((dir) => (
+                      <ScanDirectoryRow
+                        key={dir.id}
+                        dir={dir}
+                        onRemove={() => onRemoveDirectory(dir.path)}
+                        onToggle={(active) => onToggleDirectory(dir.path, active)}
+                        isRemoving={removingDir === dir.path}
+                      />
                     ))}
+                  </div>
+                )}
+                {customDirs.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-2">{t("settings.noDirs")}</p>
+                )}
+                {builtinDirs.length > 0 && (
+                  <div>
+                    <button
+                      onClick={onToggleBuiltinDirs}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      <span>{showBuiltinDirs ? "▾" : "▸"}</span>
+                      <span>{t("settings.builtinDir")} ({builtinDirs.length})</span>
+                    </button>
+                    {showBuiltinDirs && (
+                      <div className="grid grid-cols-2 gap-1.5 mt-2">
+                        {builtinDirs.map((dir) => (
+                          <div key={dir.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/30 text-xs text-muted-foreground truncate">
+                            <FolderOpen className="size-3 shrink-0" />
+                            <span className="truncate">{formatPathForDisplay(dir.path)}</span>
+                            {dir.label && <span className="shrink-0 opacity-60">· {dir.label}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
           </div>
-        )}
+
+          <div>
+            <div
+              data-testid="settings-software-platforms-header"
+              className="mb-2 flex items-center justify-between gap-3"
+            >
+              <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                <Cpu className="size-4 text-muted-foreground" />
+                <span>{t("settings.softwarePlatforms")}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onAddPlatform}
+                aria-label={t("settings.addPlatformAriaLabel")}
+              >
+                <Plus className="size-3.5" />
+                <span>{t("settings.addPlatform")}</span>
+              </Button>
+            </div>
+            {platformError && (
+              <p className="text-xs text-destructive mb-3" role="alert">
+                {platformError}
+              </p>
+            )}
+
+            {softwarePlatforms.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                {t("settings.noPlatforms")}
+              </p>
+            ) : (
+              <div className="rounded-lg border border-border overflow-hidden">
+                {softwarePlatforms.map((agent) => (
+                  <SoftwarePlatformRow
+                    key={agent.id}
+                    agent={agent}
+                    onView={() => onViewPlatform(agent)}
+                    onEdit={() => onEditPlatform(agent)}
+                    onRemove={() => onRemovePlatform(agent.id)}
+                    isRemoving={removingAgent === agent.id}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -298,8 +391,7 @@ export function SettingsView() {
   const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
   const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
 
-  // Custom agents are those that are not built-in.
-  const customAgents = agents.filter((a) => !a.is_builtin);
+  const softwarePlatforms = agents.filter(isInstallTargetAgent);
   const centralAgent = agents.find((a) => a.id === "central");
   const homeDir = useMemo(() => {
     const candidates = [
@@ -390,6 +482,7 @@ export function SettingsView() {
   const [showBuiltinDirs, setShowBuiltinDirs] = useState(false);
   const [isPlatformDialogOpen, setIsPlatformDialogOpen] = useState(false);
   const [editingPlatform, setEditingPlatform] = useState<AgentWithStatus | null>(null);
+  const [isViewingPlatform, setIsViewingPlatform] = useState(false);
   const [removingDir, setRemovingDir] = useState<string | null>(null);
   const [removingAgent, setRemovingAgent] = useState<string | null>(null);
   const [scanDirError, setScanDirError] = useState<string | null>(null);
@@ -558,12 +651,21 @@ export function SettingsView() {
 
   function handleOpenAddPlatform() {
     setEditingPlatform(null);
+    setIsViewingPlatform(false);
+    setPlatformError(null);
+    setIsPlatformDialogOpen(true);
+  }
+
+  function handleOpenViewPlatform(agent: AgentWithStatus) {
+    setEditingPlatform(agent);
+    setIsViewingPlatform(true);
     setPlatformError(null);
     setIsPlatformDialogOpen(true);
   }
 
   function handleOpenEditPlatform(agent: AgentWithStatus) {
     setEditingPlatform(agent);
+    setIsViewingPlatform(false);
     setPlatformError(null);
     setIsPlatformDialogOpen(true);
   }
@@ -904,15 +1006,22 @@ export function SettingsView() {
           </CardContent>
         </Card>
 
-        <ScanDirectoriesCard
+        <SoftwarePlatformsCard
           scanDirectories={scanDirectories}
+          softwarePlatforms={softwarePlatforms}
           scanDirError={scanDirError}
+          platformError={platformError}
           isLoadingScanDirs={isLoadingScanDirs}
           removingDir={removingDir}
+          removingAgent={removingAgent}
           showBuiltinDirs={showBuiltinDirs}
           onAddDirectory={() => setIsAddDirOpen(true)}
+          onAddPlatform={handleOpenAddPlatform}
           onRemoveDirectory={handleRemoveDirectory}
           onToggleDirectory={handleToggleDirectory}
+          onViewPlatform={handleOpenViewPlatform}
+          onEditPlatform={handleOpenEditPlatform}
+          onRemovePlatform={handleRemovePlatform}
           onToggleBuiltinDirs={() => setShowBuiltinDirs((v) => !v)}
         />
 
@@ -1022,55 +1131,6 @@ export function SettingsView() {
                 <span>{t("settings.webdavImportSelected")}</span>
               </Button>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Section 3: Custom Platforms */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>{t("settings.customPlatforms")}</CardTitle>
-                <CardDescription className="mt-1">
-                  {t("settings.customPlatformsDesc")}
-                </CardDescription>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleOpenAddPlatform}
-                aria-label={t("settings.addPlatformAriaLabel")}
-              >
-                <Plus className="size-3.5" />
-                <span>{t("settings.addPlatform")}</span>
-              </Button>
-            </div>
-          </CardHeader>
-
-          <CardContent>
-            {platformError && (
-              <p className="text-xs text-destructive mb-3" role="alert">
-                {platformError}
-              </p>
-            )}
-
-            {customAgents.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                {t("settings.noPlatforms")}
-              </p>
-            ) : (
-              <div className="rounded-lg border border-border overflow-hidden">
-                {customAgents.map((agent) => (
-                  <CustomPlatformRow
-                    key={agent.id}
-                    agent={agent}
-                    onEdit={() => handleOpenEditPlatform(agent)}
-                    onRemove={() => handleRemovePlatform(agent.id)}
-                    isRemoving={removingAgent === agent.id}
-                  />
-                ))}
-              </div>
-            )}
           </CardContent>
         </Card>
 
@@ -1316,8 +1376,12 @@ export function SettingsView() {
 
       <PlatformDialog
         open={isPlatformDialogOpen}
-        onOpenChange={setIsPlatformDialogOpen}
+        onOpenChange={(open) => {
+          setIsPlatformDialogOpen(open);
+          if (!open) setIsViewingPlatform(false);
+        }}
         platform={editingPlatform}
+        readOnly={isViewingPlatform}
         onAdd={handleAddPlatform}
         onEdit={handleEditPlatform}
       />

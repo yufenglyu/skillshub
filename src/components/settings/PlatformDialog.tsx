@@ -24,6 +24,7 @@ interface PlatformDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Pass a platform to edit it; null for create mode. */
   platform: AgentWithStatus | null;
+  readOnly?: boolean;
   onAdd?: (displayName: string, globalSkillsDir: string, category?: string) => Promise<void>;
   onEdit?: (displayName: string, globalSkillsDir: string, category?: string) => Promise<void>;
 }
@@ -34,12 +35,14 @@ export function PlatformDialog({
   open,
   onOpenChange,
   platform,
+  readOnly = false,
   onAdd,
   onEdit,
 }: PlatformDialogProps) {
   const { t } = useTranslation();
   const agents = usePlatformStore((state) => state.agents);
-  const isEditMode = platform !== null;
+  const isReadOnly = readOnly && platform !== null;
+  const isEditMode = platform !== null && !isReadOnly;
   const homeDir = useMemo(() => {
     const candidates = [
       platform?.global_skills_dir,
@@ -75,6 +78,8 @@ export function PlatformDialog({
   }, [open, platform, isEditMode]);
 
   async function handleSubmit() {
+    if (isReadOnly) return;
+
     const trimmedName = displayName.trim();
     const trimmedDir = globalSkillsDir.trim();
 
@@ -116,14 +121,20 @@ export function PlatformDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {isEditMode ? t("platformDialog.editTitle") : t("platformDialog.addTitle")}
+            {isReadOnly
+              ? t("platformDialog.viewTitle")
+              : isEditMode
+                ? t("platformDialog.editTitle")
+                : t("platformDialog.addTitle")}
           </DialogTitle>
           <DialogClose />
         </DialogHeader>
 
         <DialogBody className="space-y-4">
           <DialogDescription>
-            {isEditMode
+            {isReadOnly
+              ? t("platformDialog.viewDesc")
+              : isEditMode
               ? t("platformDialog.editDesc")
               : t("platformDialog.addDesc")}
           </DialogDescription>
@@ -153,8 +164,8 @@ export function PlatformDialog({
                   );
                 }
               }}
-              disabled={isSubmitting}
-              autoFocus
+              disabled={isSubmitting || isReadOnly}
+              autoFocus={!isReadOnly}
             />
             {nameError && (
               <p className="text-xs text-destructive" role="alert">
@@ -177,7 +188,7 @@ export function PlatformDialog({
                 setDirManuallyEdited(true);
                 if (dirError) setDirError(null);
               }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isReadOnly}
             />
             {dirError && (
               <p className="text-xs text-destructive" role="alert">
@@ -204,7 +215,7 @@ export function PlatformDialog({
                   key={cat}
                   type="button"
                   onClick={() => setCategory(cat)}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isReadOnly}
                   className={`px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer border ${
                     category === cat
                       ? "bg-primary/15 border-primary text-foreground font-medium"
@@ -227,24 +238,26 @@ export function PlatformDialog({
 
         <DialogFooter>
           <Button
-            variant="outline"
+            variant={isReadOnly ? "default" : "outline"}
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
           >
-            {t("platformDialog.cancel")}
+            {isReadOnly ? t("common.close") : t("platformDialog.cancel")}
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? (
-              <>
-                <Loader2 className="size-3.5 animate-spin" />
-                {isEditMode ? t("platformDialog.saving") : t("platformDialog.adding")}
-              </>
-            ) : isEditMode ? (
-              t("platformDialog.save")
-            ) : (
-              t("platformDialog.add")
-            )}
-          </Button>
+          {!isReadOnly && (
+            <Button onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" />
+                  {isEditMode ? t("platformDialog.saving") : t("platformDialog.adding")}
+                </>
+              ) : isEditMode ? (
+                t("platformDialog.save")
+              ) : (
+                t("platformDialog.add")
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

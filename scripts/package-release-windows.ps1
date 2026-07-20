@@ -1,8 +1,5 @@
 param(
   [string]$Version,
-  [Alias("Platform")]
-  [ValidateSet("auto", "all", "windows", "macos", "linux")]
-  [string[]]$Platforms = @("auto"),
   [string]$OutputDir = "release-assets",
   [switch]$SkipTests,
   [switch]$SkipInstall,
@@ -74,53 +71,16 @@ function Detect-Platform {
   if (Test-IsWindows) { return "windows" }
   if (Test-IsMacOS) { return "macos" }
   if (Test-IsLinux) { return "linux" }
-  throw "Unsupported OS. Pass -Platforms windows|macos|linux explicitly."
+  throw "Unsupported OS."
 }
 
-function Resolve-TargetPlatforms {
-  param([string[]]$RequestedPlatforms)
-
-  $expanded = New-Object System.Collections.Generic.List[string]
-  foreach ($requested in $RequestedPlatforms) {
-    switch ($requested) {
-      "auto" {
-        if ($RequestedPlatforms.Count -gt 1) {
-          throw "Do not combine 'auto' with explicit platforms."
-        }
-        $expanded.Add((Detect-Platform))
-      }
-      "all" {
-        if ($RequestedPlatforms.Count -gt 1) {
-          throw "Do not combine 'all' with explicit platforms."
-        }
-        $expanded.Add("windows")
-        $expanded.Add("linux")
-        $expanded.Add("macos")
-      }
-      default {
-        $expanded.Add($requested)
-      }
-    }
-  }
-
-  $unique = @()
-  foreach ($platform in $expanded) {
-    if ($unique -notcontains $platform) {
-      $unique += $platform
-    }
-  }
-  return $unique
-}
-
-function Assert-HostCanPackagePlatforms {
-  param([string[]]$TargetPlatforms, [bool]$SkipActualBuild)
+function Assert-WindowsHost {
+  param([bool]$SkipActualBuild)
   if ($SkipActualBuild) { return }
 
   $hostPlatform = Detect-Platform
-  foreach ($targetPlatform in $TargetPlatforms) {
-    if ($targetPlatform -ne $hostPlatform) {
-      throw "Cannot package $targetPlatform assets on $hostPlatform. Tauri desktop bundles are host-specific; run this script on $targetPlatform or use the GitHub Actions release workflow."
-    }
+  if ($hostPlatform -ne "windows") {
+    throw "Cannot package Windows assets on $hostPlatform. Tauri desktop bundles are host-specific; run this script on Windows."
   }
 }
 
@@ -196,35 +156,6 @@ function Update-VersionFiles {
     Write-TextFile $metainfoPath $metainfo
   }
 
-  $notesDir = Join-Path $Root "release-notes"
-  New-Item -ItemType Directory -Force -Path $notesDir | Out-Null
-  $notesPath = Join-Path $notesDir "$NextVersion.md"
-  if (-not (Test-Path $notesPath)) {
-    $today = Get-Date -Format "yyyy-MM-dd"
-    $notesLines = @(
-      "## $NextVersion - $today",
-      "",
-      "Maintenance release focused on local packaging, version consistency, and preserving existing user configuration.",
-      "",
-      "### Improvements",
-      "",
-      "- Add a local release packaging script that produces assets matching the upstream GitHub Release naming pattern.",
-      "- Keep application identity and Windows MSI upgrade code stable for upgrades from older versions.",
-      "",
-      "### Fixes",
-      "",
-      '- Store app data under `~/.skillshub/db.sqlite` while preserving first-run migration from `~/.skillsmanage/db.sqlite`.',
-      "",
-      "---",
-      "",
-      "## $NextVersion - $today (Chinese notes)",
-      "",
-      "Fill in localized release notes before publishing the GitHub Release."
-    )
-    $notes = $notesLines -join [Environment]::NewLine
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($notesPath, $notes, $utf8NoBom)
-  }
 }
 
 function Ensure-Dependencies {
@@ -258,7 +189,7 @@ function Build-Frontend {
 }
 
 function Build-App {
-  param([string]$Root, [string]$TargetPlatform)
+  param([string]$Root)
   if ($SkipBuild) { return }
 
   Build-Frontend -Root $Root
@@ -272,17 +203,7 @@ function Build-App {
   $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllText($skipBeforeBuildPath, '{"build":{"beforeBuildCommand":""}}', $utf8NoBom)
   try {
-    switch ($TargetPlatform) {
-      "windows" {
-        Run $tauriCmd @("build", "--target", "x86_64-pc-windows-msvc", "--bundles", "msi", "--no-sign", "--ci", "--config", $skipBeforeBuildPath)
-      }
-      "macos" {
-        Run $tauriCmd @("build", "--target", "universal-apple-darwin", "--bundles", "app,dmg", "--no-sign", "--ci", "--config", $skipBeforeBuildPath)
-      }
-      "linux" {
-        Run $tauriCmd @("build", "--bundles", "deb,rpm,appimage", "--no-sign", "--ci", "--config", $skipBeforeBuildPath)
-      }
-    }
+    Run $tauriCmd @("build", "--target", "x86_64-pc-windows-msvc", "--bundles", "msi", "--no-sign", "--ci", "--config", $skipBeforeBuildPath)
   } finally {
     Remove-Item -LiteralPath $skipBeforeBuildPath -Force -ErrorAction SilentlyContinue
   }
@@ -303,35 +224,6 @@ function Copy-WindowsAssets {
   Compress-Archive -Path $exe -DestinationPath (Join-Path $OutDir "skillshub_${NextVersion}_windows_x64.zip") -Force
 }
 
-function Copy-MacosAssets {
-  param([string]$Root, [string]$NextVersion, [string]$OutDir)
-  $bundleRoot = Join-Path $Root "src-tauri/target/universal-apple-darwin/release/bundle"
-  $app = Get-ChildItem -Path (Join-Path $bundleRoot "macos") -Directory -Filter *.app -ErrorAction SilentlyContinue | Select-Object -First 1
-  $dmg = Get-ChildItem -Path (Join-Path $bundleRoot "dmg") -File -Filter *.dmg -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($null -eq $app) { throw "macOS .app bundle not found under $bundleRoot." }
-  if ($null -eq $dmg) { throw "macOS .dmg bundle not found under $bundleRoot." }
-
-  Copy-Item $dmg.FullName (Join-Path $OutDir "skillshub_${NextVersion}_macos_universal.dmg") -Force
-  Run "ditto" @("-c", "-k", "--keepParent", $app.FullName, (Join-Path $OutDir "skillshub_${NextVersion}_macos_universal.zip"))
-  Run "tar" @("-C", $app.Parent.FullName, "-czf", (Join-Path $OutDir "skillshub_${NextVersion}_macos_universal.tar.gz"), $app.Name)
-}
-
-function Copy-LinuxAssets {
-  param([string]$Root, [string]$NextVersion, [string]$OutDir)
-  $bundleRoot = Join-Path $Root "src-tauri/target/release/bundle"
-  $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64) { "arm64" } else { "x86_64" }
-  $deb = Get-ChildItem -Path (Join-Path $bundleRoot "deb") -File -Filter *.deb -ErrorAction SilentlyContinue | Select-Object -First 1
-  $rpm = Get-ChildItem -Path (Join-Path $bundleRoot "rpm") -File -Filter *.rpm -ErrorAction SilentlyContinue | Select-Object -First 1
-  $appImage = Get-ChildItem -Path (Join-Path $bundleRoot "appimage") -File -Filter *.AppImage -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($null -eq $deb) { throw "Linux .deb bundle not found under $bundleRoot." }
-  if ($null -eq $rpm) { throw "Linux .rpm bundle not found under $bundleRoot." }
-  if ($null -eq $appImage) { throw "Linux .AppImage bundle not found under $bundleRoot." }
-
-  Copy-Item $deb.FullName (Join-Path $OutDir "skillshub-v${NextVersion}-Linux-${arch}.deb") -Force
-  Copy-Item $rpm.FullName (Join-Path $OutDir "skillshub-v${NextVersion}-Linux-${arch}.rpm") -Force
-  Copy-Item $appImage.FullName (Join-Path $OutDir "skillshub-v${NextVersion}-Linux-${arch}.AppImage") -Force
-}
-
 $root = RepoRoot
 Set-Location $root
 
@@ -346,28 +238,20 @@ if ($VersionOnly) {
   exit 0
 }
 
-$targetPlatforms = Resolve-TargetPlatforms -RequestedPlatforms $Platforms
-Assert-HostCanPackagePlatforms -TargetPlatforms $targetPlatforms -SkipActualBuild ([bool]$SkipBuild)
+Assert-WindowsHost -SkipActualBuild ([bool]$SkipBuild)
 $outPath = Join-Path $root $OutputDir
 New-Item -ItemType Directory -Force -Path $outPath | Out-Null
 
 Ensure-Dependencies -Root $root
 Run-Checks -Root $root
 
-foreach ($targetPlatform in $targetPlatforms) {
-  Write-Host "Packaging target: $targetPlatform" -ForegroundColor Yellow
-  Build-App -Root $root -TargetPlatform $targetPlatform
+Write-Host "Packaging target: windows" -ForegroundColor Yellow
+Build-App -Root $root
 
-  if ($SkipBuild) {
-    Write-Host "Skipping asset copy for $targetPlatform because -SkipBuild was set." -ForegroundColor DarkYellow
-    continue
-  }
-
-  switch ($targetPlatform) {
-    "windows" { Copy-WindowsAssets -Root $root -NextVersion $nextVersion -OutDir $outPath }
-    "macos" { Copy-MacosAssets -Root $root -NextVersion $nextVersion -OutDir $outPath }
-    "linux" { Copy-LinuxAssets -Root $root -NextVersion $nextVersion -OutDir $outPath }
-  }
+if ($SkipBuild) {
+  Write-Host "Skipping asset copy for windows because -SkipBuild was set." -ForegroundColor DarkYellow
+  exit 0
 }
 
-Write-Host "Packaged $($targetPlatforms -join ', ') assets in $outPath" -ForegroundColor Green
+Copy-WindowsAssets -Root $root -NextVersion $nextVersion -OutDir $outPath
+Write-Host "Packaged windows assets in $outPath" -ForegroundColor Green

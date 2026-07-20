@@ -12,32 +12,6 @@ import {
 import { invoke, listen, isTauriRuntime } from "@/lib/tauri";
 import { OBSIDIAN_AGENT_ID } from "@/lib/agents";
 
-const BROWSER_FIXTURE_DISCOVERED_PROJECTS: DiscoveredProject[] = [
-  {
-    project_path: "/Users/fixture/project",
-    project_name: "Fixture Project",
-    skills: [
-      {
-        id: "fixture-central-skill",
-        name: "fixture-central-skill",
-        description: "Browser validation fixture for Discover drawer entry.",
-        file_path: "/Users/fixture/project/.skills/fixture-central-skill/SKILL.md",
-        dir_path: "/Users/fixture/project/.skills/fixture-central-skill",
-        platform_id: "claude-code",
-        platform_name: "Claude Code",
-        project_path: "/Users/fixture/project",
-        project_name: "Fixture Project",
-        is_already_central: true,
-      },
-    ],
-  },
-];
-
-const BROWSER_FIXTURE_TOTAL_SKILLS = BROWSER_FIXTURE_DISCOVERED_PROJECTS.reduce(
-  (sum, project) => sum + project.skills.length,
-  0
-);
-
 // ─── State ────────────────────────────────────────────────────────────────────
 
 interface DiscoverState {
@@ -260,8 +234,8 @@ export const useDiscoverStore = create<DiscoverState>((set, get) => ({
     set({ error: null });
     if (!isTauriRuntime()) {
       set({
-        discoveredProjects: BROWSER_FIXTURE_DISCOVERED_PROJECTS,
-        totalSkillsFound: 1,
+        discoveredProjects: [],
+        totalSkillsFound: 0,
       });
       return;
     }
@@ -280,8 +254,8 @@ export const useDiscoverStore = create<DiscoverState>((set, get) => ({
   refreshCounts: async () => {
     if (!isTauriRuntime()) {
       set({
-        discoveredProjects: BROWSER_FIXTURE_DISCOVERED_PROJECTS,
-        totalSkillsFound: BROWSER_FIXTURE_TOTAL_SKILLS,
+        discoveredProjects: [],
+        totalSkillsFound: 0,
       });
       return;
     }
@@ -306,10 +280,10 @@ export const useDiscoverStore = create<DiscoverState>((set, get) => ({
         isScanning: false,
         scanProgress: 100,
         currentPath: "",
-        skillsFoundSoFar: BROWSER_FIXTURE_TOTAL_SKILLS,
-        projectsFoundSoFar: BROWSER_FIXTURE_DISCOVERED_PROJECTS.length,
-        discoveredProjects: BROWSER_FIXTURE_DISCOVERED_PROJECTS,
-        totalSkillsFound: BROWSER_FIXTURE_TOTAL_SKILLS,
+        skillsFoundSoFar: 0,
+        projectsFoundSoFar: 0,
+        discoveredProjects: [],
+        totalSkillsFound: 0,
         lastScanAt: new Date().toISOString(),
         selectedSkillIds: new Set<string>(),
         error: null,

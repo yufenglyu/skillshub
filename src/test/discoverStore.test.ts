@@ -323,20 +323,14 @@ describe("discoverStore", () => {
     expect(state.error).toContain("load failed");
   });
 
-  it("returns deterministic browser fixture discover results when Tauri runtime is unavailable", async () => {
+  it("returns empty discover results when Tauri runtime is unavailable", async () => {
     const isTauriSpy = vi.spyOn(tauriBridge, "isTauriRuntime").mockReturnValue(false);
 
     await useDiscoverStore.getState().loadDiscoveredSkills();
 
     expect(invoke).not.toHaveBeenCalled();
-    expect(useDiscoverStore.getState().discoveredProjects).toEqual([
-      expect.objectContaining({
-        project_name: "Fixture Project",
-        project_path: "/Users/fixture/project",
-        skills: [expect.objectContaining({ id: "fixture-central-skill", is_already_central: true })],
-      }),
-    ]);
-    expect(useDiscoverStore.getState().totalSkillsFound).toBe(1);
+    expect(useDiscoverStore.getState().discoveredProjects).toEqual([]);
+    expect(useDiscoverStore.getState().totalSkillsFound).toBe(0);
 
     isTauriSpy.mockRestore();
   });

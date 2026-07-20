@@ -427,6 +427,27 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: /Cursor/ })).toBeInTheDocument();
   });
 
+  it("hides undetected agents even when they still have cached skills", () => {
+    vi.mocked(usePlatformStore).mockReturnValue({
+      ...defaultStoreState,
+      agents: mockAgents.map((agent) =>
+        agent.id === "claude-code" ? { ...agent, is_detected: false } : agent
+      ),
+      skillsByAgent: {
+        "claude-code": 5,
+        cursor: 3,
+        central: 10,
+      },
+    });
+    render(
+      <MemoryRouter>
+        <Sidebar />
+      </MemoryRouter>
+    );
+    expect(screen.queryByRole("button", { name: /Claude Code/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Cursor/ })).toBeInTheDocument();
+  });
+
   it("shows hidden agents after clicking toggle", () => {
     vi.mocked(usePlatformStore).mockReturnValue({
       ...defaultStoreState,

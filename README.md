@@ -65,7 +65,7 @@ The screenshots in this English README use English captions and should be refres
 ## Download
 
 - Latest release: <https://github.com/yufenglyu/skillshub/releases/latest>
-- Windows, macOS, and Linux packages can be built with `scripts/package-release.ps1`.
+- Windows, macOS, and Linux packages are built by separate platform-specific scripts under `scripts/`.
 - If a platform package is not published yet, run from source.
 
 ### macOS Unsigned Build
@@ -185,28 +185,34 @@ cd src-tauri && cargo clippy -- -D warnings
 
 ### Package a Release
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1
-```
+Release packaging is split by host platform. Each script only builds its own platform bundle, but the command shape and options are consistent across Windows, macOS, and Linux.
 
-The script updates version metadata, runs type and Rust compile checks unless skipped, builds Tauri packages, and writes release assets under `release-assets/`.
+| Platform | pnpm command | Direct script |
+|----------|--------------|---------------|
+| Windows | `pnpm package:release:windows -- -Version 0.11.1` | `powershell -ExecutionPolicy Bypass -File scripts\package-release-windows.ps1 -Version 0.11.1` |
+| macOS | `pnpm package:release:macos -- -Version 0.11.1` | `bash scripts/package-release-macos.sh -Version 0.11.1` |
+| Linux | `pnpm package:release:linux -- -Version 0.11.1` | `bash scripts/package-release-linux.sh -Version 0.11.1` |
 
-Target the current OS:
+All scripts update version metadata, run TypeScript and Rust checks unless skipped, build Tauri bundles, and copy release assets into `release-assets/`.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms auto
-```
+Shared options:
 
-Target one or more platforms:
+| Purpose | Windows | macOS | Linux |
+|---------|---------|-------|-------|
+| Version | `-Version 0.11.1` | `-Version 0.11.1` | `-Version 0.11.1` |
+| Output directory | `-OutputDir release-assets` | `-OutputDir release-assets` | `-OutputDir release-assets` |
+| Skip checks | `-SkipTests` | `-SkipTests` | `-SkipTests` |
+| Skip dependency install | `-SkipInstall` | `-SkipInstall` | `-SkipInstall` |
+| Skip build and asset copy | `-SkipBuild` | `-SkipBuild` | `-SkipBuild` |
+| Update version only | `-VersionOnly` | `-VersionOnly` | `-VersionOnly` |
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms windows
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms linux
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms macos
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms windows,linux,macos
-```
+The Bash scripts also keep lowercase shell aliases such as `--version`, `--output-dir`, and `--skip-tests` for terminal convenience.
 
-`-Platforms all` expands to Windows, Linux, and macOS. The macOS target builds two packages: `macos_x64` for Intel Macs and `macos_arm64` for Apple Silicon / M-series Macs. Each target still requires the corresponding Tauri toolchain and OS packaging dependencies; macOS packages should be built on macOS, Linux bundles on Linux, and Windows MSI packages on Windows.
+Tauri desktop bundles are host-specific:
+
+- Windows builds MSI assets on Windows.
+- macOS builds universal `.dmg`, `.zip`, and `.tar.gz` assets on macOS. The macOS script verifies and installs the required Rust targets: `aarch64-apple-darwin` and `x86_64-apple-darwin`.
+- Linux builds `.deb`, `.rpm`, and `.AppImage` assets on Linux.
 
 ## Project Structure
 
@@ -227,9 +233,9 @@ skillshub/
 │       ├── lib.rs              # Tauri app setup
 │       └── main.rs             # Desktop entry point
 ├── public/                     # Static assets
+├── scripts/                    # Platform-specific release packaging scripts
 ├── CHANGELOG.md                # English changelog
-├── CHANGELOG.zh.md             # Chinese changelog
-└── release-notes/              # GitHub release notes
+└── CHANGELOG.zh.md             # Chinese changelog
 ```
 
 ## Database

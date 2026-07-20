@@ -65,7 +65,7 @@ SkillsHub 将长期存储和平台安装拆开处理：
 ## 下载
 
 - 最新发布：<https://github.com/yufenglyu/skillshub/releases/latest>
-- Windows、macOS 和 Linux 安装包可通过 `scripts/package-release.ps1` 构建。
+- Windows、macOS 和 Linux 安装包分别通过 `scripts/` 下的平台专用脚本构建。
 - 如果对应平台还没有发布预编译包，可以从源码运行。
 
 ### macOS 未签名构建说明
@@ -185,28 +185,34 @@ cd src-tauri && cargo clippy -- -D warnings
 
 ### 打包发布
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1
-```
+发布打包按宿主平台拆分。每个脚本只构建自己平台的安装包，但 Windows、macOS、Linux 的命令形态和参数保持一致。
 
-脚本会更新版本元数据，默认执行 TypeScript 与 Rust 编译检查，构建 Tauri 安装包，并把产物写入 `release-assets/`。
+| 平台 | pnpm 命令 | 直接调用脚本 |
+|------|-----------|--------------|
+| Windows | `pnpm package:release:windows -- -Version 0.11.1` | `powershell -ExecutionPolicy Bypass -File scripts\package-release-windows.ps1 -Version 0.11.1` |
+| macOS | `pnpm package:release:macos -- -Version 0.11.1` | `bash scripts/package-release-macos.sh -Version 0.11.1` |
+| Linux | `pnpm package:release:linux -- -Version 0.11.1` | `bash scripts/package-release-linux.sh -Version 0.11.1` |
 
-打包当前系统：
+三个脚本都会更新版本元数据，默认执行 TypeScript 与 Rust 编译检查，构建 Tauri 安装包，并把产物写入 `release-assets/`。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms auto
-```
+通用参数：
 
-指定一个或多个平台：
+| 用途 | Windows | macOS | Linux |
+|------|---------|-------|-------|
+| 指定版本 | `-Version 0.11.1` | `-Version 0.11.1` | `-Version 0.11.1` |
+| 输出目录 | `-OutputDir release-assets` | `-OutputDir release-assets` | `-OutputDir release-assets` |
+| 跳过检查 | `-SkipTests` | `-SkipTests` | `-SkipTests` |
+| 跳过依赖安装 | `-SkipInstall` | `-SkipInstall` | `-SkipInstall` |
+| 跳过构建和产物复制 | `-SkipBuild` | `-SkipBuild` | `-SkipBuild` |
+| 只更新版本 | `-VersionOnly` | `-VersionOnly` | `-VersionOnly` |
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms windows
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms linux
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms macos
-powershell -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Version 0.11.1 -Platforms windows,linux,macos
-```
+Bash 脚本仍保留 `--version`、`--output-dir`、`--skip-tests` 等小写长参数，便于在终端中使用。
 
-`-Platforms all` 会展开为 Windows、Linux 和 macOS。macOS 目标会构建两个安装包：`macos_x64` 用于 Intel Mac，`macos_arm64` 用于 Apple Silicon / M 系列 Mac。每个目标仍需要对应的 Tauri 工具链和系统打包依赖：macOS 安装包应在 macOS 上构建，Linux 包应在 Linux 上构建，Windows MSI 应在 Windows 上构建。
+Tauri 桌面安装包依赖宿主系统：
+
+- Windows 在 Windows 上构建 MSI。
+- macOS 在 macOS 上构建 universal `.dmg`、`.zip` 和 `.tar.gz`；macOS 脚本会检查并安装所需 Rust targets：`aarch64-apple-darwin` 和 `x86_64-apple-darwin`。
+- Linux 在 Linux 上构建 `.deb`、`.rpm` 和 `.AppImage`。
 
 ## 项目结构
 
@@ -227,9 +233,9 @@ skillshub/
 │       ├── lib.rs              # Tauri 应用初始化
 │       └── main.rs             # 桌面入口
 ├── public/                     # 静态资源
+├── scripts/                    # 各平台专用打包脚本
 ├── CHANGELOG.md                # 英文更新日志
-├── CHANGELOG.zh.md             # 中文更新日志
-└── release-notes/              # GitHub release notes
+└── CHANGELOG.zh.md             # 中文更新日志
 ```
 
 ## 数据库
