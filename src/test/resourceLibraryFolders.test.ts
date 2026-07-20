@@ -20,6 +20,49 @@ function resourceSkill(overrides: Partial<SkillWithLinks>): SkillWithLinks {
 }
 
 describe("splitResourceLibrarySkillsByFolder", () => {
+  it("groups resource library imports by author and project directory", () => {
+    const split = splitResourceLibrarySkillsByFolder(
+      [
+        resourceSkill({
+          id: "algorithmic-art",
+          name: "algorithmic-art",
+          canonical_path: "D:/resource/anthropics/skills/algorithmic-art",
+          file_path: "D:/resource/anthropics/skills/algorithmic-art/SKILL.md",
+          source_author: "anthropics",
+          source_repo: "anthropics/skills",
+        }),
+        resourceSkill({
+          id: "brand-guidelines",
+          name: "brand-guidelines",
+          canonical_path: "D:/resource/anthropics/skills/brand-guidelines",
+          file_path: "D:/resource/anthropics/skills/brand-guidelines/SKILL.md",
+          source_author: "anthropics",
+          source_repo: "anthropics/skills",
+        }),
+        resourceSkill({
+          id: "api-and-interface-design",
+          name: "api-and-interface-design",
+          canonical_path: "D:/resource/addyosmani/agent-skills/api-and-interface-design",
+          file_path: "D:/resource/addyosmani/agent-skills/api-and-interface-design/SKILL.md",
+          source_author: "addyosmani",
+          source_repo: "addyosmani/agent-skills",
+        }),
+      ],
+      "D:/resource"
+    );
+
+    expect(split.rootSkills).toHaveLength(0);
+    expect(split.groups.map((group) => group.name)).toEqual([
+      "addyosmani/agent-skills",
+      "anthropics/skills",
+    ]);
+    expect(split.groups.find((group) => group.name === "anthropics/skills")).toMatchObject({
+      relativePath: "anthropics/skills",
+      path: "D:/resource/anthropics/skills",
+      skillCount: 2,
+    });
+  });
+
   it("falls back to source owner folders when paths are outside the current resource root", () => {
     const split = splitResourceLibrarySkillsByFolder(
       [
@@ -42,7 +85,7 @@ describe("splitResourceLibrarySkillsByFolder", () => {
     expect(split.rootSkills).toHaveLength(0);
     expect(split.groups).toHaveLength(1);
     expect(split.groups[0]).toMatchObject({
-      name: "example",
+      name: "example/skills",
       skillCount: 2,
     });
     expect(split.groups[0].skills.map((skill) => skill.id)).toEqual([

@@ -131,8 +131,11 @@ function sortSkillsByName(skills: SkillWithLinks[]) {
 }
 
 function resourceSourceFolderName(skill: SkillWithLinks): string | null {
-  const repoOwner = skill.source_repo?.split("/").filter(Boolean)[0];
-  return skill.source_author || repoOwner || null;
+  const repoParts = skill.source_repo?.split("/").filter(Boolean) ?? [];
+  if (repoParts.length >= 2) {
+    return `${repoParts[0]}/${repoParts[1]}`;
+  }
+  return skill.source_author || repoParts[0] || null;
 }
 
 function resourceSourceFolderPath(rootPath: string, folderName: string, skill: SkillWithLinks) {
@@ -152,37 +155,60 @@ export function splitResourceLibrarySkillsByFolder(
   skills: SkillWithLinks[],
   rootPath: string
 ) {
-  const baseSplit = splitSkillsByTopLevel({
-    skills,
-    rootPath,
-    getDirPaths: (skill) => [
-      skill.canonical_path,
-      dirnameFromSkillFile(skill.file_path),
-    ],
-    getLinkedAgentIds: (skill) => skill.linked_agents,
-    getReadOnlyAgentIds: (skill) => skill.read_only_agents ?? [],
-  });
   const rootSkills: SkillWithLinks[] = [];
   const groups = new Map<string, SkillFolderGroup<SkillWithLinks>>();
 
-  for (const group of baseSplit.groups) {
-    groups.set(group.relativePath, { ...group, skills: [...group.skills] });
-  }
+  for (const skill of skills) {
+    const skillDir = dirnameFromSkillFile(skill.file_path);
+    const candidatePaths = [
+      skill.canonical_path,
+      skillDir,
+    ];
+    let bundleName: string | null = null;
+    let bundleKey: string | null = null;
+    let bundlePath: string | null = null;
 
-  for (const skill of baseSplit.rootSkills) {
-    const folderName = resourceSourceFolderName(skill);
-    if (!folderName) {
+    for (const path of candidatePaths) {
+      if (!path) continue;
+      const relativePath = getRelativePathUnderRoot(path, rootPath);
+      const parts = relativePath?.split("/").filter(Boolean) ?? [];
+      if (parts.length >= 3) {
+        const bundleParts = parts.slice(0, 2);
+        bundleName = bundleParts.join("/");
+        bundleKey = bundleName;
+        bundlePath = `${normalizeFsPath(rootPath)}/${bundleName}`;
+        break;
+      }
+      if (parts.length === 2) {
+        bundleName = parts[0];
+        bundleKey = bundleName;
+        bundlePath = `${normalizeFsPath(rootPath)}/${bundleName}`;
+        break;
+      }
+    }
+
+    if (!bundleName || !bundleKey || !bundlePath) {
+      const sourceFolderName = resourceSourceFolderName(skill);
+      if (!sourceFolderName) {
+        rootSkills.push(skill);
+        continue;
+      }
+      bundleName = sourceFolderName;
+      bundleKey = `source:${sourceFolderName.toLowerCase()}`;
+      bundlePath = resourceSourceFolderPath(rootPath, sourceFolderName, skill);
+    }
+
+    if (!bundleName || !bundleKey || !bundlePath) {
       rootSkills.push(skill);
       continue;
     }
 
-    const groupKey = `source:${folderName.toLowerCase()}`;
     const group =
-      groups.get(groupKey) ??
+      groups.get(bundleKey) ??
       {
-        name: folderName,
-        relativePath: groupKey,
-        path: resourceSourceFolderPath(rootPath, folderName, skill),
+        name: bundleName,
+        relativePath: bundleKey,
+        path: bundlePath,
         skillCount: 0,
         linkedAgentCount: 0,
         readOnlyAgentCount: 0,
@@ -198,7 +224,7 @@ export function splitResourceLibrarySkillsByFolder(
     group.readOnlyAgentCount = uniqueCount(
       group.skills.flatMap((item) => item.read_only_agents ?? [])
     );
-    groups.set(groupKey, group);
+    groups.set(bundleKey, group);
   }
 
   return {

@@ -342,6 +342,40 @@ fn source_label_from_metadata(source: &db::SkillSource) -> Option<String> {
         .map(|repo| source_label_from_parts(&source.source_type, Some(repo)))
 }
 
+fn infer_resource_github_source(
+    resource_root: &Path,
+    skill_dir: &Path,
+    skill_id: &str,
+) -> Option<db::SkillSource> {
+    let relative = skill_dir.strip_prefix(resource_root).ok()?;
+    let parts: Vec<String> = relative
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(value) => Some(value.to_string_lossy().to_string()),
+            _ => None,
+        })
+        .collect();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let owner = parts[0].trim();
+    let repo = parts[1].trim();
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+
+    Some(db::SkillSource {
+        skill_id: skill_id.to_string(),
+        source_type: "github".to_string(),
+        source_url: Some(format!("https://github.com/{owner}/{repo}")),
+        source_author: Some(owner.to_string()),
+        source_repo: Some(format!("{owner}/{repo}")),
+        source_path: Some(format!("{}/SKILL.md", parts[2..].join("/"))),
+        updated_at: Utc::now().to_rfc3339(),
+    })
+}
+
 fn source_response(
     source: db::SkillSource,
     skill_source: Option<String>,
@@ -1677,7 +1711,15 @@ async fn sync_resource_library_skills(pool: &DbPool, resource_root: &Path) -> Re
     for skill in scanned {
         let existing = db::get_skill_by_id(pool, &skill.id).await?;
         let existing_source = existing.as_ref().and_then(|skill| skill.source.clone());
-        let source_metadata = db::get_skill_source(pool, &skill.id).await?;
+        let mut source_metadata = db::get_skill_source(pool, &skill.id).await?;
+        if source_metadata.is_none() {
+            if let Some(inferred) =
+                infer_resource_github_source(resource_root, Path::new(&skill.dir_path), &skill.id)
+            {
+                db::upsert_skill_source(pool, &inferred).await?;
+                source_metadata = Some(inferred);
+            }
+        }
         let inferred_source = source_metadata
             .as_ref()
             .and_then(source_label_from_metadata);
@@ -2626,6 +2668,14 @@ mod tests {
         assert_eq!(skill.name, "Manual Skill");
         assert_eq!(skill.description.as_deref(), Some("Imported on disk only"));
         assert!(!skill.is_central);
+        assert_eq!(skill.source.as_deref(), Some("github:author/repo"));
+        assert_eq!(skill.source_author.as_deref(), Some("author"));
+        assert_eq!(skill.source_repo.as_deref(), Some("author/repo"));
+        assert_eq!(skill.source_path.as_deref(), Some("manual-skill/SKILL.md"));
+        assert_eq!(
+            skill.source_url.as_deref(),
+            Some("https://github.com/author/repo")
+        );
         assert_eq!(
             skill.canonical_path.as_deref(),
             Some(skill_dir.to_string_lossy().as_ref())

@@ -315,9 +315,21 @@ SkillsHub/
 │ Build distinctive frontend UIs...          │
 │                                             │
 │ ── 基本信息 ──────────────────────────────  │
-│ 路径    ~/.agents/skills/frontend-design    │
-│ 来源    github:vercel-labs/agent-skills     │
-│ 安装时间 2026-04-09                         │
+│ 来源类型  github / marketplace / raw / 手动 │
+│ 来源仓库  owner/repo                        │
+│ 来源作者  owner                             │
+│ 来源路径  skills/frontend-design/SKILL.md   │
+│ 来源 URL  https://github.com/owner/repo     │
+│                                             │
+│ ── 时间信息 ──────────────────────────────  │
+│ 创建时间 2026-04-09                         │
+│ 更新时间 2026-04-09                         │
+│ 扫描时间 2026-04-09                         │
+│                                             │
+│ ── 存储路径 ──────────────────────────────  │
+│ 文件路径  ~/.agents/skills/.../SKILL.md     │
+│ 目录路径  ~/.agents/skills/frontend-design  │
+│ 规范路径  ~/.agents/skills/frontend-design  │
 │                                             │
 │ ── 安装状态 ──────────────────────────────  │
 │ ✅ Claude Code  → ~/.claude/skills/...     │
@@ -339,6 +351,8 @@ SkillsHub/
 │ └─────────────────────────────────────── ┘ │
 └─────────────────────────────────────────────┘
 ```
+
+详情页右侧栏按信息类型分区展示：备注、标签、基本信息、时间信息、来源信息、存储路径、安装状态和技能集合保持一致的分区标题、卡片边界与正文尺寸。来源类型使用固定选项，当前支持 `manual`、`github`、`marketplace`、`raw`；GitHub 导入或资源库路径符合 `owner/repo/skill` 结构时，会尽量自动填入来源仓库、作者、路径和 URL。
 
 ---
 

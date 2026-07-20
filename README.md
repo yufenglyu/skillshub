@@ -12,7 +12,7 @@ SkillsHub is a local-first Tauri desktop app for managing AI agent skills across
 
 SkillsHub separates long-term skill storage from platform installation:
 
-- **Skill Resource Library** is the default home for downloaded, imported, and source-backed skills. It can be any local directory and is organized by author or repository when source metadata is available.
+- **Skill Resource Library** is the default home for downloaded, imported, and source-backed skills. It can be any local directory and is organized by `author/project` when source metadata or a GitHub-style folder layout is available.
 - **Central Skills** is the compatibility directory, usually `~/.agents/skills/`, used when a skill should be shared with compatible tools or distributed to selected platforms.
 - **Platform views** show what each coding agent can see and let you install, uninstall, or batch-uninstall skills without deleting the resource copy.
 
@@ -22,13 +22,13 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 
 - Resource library first workflow for GitHub imports, marketplace installs, and local skill storage.
 - One-click promotion from the resource library to Central Skills while preserving source grouping such as `owner/repo/skill`; promoted skills are synchronized to enabled and detected platforms.
-- Manual skill creation, sorting by name/created/updated time, folder view, and safe folder deletion in the Skill Resource Library.
+- Manual skill creation, sorting by name/created/updated time, folder view grouped by `author/project`, and safe folder deletion in the Skill Resource Library.
 - Direct platform installation from the resource library, with symlink, copy, and automatic fallback modes. A direct install only affects the selected platform and never adds the skill to Central Skills.
 - Central Skills management focused on the central directory, with folder mode, bulk platform uninstall, and safe delete previews.
-- Full-width skill detail view with Markdown preview, raw source, basic/source metadata, install status, notes, tags, and AI-generated notes.
+- Full-width skill detail view with Markdown preview, raw source, readable grouped metadata sections, install status, notes, tags, and AI-generated notes.
 - Search across names, descriptions, notes, tags, and source metadata.
 - Tag filtering and collection management for reusable skill sets.
-- GitHub repository import with preview, rename/overwrite/skip conflict handling, and source metadata tracking.
+- GitHub repository import with preview, rename/overwrite/skip conflict handling, source metadata tracking, and automatic source inference from resource library paths such as `owner/repo/skill`.
 - Marketplace browsing, source sync, and per-source updates.
 - Local ZIP backup and WebDAV backup/import. Every backup includes the resource library files, Central Skills files, app configuration, and platform installation state; WebDAV connection details can be saved locally, while passwords, tokens, and API keys are excluded from backup files.
 - Project skill discovery, including Obsidian vault grouping and local project skill directories.
@@ -36,7 +36,9 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 
 ## Screenshots
 
-### Skill Resource Library, Sorting, And Manual Creation
+The screenshots in this English README use English captions and should be refreshed with the English UI. Chinese screenshot examples and captions are maintained separately in [README_CN.md](README_CN.md), so the two documents do not mix interface languages.
+
+### Skill Resource Library, Author/Project Folders, Sorting, And Manual Creation
 
 ![Skill resource library view](images/01.png)
 

@@ -41,7 +41,21 @@ import { formatPathForDisplay } from "@/lib/path";
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/80 mb-2">
+    <div className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground/85">
+      {children}
+    </div>
+  );
+}
+
+function SectionPanel({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4", className)}>
       {children}
     </div>
   );
@@ -51,9 +65,9 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 function MetadataRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="space-y-0.5">
-      <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">{label}</div>
-      <div className="font-mono text-xs text-foreground break-all leading-relaxed">
+    <div className="space-y-1">
+      <div className="text-xs font-medium text-muted-foreground/80">{label}</div>
+      <div className="break-all font-mono text-[13px] leading-6 text-foreground">
         {value}
       </div>
     </div>
@@ -129,7 +143,7 @@ function PlatformToggleIcon({
   return (
     <button
       className={cn(
-        "inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors cursor-pointer",
+        "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors cursor-pointer",
         isInstalled
           ? "text-primary hover:bg-primary/10"
           : "text-muted-foreground/40 hover:bg-muted/60 hover:text-muted-foreground",
@@ -145,10 +159,10 @@ function PlatformToggleIcon({
       <PlatformIcon
         agentId={agent.id}
         className={cn(
-          "size-4 shrink-0 transition-all",
+          "size-[18px] shrink-0 transition-all",
           isInstalled ? "opacity-100 grayscale-0" : "opacity-40 grayscale"
         )}
-        size={16}
+        size={18}
       />
     </button>
   );
@@ -176,11 +190,11 @@ function PlatformToggleGroup({
   if (agents.length === 0) return null;
 
   return (
-    <div className="flex items-start gap-1">
-      <span className="flex h-6 w-12 shrink-0 items-center text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+    <div className="flex items-start gap-2">
+      <span className="flex h-7 w-14 shrink-0 items-center text-xs font-medium text-muted-foreground/75">
         {label}
       </span>
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
         {agents.map((agent) => (
           <PlatformToggleIcon
             key={agent.id}
@@ -262,6 +276,7 @@ const detailTypographyClassName = cn(
 const DEFAULT_DETAIL_SIDEBAR_WIDTH = 512;
 const MIN_DETAIL_SIDEBAR_WIDTH = 360;
 const MAX_DETAIL_SIDEBAR_WIDTH = 720;
+const SOURCE_TYPE_OPTIONS = ["manual", "github", "marketplace", "raw"] as const;
 
 function clampDetailSidebarWidth(width: number) {
   return Math.min(MAX_DETAIL_SIDEBAR_WIDTH, Math.max(MIN_DETAIL_SIDEBAR_WIDTH, width));
@@ -317,11 +332,11 @@ function FileTreeNode({
           type="button"
           aria-expanded={isExpanded}
           onClick={() => onToggleDirectory(node.path)}
-          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground cursor-pointer"
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground cursor-pointer"
           style={{ paddingLeft }}
         >
-          {isExpanded ? <ChevronDown className="size-3.5 shrink-0" /> : <ChevronRight className="size-3.5 shrink-0" />}
-          <FolderOpen className="size-3.5 shrink-0" />
+          {isExpanded ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
+          <FolderOpen className="size-4 shrink-0" />
           <span className="truncate">{node.name}</span>
         </button>
         {isExpanded && node.children.map((child) => (
@@ -345,7 +360,7 @@ function FileTreeNode({
       type="button"
       onClick={() => onSelectFile({ path: node.path, relativePath: node.relative_path })}
       className={cn(
-        "flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition-colors cursor-pointer",
+        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors cursor-pointer",
         isSelected
           ? "bg-primary/10 text-primary"
           : "text-foreground/80 hover:bg-muted/60 hover:text-foreground"
@@ -353,7 +368,7 @@ function FileTreeNode({
       style={{ paddingLeft }}
       title={node.relative_path}
     >
-      <FileText className="size-3.5 shrink-0" />
+      <FileText className="size-4 shrink-0" />
       <span className="truncate">{node.name}</span>
     </button>
   );
@@ -890,6 +905,10 @@ export function SkillDetailView({
     && !detail.is_central
     && !detail.source_kind
     && (detail.source === "manual" || (detail.source === "resource-library" && !detail.source_repo));
+  const displayedSource = detail
+    ? displaySourceValue(detail.source, detail.source_repo)
+    : null;
+  const showReadOnlySourceMetadata = !!detail && !canEditBasicSource;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1026,19 +1045,19 @@ export function SkillDetailView({
             <aside
               data-testid="skill-detail-right-sidebar"
               style={sidebarStyle}
-              className="w-full shrink-0 border-t border-border overflow-y-auto p-4 space-y-5 md:w-[var(--skill-detail-sidebar-width)] md:border-t-0"
+              className="w-full shrink-0 border-t border-border overflow-y-auto p-5 space-y-6 md:w-[var(--skill-detail-sidebar-width)] md:border-t-0"
             >
               {isFileMode && discoverMetadata ? (
                 <>
                   <section aria-label={t("detail.filesRegion")}>
                     <SectionLabel>{t("detail.files")}</SectionLabel>
                     {isDirectoryTreeLoading ? (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Loader2 className="size-3.5 animate-spin" />
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="size-4 animate-spin" />
                         {t("common.loading")}
                       </div>
                     ) : directoryTreeError ? (
-                      <p className="text-xs leading-relaxed text-muted-foreground">
+                      <p className="text-sm leading-6 text-muted-foreground">
                         {directoryTreeError}
                       </p>
                     ) : directoryTree.length > 0 ? (
@@ -1056,7 +1075,7 @@ export function SkillDetailView({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground">{t("detail.noFiles")}</p>
+                      <p className="text-sm text-muted-foreground">{t("detail.noFiles")}</p>
                     )}
                   </section>
 
@@ -1065,31 +1084,31 @@ export function SkillDetailView({
                     <SectionLabel>{t("detail.metadata")}</SectionLabel>
                     <div className="space-y-2.5">
                       <div className="space-y-0.5">
-                        <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">
+                        <div className="text-xs font-medium text-muted-foreground/80">
                           {t("discover.platform")}
                         </div>
-                        <div className="font-mono text-xs text-foreground break-all leading-relaxed inline-flex items-center gap-1">
-                          <Monitor className="size-3.5" />
+                        <div className="font-mono text-[13px] text-foreground break-all leading-6 inline-flex items-center gap-1.5">
+                          <Monitor className="size-4" />
                           <span>{discoverMetadata.platformName}</span>
                         </div>
                       </div>
                       <div className="space-y-0.5">
-                        <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">
+                        <div className="text-xs font-medium text-muted-foreground/80">
                           {t("discover.project")}
                         </div>
-                        <div className="font-mono text-xs text-foreground break-all leading-relaxed inline-flex items-center gap-1">
-                          <FolderOpen className="size-3.5" />
+                        <div className="font-mono text-[13px] text-foreground break-all leading-6 inline-flex items-center gap-1.5">
+                          <FolderOpen className="size-4" />
                           <span>{discoverMetadata.projectName}</span>
                         </div>
                       </div>
                       <div className="space-y-0.5">
-                        <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wider">
+                        <div className="text-xs font-medium text-muted-foreground/80">
                           {t("discover.filePath")}
                         </div>
                         <button
                           type="button"
                           onClick={handleOpenDiscoverPath}
-                          className="font-mono text-xs text-foreground break-all leading-relaxed hover:text-primary hover:underline cursor-pointer text-left"
+                          className="font-mono text-[13px] text-foreground break-all leading-6 hover:text-primary hover:underline cursor-pointer text-left"
                         >
                           {discoverMetadata.filePath}
                         </button>
@@ -1102,12 +1121,12 @@ export function SkillDetailView({
                   <section aria-label={t("detail.filesRegion")}>
                     <SectionLabel>{t("detail.files")}</SectionLabel>
                     {isDirectoryTreeLoading ? (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Loader2 className="size-3.5 animate-spin" />
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="size-4 animate-spin" />
                         {t("common.loading")}
                       </div>
                     ) : directoryTreeError ? (
-                      <p className="text-xs leading-relaxed text-muted-foreground">
+                      <p className="text-sm leading-6 text-muted-foreground">
                         {directoryTreeError}
                       </p>
                     ) : directoryTree.length > 0 ? (
@@ -1125,7 +1144,7 @@ export function SkillDetailView({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground">{t("detail.noFiles")}</p>
+                      <p className="text-sm text-muted-foreground">{t("detail.noFiles")}</p>
                     )}
                   </section>
 
@@ -1148,7 +1167,7 @@ export function SkillDetailView({
                           {detail.is_read_only && <ReadOnlySourceBadge />}
                         </div>
                         {detail.is_read_only ? (
-                          <p className="text-xs leading-relaxed text-muted-foreground">
+                          <p className="text-sm leading-6 text-muted-foreground">
                             {t("detail.readOnlyDesc", {
                               defaultValue: i18n.language.startsWith("zh")
                                 ? "只读观测副本仅供查看，不能在这里安装、卸载或调整技能集。"
@@ -1156,7 +1175,7 @@ export function SkillDetailView({
                             })}
                           </p>
                         ) : detail.source_kind === "user" ? (
-                          <p className="text-xs leading-relaxed text-muted-foreground">
+                          <p className="text-sm leading-6 text-muted-foreground">
                             {t("detail.userManagedDesc", {
                               defaultValue: i18n.language.startsWith("zh")
                                 ? "此 Claude 用户副本会保留正常的安装状态与技能集管理能力。"
@@ -1178,20 +1197,20 @@ export function SkillDetailView({
                             value={notesInput}
                             onChange={(event) => setNotesInput(event.target.value)}
                             placeholder={t("detail.notesPlaceholder")}
-                            className="min-h-20 resize-y text-xs"
+                            className="min-h-24 resize-y text-sm leading-6"
                           />
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <Button
                             type="button"
                             size="sm"
-                            className="h-8 w-full"
+                            className="h-9 w-full text-sm"
                             disabled={!skillContent || isExplanationLoading || isExplanationStreaming}
                             onClick={handleGenerateNote}
                           >
                             {isExplanationLoading || isExplanationStreaming ? (
                               <>
-                                <Loader2 className="size-3.5 animate-spin" />
+                                <Loader2 className="size-4 animate-spin" />
                                 {t("detail.explanationLoading")}
                               </>
                             ) : (
@@ -1199,18 +1218,18 @@ export function SkillDetailView({
                             )}
                           </Button>
                           {isExplanationStreaming && explanation && (
-                            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                              <Loader2 className="size-3 animate-spin" />
+                            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Loader2 className="size-3.5 animate-spin" />
                               {t("detail.explanationStreaming")}
                             </p>
                           )}
                           {explanationError && (
                             <div className="space-y-1 rounded-md border border-destructive/30 bg-destructive/5 p-2">
-                              <p className="text-[11px] leading-relaxed text-destructive">
+                              <p className="text-xs leading-5 text-destructive">
                                 {explanationErrorInfo?.message || explanationError}
                               </p>
                               {explanationErrorInfo?.fallbackTried && (
-                                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                                <p className="text-xs leading-5 text-muted-foreground">
                                   {t("detail.fallbackTried")}
                                 </p>
                               )}
@@ -1219,13 +1238,13 @@ export function SkillDetailView({
                           <Button
                             type="button"
                             size="sm"
-                            className="h-8 w-full"
+                            className="h-9 w-full text-sm"
                             disabled={isSavingMetadata}
                             onClick={handleSaveNotes}
                           >
                             {isSavingMetadata ? (
                               <>
-                                <Loader2 className="size-3.5 animate-spin" />
+                                <Loader2 className="size-4 animate-spin" />
                                 {t("detail.savingMetadata")}
                               </>
                             ) : (
@@ -1244,14 +1263,14 @@ export function SkillDetailView({
                             value={tagsInput}
                             onChange={(event) => setTagsInput(event.target.value)}
                             placeholder={t("detail.tagsPlaceholder")}
-                            className="h-8 text-xs"
+                            className="h-9 text-sm"
                           />
                           {parseTagsInput(tagsInput).length > 0 && (
                             <div className="flex flex-wrap gap-1">
                               {parseTagsInput(tagsInput).map((tag) => (
                                 <span
                                   key={tag}
-                                  className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                                  className="rounded bg-primary/10 px-2 py-0.5 text-xs text-primary"
                                 >
                                   #{tag}
                                 </span>
@@ -1262,13 +1281,13 @@ export function SkillDetailView({
                         <Button
                           type="button"
                           size="sm"
-                          className="h-8 w-full"
+                          className="h-9 w-full text-sm"
                           disabled={isSavingMetadata}
                           onClick={handleSaveTags}
                         >
                           {isSavingMetadata ? (
                             <>
-                              <Loader2 className="size-3.5 animate-spin" />
+                              <Loader2 className="size-4 animate-spin" />
                               {t("detail.savingMetadata")}
                             </>
                           ) : (
@@ -1281,21 +1300,28 @@ export function SkillDetailView({
                   )}
 
                   {/* Metadata */}
-                  <section aria-label={t("detail.metadataRegion")}>
-                    <SectionLabel>{t("detail.metadata")}</SectionLabel>
-                    <div className="space-y-2.5">
-                      {canEditBasicSource && (
-                        <div className="space-y-2.5 rounded-lg border border-border/70 bg-muted/20 p-3">
+                  {canEditBasicSource && (
+                    <section aria-label={t("detail.metadataRegion")}>
+                      <SectionLabel>{t("detail.metadata")}</SectionLabel>
+                        <SectionPanel>
                           <div className="space-y-1.5">
                             <label className="text-[11px] font-medium text-muted-foreground">
                               {t("detail.sourceType")}
                             </label>
-                            <Input
+                            <select
                               value={sourceTypeInput}
                               onChange={(event) => setSourceTypeInput(event.target.value)}
-                              placeholder="manual"
-                              className="h-8 text-xs"
-                            />
+                              className={cn(
+                                "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none",
+                                "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                              )}
+                            >
+                              {SOURCE_TYPE_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                           <div className="space-y-1.5">
                             <label className="text-[11px] font-medium text-muted-foreground">
@@ -1305,7 +1331,7 @@ export function SkillDetailView({
                               value={sourceRepoInput}
                               onChange={(event) => setSourceRepoInput(event.target.value)}
                               placeholder="owner/repo"
-                              className="h-8 text-xs"
+                              className="h-9 text-sm"
                             />
                           </div>
                           <div className="space-y-1.5">
@@ -1316,7 +1342,7 @@ export function SkillDetailView({
                               value={sourceAuthorInput}
                               onChange={(event) => setSourceAuthorInput(event.target.value)}
                               placeholder={t("detail.sourceAuthorPlaceholder")}
-                              className="h-8 text-xs"
+                              className="h-9 text-sm"
                             />
                           </div>
                           <div className="space-y-1.5">
@@ -1327,7 +1353,7 @@ export function SkillDetailView({
                               value={sourcePathInput}
                               onChange={(event) => setSourcePathInput(event.target.value)}
                               placeholder="skills/example/SKILL.md"
-                              className="h-8 text-xs"
+                              className="h-9 text-sm"
                             />
                           </div>
                           <div className="space-y-1.5">
@@ -1338,77 +1364,32 @@ export function SkillDetailView({
                               value={sourceUrlInput}
                               onChange={(event) => setSourceUrlInput(event.target.value)}
                               placeholder="https://github.com/owner/repo"
-                              className="h-8 text-xs"
+                              className="h-9 text-sm"
                             />
                           </div>
                           <Button
                             type="button"
                             size="sm"
-                            className="h-8 w-full"
+                            className="h-9 w-full text-sm"
                             disabled={isSavingSourceMetadata}
                             onClick={handleSaveSourceMetadata}
                           >
                             {isSavingSourceMetadata ? (
                               <>
-                                <Loader2 className="size-3.5 animate-spin" />
+                                <Loader2 className="size-4 animate-spin" />
                                 {t("detail.savingSourceMetadata")}
                               </>
                             ) : (
                               t("detail.saveBasicInfo")
                             )}
                           </Button>
-                        </div>
-                      )}
-                      <MetadataRow label={t("detail.filePath")} value={formatPathForDisplay(detail.file_path)} />
-                      {detail.dir_path && (
-                        <MetadataRow
-                          label={t("detail.directoryPath", {
-                            defaultValue: i18n.language.startsWith("zh") ? "目录路径" : "Directory path",
-                          })}
-                          value={formatPathForDisplay(detail.dir_path)}
-                        />
-                      )}
-                      {detail.canonical_path && (
-                        <MetadataRow label={t("detail.canonical")} value={formatPathForDisplay(detail.canonical_path)} />
-                      )}
-                      {detail.source_root && (
-                        <MetadataRow
-                          label={t("detail.sourceRoot", {
-                            defaultValue: i18n.language.startsWith("zh") ? "来源根目录" : "Source root",
-                          })}
-                          value={formatPathForDisplay(detail.source_root)}
-                        />
-                      )}
-                      {!detail.source_kind && displaySourceValue(detail.source, detail.source_repo) && (
-                        <MetadataRow
-                          label={t("detail.source")}
-                          value={displaySourceValue(detail.source, detail.source_repo) ?? ""}
-                        />
-                      )}
-                      {detail.source_author && (
-                        <MetadataRow
-                          label={t("detail.sourceAuthor", {
-                            defaultValue: i18n.language.startsWith("zh") ? "来源作者" : "Source author",
-                          })}
-                          value={detail.source_author}
-                        />
-                      )}
-                      {detail.source_repo && detail.source_repo !== displaySourceValue(detail.source, detail.source_repo) && (
-                        <MetadataRow
-                          label={t("detail.sourceRepo", {
-                            defaultValue: i18n.language.startsWith("zh") ? "来源仓库" : "Source repository",
-                          })}
-                          value={detail.source_repo}
-                        />
-                      )}
-                      {detail.source_path && (
-                        <MetadataRow
-                          label={t("detail.sourcePath", {
-                            defaultValue: i18n.language.startsWith("zh") ? "来源路径" : "Source path",
-                          })}
-                          value={detail.source_path}
-                        />
-                      )}
+                        </SectionPanel>
+                    </section>
+                  )}
+
+                  <section aria-label={t("detail.timeMetadataRegion")}>
+                    <SectionLabel>{t("detail.timeMetadata")}</SectionLabel>
+                    <SectionPanel>
                       {detail.created_at && (
                         <MetadataRow
                           label={t("detail.createdAt", {
@@ -1429,15 +1410,85 @@ export function SkillDetailView({
                         label={t("detail.scannedAt")}
                         value={new Date(detail.scanned_at).toLocaleString()}
                       />
-                    </div>
+                    </SectionPanel>
+                  </section>
+
+                  {showReadOnlySourceMetadata && (
+                    <section aria-label={t("detail.sourceMetadataRegion")}>
+                      <SectionLabel>{t("detail.sourceMetadata")}</SectionLabel>
+                      <SectionPanel>
+                        {!detail.source_kind && displayedSource && (
+                        <MetadataRow
+                          label={t("detail.source")}
+                          value={displayedSource}
+                        />
+                      )}
+                      {detail.source_author && (
+                        <MetadataRow
+                          label={t("detail.sourceAuthor", {
+                            defaultValue: i18n.language.startsWith("zh") ? "来源作者" : "Source author",
+                          })}
+                          value={detail.source_author}
+                        />
+                      )}
+                      {detail.source_repo && detail.source_repo !== displayedSource && (
+                        <MetadataRow
+                          label={t("detail.sourceRepo", {
+                            defaultValue: i18n.language.startsWith("zh") ? "来源仓库" : "Source repository",
+                          })}
+                          value={detail.source_repo}
+                        />
+                      )}
+                      {detail.source_path && (
+                        <MetadataRow
+                          label={t("detail.sourcePath", {
+                            defaultValue: i18n.language.startsWith("zh") ? "来源路径" : "Source path",
+                          })}
+                          value={detail.source_path}
+                        />
+                      )}
+                      {detail.source_url && (
+                        <MetadataRow
+                          label={t("detail.sourceUrl")}
+                          value={detail.source_url}
+                        />
+                      )}
+                      </SectionPanel>
+                    </section>
+                  )}
+
+                  <section aria-label={t("detail.storageMetadataRegion")}>
+                    <SectionLabel>{t("detail.storageMetadata")}</SectionLabel>
+                    <SectionPanel>
+                      <MetadataRow label={t("detail.filePath")} value={formatPathForDisplay(detail.file_path)} />
+                      {detail.dir_path && (
+                        <MetadataRow
+                          label={t("detail.directoryPath", {
+                            defaultValue: i18n.language.startsWith("zh") ? "目录路径" : "Directory path",
+                          })}
+                          value={formatPathForDisplay(detail.dir_path)}
+                        />
+                      )}
+                      {detail.canonical_path && (
+                        <MetadataRow label={t("detail.canonical")} value={formatPathForDisplay(detail.canonical_path)} />
+                      )}
+                      {detail.source_root && (
+                        <MetadataRow
+                          label={t("detail.sourceRoot", {
+                            defaultValue: i18n.language.startsWith("zh") ? "来源根目录" : "Source root",
+                          })}
+                          value={formatPathForDisplay(detail.source_root)}
+                        />
+                      )}
+                    </SectionPanel>
                   </section>
 
                   {/* Install Status — compact icon grid */}
                   <section aria-label={t("detail.installStatusRegion")}>
                     <SectionLabel>{t("detail.installStatus")}</SectionLabel>
-                    <div className="space-y-1.5">
+                    <SectionPanel className="space-y-2">
                       {detail.is_read_only ? (
-                        <p className="text-xs leading-relaxed text-muted-foreground">
+                        <p className="text-sm leading-6 text-muted-foreground">
                           {t("detail.readOnlyInstallBlocked", {
                             defaultValue: i18n.language.startsWith("zh")
                               ? "只读观测副本不可安装或卸载。"
@@ -1445,7 +1496,7 @@ export function SkillDetailView({
                           })}
                         </p>
                       ) : targetAgents.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-sm text-muted-foreground">
                           {t("detail.noPlatforms")}
                         </p>
                       ) : (
@@ -1470,14 +1521,15 @@ export function SkillDetailView({
                           />
                         </>
                       )}
-                    </div>
+                    </SectionPanel>
                   </section>
 
                   {/* Collections */}
                   <section aria-label={t("detail.collections")}>
                     <SectionLabel>{t("detail.collections")}</SectionLabel>
+                    <SectionPanel>
                     {detail.is_read_only ? (
-                      <p className="text-xs leading-relaxed text-muted-foreground">
+                      <p className="text-sm leading-6 text-muted-foreground">
                         {t("detail.readOnlyCollectionsBlocked", {
                           defaultValue: i18n.language.startsWith("zh")
                             ? "只读观测副本不可调整技能集。"
@@ -1489,10 +1541,10 @@ export function SkillDetailView({
                         {skillCollections.map((collection) => (
                           <span
                             key={collection.id}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary ring-1 ring-primary/20"
+                            className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary ring-1 ring-primary/20"
                             title={collection.description ?? collection.name}
                           >
-                            <Tag className="size-2.5" />
+                            <Tag className="size-3" />
                             {collection.name}
                           </span>
                         ))}
@@ -1500,15 +1552,16 @@ export function SkillDetailView({
                           ref={addToCollectionButtonRef}
                           variant="ghost"
                           size="sm"
-                          className="gap-1 text-muted-foreground hover:text-foreground h-6 px-2 text-xs"
+                          className="h-8 gap-1.5 px-2 text-sm text-muted-foreground hover:text-foreground"
                           aria-label={t("detail.addToCollection")}
                           onClick={() => setIsCollectionPickerOpen(true)}
                         >
-                          <Plus className="size-3" />
+                          <Plus className="size-3.5" />
                           {t("detail.addToCollection")}
                         </Button>
                       </div>
                     )}
+                    </SectionPanel>
                   </section>
                 </>
               ) : null}

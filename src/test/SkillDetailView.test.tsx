@@ -360,19 +360,19 @@ describe("SkillDetailView", () => {
 
   // ── Metadata ──────────────────────────────────────────────────────────────
 
-  it("shows metadata section", () => {
+  it("shows timestamp metadata section", () => {
     renderView();
-    expect(screen.getByRole("region", { name: /技能基本信息/i })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /技能时间信息/i })).toBeInTheDocument();
   });
 
-  it("shows file tree above metadata and keeps directories collapsed by default", async () => {
+  it("shows file tree above storage metadata and keeps directories collapsed by default", async () => {
     renderView();
 
     const filesRegion = await screen.findByRole("region", { name: /技能文件/i });
-    const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
+    const storageRegion = screen.getByRole("region", { name: /技能存储路径/i });
     const docsButton = within(filesRegion).getByRole("button", { name: "docs" });
 
-    expect(filesRegion.compareDocumentPosition(metadataRegion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(filesRegion.compareDocumentPosition(storageRegion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(filesRegion).getByText("docs")).toBeInTheDocument();
     expect(within(filesRegion).getByRole("button", { name: "SKILL.md" })).toBeInTheDocument();
     expect(docsButton).toHaveAttribute("aria-expanded", "false");
@@ -397,7 +397,8 @@ describe("SkillDetailView", () => {
 
   it("shows source", () => {
     renderView();
-    expect(screen.getByText("native")).toBeInTheDocument();
+    const sourceRegion = screen.getByRole("region", { name: /技能来源信息/i });
+    expect(within(sourceRegion).getByText("native")).toBeInTheDocument();
   });
 
   it("shows GitHub repository source without exposing the basic info editor", () => {
@@ -412,9 +413,9 @@ describe("SkillDetailView", () => {
     });
     renderView("frontend-design", "page", { skipMockSetup: true });
 
-    const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
-    expect(within(metadataRegion).getByText("owner/repo")).toBeInTheDocument();
-    expect(within(metadataRegion).queryByDisplayValue("resource-library")).toBeNull();
+    const sourceRegion = screen.getByRole("region", { name: /技能来源信息/i });
+    expect(within(sourceRegion).getByText("owner/repo")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("resource-library")).toBeNull();
     expect(screen.queryByRole("button", { name: /保存基本信息/i })).toBeNull();
   });
 
@@ -646,7 +647,7 @@ describe("SkillDetailView", () => {
     const codingIconGrid = codingLabel.nextElementSibling;
 
     expect(codingGroup).toHaveClass("items-start");
-    expect(codingLabel).toHaveClass("h-6", "items-center");
+    expect(codingLabel).toHaveClass("h-7", "items-center");
     expect(codingIconGrid).toHaveClass("min-w-0", "flex-1", "flex-wrap");
   });
 
