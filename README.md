@@ -40,27 +40,27 @@ The screenshots in this English README use English captions and should be refres
 
 ### Skill Resource Library, Author/Project Folders, Sorting, And Manual Creation
 
-![Skill resource library view](images/01.png)
+![Skill resource library view](images/en/01.png)
 
 ### Import skills from a GitHub repository
 
-![GitHub repository import wizard](images/02.png)
+![GitHub repository import wizard](images/en/02.png)
 
 ### Central Skills
 
-![Central Skills view](images/03.png)
+![Central Skills view](images/en/03.png)
 
 ### Settings, Backup, And WebDAV
 
-![Settings and backup view](images/04.png)
+![Settings and backup view](images/en/04.png)
 
 ### Organize reusable collections
 
-![Skill collections view](images/05.png)
+![Skill collections view](images/en/05.png)
 
 ### Review installed skills on a specific platform
 
-![Platform skill view](images/06.png)
+![Platform skill view](images/en/06.png)
 
 ## Download
 
