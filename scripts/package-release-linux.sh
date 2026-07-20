@@ -166,7 +166,7 @@ update_version_files() {
 
   local metainfo_path="$root/src-tauri/bundle/linux/com.iamzhihuix.skillsmanage.metainfo.xml"
   if ! grep -q "<release version=\"$next_version\"" "$metainfo_path"; then
-    perl -0pi -e "s/(\\s*<releases>\\s*)/\$1\n    <release version=\"$next_version\" date=\"$today\"\/>/s" "$metainfo_path"
+    perl -0pi -e 'BEGIN { ($version, $date) = @ARGV; @ARGV = (); } s/(<releases>\s*\n)/$1    <release version="$version" date="$date"\/>\n/s' "$next_version" "$today" "$metainfo_path"
   fi
 
 }

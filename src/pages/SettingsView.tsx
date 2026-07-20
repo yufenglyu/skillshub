@@ -29,7 +29,7 @@ import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/p
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.11.1";
+const APP_VERSION = "0.12.0";
 const DB_PATH_FALLBACK = "~/.skillshub/db.sqlite";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,

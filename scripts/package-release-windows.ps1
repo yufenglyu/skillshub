@@ -152,7 +152,7 @@ function Update-VersionFiles {
   if ($metainfo -notmatch "<release version=`"$([regex]::Escape($NextVersion))`"") {
     $today = Get-Date -Format "yyyy-MM-dd"
     $releaseLine = "    <release version=`"$NextVersion`" date=`"$today`"/>"
-    $metainfo = [regex]::Replace($metainfo, "(?m)^(\s*<releases>\s*)$", "`${1}`n$releaseLine", 1)
+    $metainfo = [regex]::Replace($metainfo, "(?m)^(\s*<releases>\s*)$", "`${1}`n$releaseLine`n", 1)
     Write-TextFile $metainfoPath $metainfo
   }
 
