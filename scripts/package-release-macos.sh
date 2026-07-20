@@ -126,6 +126,19 @@ ensure_macos_rust_targets() {
     exit 1
   fi
 
+  local rustup_cargo
+  local rustup_rustc
+  local rustup_bin
+  rustup_cargo="$(rustup which cargo)"
+  rustup_rustc="$(rustup which rustc)"
+  rustup_bin="$(dirname "$rustup_cargo")"
+  export PATH="$rustup_bin:$PATH"
+
+  if [[ "$(command -v cargo)" != "$rustup_cargo" || "$(command -v rustc)" != "$rustup_rustc" ]]; then
+    echo "Failed to activate rustup toolchain. Expected cargo at $rustup_cargo and rustc at $rustup_rustc." >&2
+    exit 1
+  fi
+
   local missing_targets=()
   local target
   for target in aarch64-apple-darwin x86_64-apple-darwin; do
@@ -137,6 +150,16 @@ ensure_macos_rust_targets() {
   if [[ "${#missing_targets[@]}" -gt 0 ]]; then
     run rustup target add "${missing_targets[@]}"
   fi
+
+  local rust_sysroot
+  rust_sysroot="$(rustc --print sysroot)"
+  for target in aarch64-apple-darwin x86_64-apple-darwin; do
+    if [[ ! -d "$rust_sysroot/lib/rustlib/$target" ]]; then
+      echo "Rust target $target is not available in the active sysroot: $rust_sysroot" >&2
+      echo "Run: rustup target add $target" >&2
+      exit 1
+    fi
+  done
 }
 
 assert_compatible_app_identity() {
@@ -245,7 +268,7 @@ build_app() {
   fi
 
   local skip_before_build_path
-  skip_before_build_path="$(mktemp "${TMPDIR:-/tmp}/skillshub-tauri-build.XXXXXX.json")"
+  skip_before_build_path="$(mktemp "${TMPDIR:-/tmp}/skillshub-tauri-build.XXXXXX")"
   printf '%s' '{"build":{"beforeBuildCommand":""}}' > "$skip_before_build_path"
   trap 'rm -f "$skip_before_build_path"' RETURN
   run "$tauri_cmd" build --target universal-apple-darwin --bundles app,dmg --no-sign --ci --config "$skip_before_build_path"

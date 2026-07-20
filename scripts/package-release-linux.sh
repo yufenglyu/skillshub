@@ -221,7 +221,7 @@ build_app() {
   fi
 
   local skip_before_build_path
-  skip_before_build_path="$(mktemp "${TMPDIR:-/tmp}/skillshub-tauri-build.XXXXXX.json")"
+  skip_before_build_path="$(mktemp "${TMPDIR:-/tmp}/skillshub-tauri-build.XXXXXX")"
   printf '%s' '{"build":{"beforeBuildCommand":""}}' > "$skip_before_build_path"
   trap 'rm -f "$skip_before_build_path"' RETURN
   run "$tauri_cmd" build --bundles deb,rpm,appimage --no-sign --ci --config "$skip_before_build_path"
