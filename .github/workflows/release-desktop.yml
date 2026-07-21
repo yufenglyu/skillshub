@@ -256,9 +256,14 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          NOTES_PATH="release-notes/${VERSION}.md"
-          [ -f "$NOTES_PATH" ] || { echo "Release notes file not found: $NOTES_PATH" >&2; exit 1; }
-          cp "$NOTES_PATH" release-body.md
+          CHANGELOG_PATH="CHANGELOG.md"
+          [ -f "$CHANGELOG_PATH" ] || { echo "Changelog file not found: $CHANGELOG_PATH" >&2; exit 1; }
+          awk -v version="$VERSION" '
+            $0 ~ "^## " version "([[:space:]]|$)" { capture = 1; print; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' "$CHANGELOG_PATH" > release-body.md
+          [ -s release-body.md ] || { echo "Changelog section not found for version: $VERSION" >&2; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Download release artifacts

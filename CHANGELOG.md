@@ -15,6 +15,7 @@ Release focused on clearer platform management, project discovery behavior, and 
 ### Improvements
 
 - Hide built-in software platforms from the main interface when the corresponding local skills directory does not exist.
+- Collapse built-in software platforms by default in Settings to keep the platform management section compact.
 - Improve Settings layout by placing add actions next to their corresponding sections.
 - Refresh English and Chinese Settings screenshots for the current interface.
 - Simplify README packaging instructions with platform-specific commands and shared options.
