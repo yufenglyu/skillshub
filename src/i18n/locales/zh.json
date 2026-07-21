@@ -30,7 +30,9 @@
     "loading": "加载中...",
     "search": "搜索",
     "refresh": "刷新",
-    "none": "无"
+    "none": "无",
+    "expand": "展开",
+    "collapse": "收起"
   },
   "sidebar": {
     "byTool": "按工具",
@@ -530,6 +532,7 @@
     "addPlatformAriaLabel": "添加自定义平台",
     "noPlatforms": "暂无软件平台。点击「添加平台」注册自定义平台。",
     "builtinPlatform": "内置平台",
+    "builtinPlatformsCollapsed": "内置平台（{{count}}）",
     "customPlatform": "自定义平台",
     "viewPlatformLabel": "查看平台 {{name}}",
     "editPlatformLabel": "编辑平台 {{name}}",

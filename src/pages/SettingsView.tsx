@@ -189,6 +189,7 @@ interface SoftwarePlatformsCardProps {
   isLoadingScanDirs: boolean;
   removingDir: string | null;
   removingAgent: string | null;
+  showBuiltinPlatforms: boolean;
   onAddDirectory: () => void;
   onAddPlatform: () => void;
   onRemoveDirectory: (path: string) => void;
@@ -196,6 +197,7 @@ interface SoftwarePlatformsCardProps {
   onViewPlatform: (agent: AgentWithStatus) => void;
   onEditPlatform: (agent: AgentWithStatus) => void;
   onRemovePlatform: (agentId: string) => void;
+  onToggleBuiltinPlatforms: () => void;
 }
 
 function SoftwarePlatformsCard({
@@ -206,6 +208,7 @@ function SoftwarePlatformsCard({
   isLoadingScanDirs,
   removingDir,
   removingAgent,
+  showBuiltinPlatforms,
   onAddDirectory,
   onAddPlatform,
   onRemoveDirectory,
@@ -213,9 +216,12 @@ function SoftwarePlatformsCard({
   onViewPlatform,
   onEditPlatform,
   onRemovePlatform,
+  onToggleBuiltinPlatforms,
 }: SoftwarePlatformsCardProps) {
   const { t } = useTranslation();
   const customDirs = scanDirectories.filter((d) => !d.is_builtin);
+  const customPlatforms = softwarePlatforms.filter((agent) => !agent.is_builtin);
+  const builtinPlatforms = softwarePlatforms.filter((agent) => agent.is_builtin);
 
   return (
     <Card>
@@ -301,17 +307,58 @@ function SoftwarePlatformsCard({
                 {t("settings.noPlatforms")}
               </p>
             ) : (
-              <div className="rounded-lg border border-border overflow-hidden">
-                {softwarePlatforms.map((agent) => (
-                  <SoftwarePlatformRow
-                    key={agent.id}
-                    agent={agent}
-                    onView={() => onViewPlatform(agent)}
-                    onEdit={() => onEditPlatform(agent)}
-                    onRemove={() => onRemovePlatform(agent.id)}
-                    isRemoving={removingAgent === agent.id}
-                  />
-                ))}
+              <div className="space-y-3">
+                {customPlatforms.length > 0 && (
+                  <div className="rounded-lg border border-border overflow-hidden">
+                    {customPlatforms.map((agent) => (
+                      <SoftwarePlatformRow
+                        key={agent.id}
+                        agent={agent}
+                        onView={() => onViewPlatform(agent)}
+                        onEdit={() => onEditPlatform(agent)}
+                        onRemove={() => onRemovePlatform(agent.id)}
+                        isRemoving={removingAgent === agent.id}
+                      />
+                    ))}
+                  </div>
+                )}
+                {builtinPlatforms.length > 0 && (
+                  <div className="rounded-lg border border-border overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={onToggleBuiltinPlatforms}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-muted/50 transition-colors"
+                      aria-expanded={showBuiltinPlatforms}
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        {showBuiltinPlatforms ? (
+                          <ChevronDown className="size-4 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="size-4 text-muted-foreground" />
+                        )}
+                        <Cpu className="size-4 text-muted-foreground" />
+                        <span>{t("settings.builtinPlatformsCollapsed", { count: builtinPlatforms.length })}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {showBuiltinPlatforms ? t("common.collapse") : t("common.expand")}
+                      </span>
+                    </button>
+                    {showBuiltinPlatforms && (
+                      <div className="border-t border-border">
+                        {builtinPlatforms.map((agent) => (
+                          <SoftwarePlatformRow
+                            key={agent.id}
+                            agent={agent}
+                            onView={() => onViewPlatform(agent)}
+                            onEdit={() => onEditPlatform(agent)}
+                            onRemove={() => onRemovePlatform(agent.id)}
+                            isRemoving={removingAgent === agent.id}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -452,6 +499,7 @@ export function SettingsView() {
   const [showAiTestDetails, setShowAiTestDetails] = useState(false);
 
   const [isAddDirOpen, setIsAddDirOpen] = useState(false);
+  const [showBuiltinPlatforms, setShowBuiltinPlatforms] = useState(false);
   const [isPlatformDialogOpen, setIsPlatformDialogOpen] = useState(false);
   const [editingPlatform, setEditingPlatform] = useState<AgentWithStatus | null>(null);
   const [isViewingPlatform, setIsViewingPlatform] = useState(false);
@@ -986,6 +1034,7 @@ export function SettingsView() {
           isLoadingScanDirs={isLoadingScanDirs}
           removingDir={removingDir}
           removingAgent={removingAgent}
+          showBuiltinPlatforms={showBuiltinPlatforms}
           onAddDirectory={() => setIsAddDirOpen(true)}
           onAddPlatform={handleOpenAddPlatform}
           onRemoveDirectory={handleRemoveDirectory}
@@ -993,6 +1042,7 @@ export function SettingsView() {
           onViewPlatform={handleOpenViewPlatform}
           onEditPlatform={handleOpenEditPlatform}
           onRemovePlatform={handleRemovePlatform}
+          onToggleBuiltinPlatforms={() => setShowBuiltinPlatforms((value) => !value)}
         />
 
         {/* Section 2: Backup and migration */}

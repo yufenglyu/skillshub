@@ -707,6 +707,8 @@ describe("SettingsView", () => {
     setupMocks({ agents: [mockBuiltinAgent] });
     renderSettingsView();
 
+    fireEvent.click(screen.getByRole("button", { name: /内置平台（1）/ }));
+
     expect(screen.getByText("Claude Code")).toBeTruthy();
     expect(screen.getByRole("button", { name: `查看平台 ${mockBuiltinAgent.display_name}` })).toBeTruthy();
     expect(screen.queryByRole("button", { name: `编辑平台 ${mockBuiltinAgent.display_name}` })).toBeNull();
@@ -736,9 +738,17 @@ describe("SettingsView", () => {
     ).toBeTruthy();
   });
 
-  it("shows builtin agents in the software platforms list", () => {
+  it("collapses builtin agents in the software platforms list by default", () => {
     setupMocks({ agents: [mockBuiltinAgent] });
     renderSettingsView();
+    expect(screen.getByRole("button", { name: /内置平台（1）/ })).toBeTruthy();
+    expect(screen.queryByText(mockBuiltinAgent.display_name)).toBeNull();
+  });
+
+  it("shows builtin agents after expanding builtin platforms", () => {
+    setupMocks({ agents: [mockBuiltinAgent] });
+    renderSettingsView();
+    fireEvent.click(screen.getByRole("button", { name: /内置平台（1）/ }));
     expect(screen.getByText(mockBuiltinAgent.display_name)).toBeTruthy();
   });
 
@@ -771,6 +781,7 @@ describe("SettingsView", () => {
   it("opens readonly platform dialog when builtin view button is clicked", async () => {
     setupMocks({ agents: [mockBuiltinAgent] });
     renderSettingsView();
+    fireEvent.click(screen.getByRole("button", { name: /内置平台（1）/ }));
     fireEvent.click(
       screen.getByRole("button", { name: `查看平台 ${mockBuiltinAgent.display_name}` })
     );

@@ -30,7 +30,9 @@
     "loading": "Loading...",
     "search": "Search",
     "refresh": "Refresh",
-    "none": "None"
+    "none": "None",
+    "expand": "Expand",
+    "collapse": "Collapse"
   },
   "sidebar": {
     "byTool": "By Tool",
@@ -530,6 +532,7 @@
     "addPlatformAriaLabel": "Add custom platform",
     "noPlatforms": "No software platforms. Click \"Add Platform\" to register a custom platform.",
     "builtinPlatform": "Built-in platform",
+    "builtinPlatformsCollapsed": "Built-in platforms ({{count}})",
     "customPlatform": "Custom platform",
     "viewPlatformLabel": "View platform {{name}}",
     "editPlatformLabel": "Edit platform {{name}}",
