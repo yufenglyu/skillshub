@@ -91,8 +91,8 @@ vi.mock("@/stores/skillStore", () => ({
     selector({ skillsByAgent: {}, getSkillsByAgent: mockGetSkillsByAgent }),
 }));
 
-vi.mock("@/stores/marketplaceStore", () => ({
-  useMarketplaceStore: (selector: (state: Record<string, unknown>) => unknown) =>
+vi.mock("@/stores/githubImportStore", () => ({
+  useGitHubImportStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       githubImport: {
         isPreviewLoading: false,
@@ -181,19 +181,19 @@ describe("ResourceLibraryView delete", () => {
     expect(mockRefreshCounts).toHaveBeenCalled();
   });
 
-  it("shows manual create after the GitHub import button", () => {
+  it("shows manual create after the unified import button", () => {
     render(
       <MemoryRouter>
         <ResourceLibraryView />
       </MemoryRouter>
     );
 
-    const githubImport = screen.getByRole("button", { name: /从 GitHub 导入|Import from GitHub/i });
+    const importButton = screen.getByRole("button", { name: /导入技能|Import skills/i });
     const manualCreate = screen.getByRole("button", { name: /手动创建|Manual Create/i });
-    expect(githubImport.compareDocumentPosition(manualCreate)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(importButton.compareDocumentPosition(manualCreate)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it("renders icons for update-from-source and GitHub import buttons", () => {
+  it("renders icons for update-from-source and unified import buttons", () => {
     render(
       <MemoryRouter>
         <ResourceLibraryView />
@@ -201,10 +201,23 @@ describe("ResourceLibraryView delete", () => {
     );
 
     const updateButton = screen.getByRole("button", { name: /从来源更新|Update from sources/i });
-    const githubButton = screen.getByRole("button", { name: /从 GitHub 导入|Import from GitHub/i });
+    const importButton = screen.getByRole("button", { name: /导入技能|Import skills/i });
 
     expect(updateButton.querySelector("svg")).not.toBeNull();
-    expect(githubButton.querySelector("svg")).not.toBeNull();
+    expect(importButton.querySelector("svg")).not.toBeNull();
+  });
+
+  it("opens a source menu for GitHub and skills.sh imports", () => {
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /导入技能|Import skills/i }));
+
+    expect(screen.getByRole("menuitem", { name: /从 GitHub 导入|Import from GitHub/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /从 skills\.sh 导入|Import from skills\.sh/i })).toBeInTheDocument();
   });
 
   it("sorts resource skills by modified time and direction controls", async () => {

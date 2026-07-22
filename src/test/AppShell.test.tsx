@@ -24,14 +24,6 @@ vi.mock("@/components/layout/Sidebar", () => ({
   Sidebar: () => <div data-testid="sidebar" />,
 }));
 
-vi.mock("@/components/layout/TopBar", () => ({
-  TopBar: ({ onSearchClick }: { onSearchClick: () => void }) => (
-    <button type="button" onClick={onSearchClick}>
-      open-search
-    </button>
-  ),
-}));
-
 vi.mock("@/components/layout/GlobalSearchDialog", () => ({
   GlobalSearchDialog: ({
     open,
@@ -40,14 +32,12 @@ vi.mock("@/components/layout/GlobalSearchDialog", () => ({
     open: boolean;
     onAction: (action: string) => void;
   }) =>
-    open ? (
-      triggerRescanInMock ? (
-        <button type="button" onClick={() => onAction("rescan")}>
-          trigger-rescan
-        </button>
-      ) : (
-        <div data-testid="global-search-dialog" />
-      )
+    triggerRescanInMock ? (
+      <button type="button" onClick={() => onAction("rescan")}>
+        trigger-rescan
+      </button>
+    ) : open ? (
+      <div data-testid="global-search-dialog" />
     ) : null,
 }));
 
@@ -179,10 +169,6 @@ describe("AppShell", () => {
     );
 
     await act(async () => {
-      screen.getByRole("button", { name: /open-search/i }).click();
-    });
-
-    await act(async () => {
       screen.getByRole("button", { name: /trigger-rescan/i }).click();
     });
 
@@ -236,10 +222,6 @@ describe("AppShell", () => {
         </Routes>
       </MemoryRouter>
     );
-
-    await act(async () => {
-      screen.getByRole("button", { name: /open-search/i }).click();
-    });
 
     await act(async () => {
       screen.getByRole("button", { name: /trigger-rescan/i }).click();

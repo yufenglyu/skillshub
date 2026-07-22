@@ -3,9 +3,11 @@ import {
   ArrowLeft,
   ArrowUpDown,
   Blocks,
+  ChevronDown,
   Database,
   Download,
   FolderOpen,
+  Globe2,
   Plus,
   RefreshCw,
   Search,
@@ -14,7 +16,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { InstallDialog } from "@/components/central/InstallDialog";
-import { GitHubRepoImportWizard } from "@/components/marketplace/GitHubRepoImportWizard";
+import { GitHubRepoImportWizard } from "@/components/github-import/GitHubRepoImportWizard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import { SkillFolderCard } from "@/components/skill/SkillFolderCard";
 import { SkillListModeToggle } from "@/components/skill/SkillListModeToggle";
@@ -38,7 +40,7 @@ import {
   type SkillFolderGroup,
 } from "@/lib/skillFolders";
 import { cn } from "@/lib/utils";
-import { useMarketplaceStore } from "@/stores/marketplaceStore";
+import { useGitHubImportStore } from "@/stores/githubImportStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
@@ -58,6 +60,7 @@ function EmptyState({ message }: { message: string }) {
 
 type ResourceSortField = "name" | "createdAt" | "updatedAt";
 type ResourceSortDirection = "asc" | "desc";
+type ImportSource = "github" | "skillsSh";
 
 function parseSortableTimestamp(value?: string | null): number {
   if (!value) return 0;
@@ -74,6 +77,42 @@ function getSkillSortTimestamp(
       ? skill.created_at ?? skill.scanned_at
       : skill.updated_at ?? skill.scanned_at
   );
+}
+
+function parseSkillsShImportTarget(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Missing skills.sh URL.");
+  }
+
+  let path = trimmed;
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase();
+    if (host !== "skills.sh" && host !== "www.skills.sh") {
+      throw new Error("Only skills.sh URLs are supported.");
+    }
+    path = parsed.pathname;
+  } catch (err) {
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      throw err;
+    }
+  }
+
+  const segments = path
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length < 3) {
+    throw new Error("Use a skills.sh skill URL like https://skills.sh/owner/repo/skill.");
+  }
+
+  const [owner, repo, skillSlug] = segments;
+  return {
+    repoUrl: `https://github.com/${owner}/${repo}`,
+    skillSlug,
+  };
 }
 
 export function ResourceLibraryView() {
@@ -106,14 +145,14 @@ export function ResourceLibraryView() {
   const loadCentralSkills = useCentralSkillsStore((state) => state.loadCentralSkills);
   const getSkillsByAgent = useSkillStore((state) => state.getSkillsByAgent);
   const skillsByAgent = useSkillStore((state) => state.skillsByAgent);
-  const githubImport = useMarketplaceStore((state) => state.githubImport);
-  const previewGitHubRepoImport = useMarketplaceStore(
+  const githubImport = useGitHubImportStore((state) => state.githubImport);
+  const previewGitHubRepoImport = useGitHubImportStore(
     (state) => state.previewGitHubRepoImport
   );
-  const importGitHubRepoSkills = useMarketplaceStore(
+  const importGitHubRepoSkills = useGitHubImportStore(
     (state) => state.importGitHubRepoSkills
   );
-  const resetGitHubImport = useMarketplaceStore((state) => state.resetGitHubImport);
+  const resetGitHubImport = useGitHubImportStore((state) => state.resetGitHubImport);
 
   const [viewMode, setViewMode] = useSkillListViewMode("resource-library");
   const [sortField, setSortField] = useState<ResourceSortField>("name");
@@ -128,6 +167,8 @@ export function ResourceLibraryView() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [updatingSkillId, setUpdatingSkillId] = useState<string | null>(null);
   const [isGitHubImportOpen, setIsGitHubImportOpen] = useState(false);
+  const [importSource, setImportSource] = useState<ImportSource>("github");
+  const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
   const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
   const [manualSkillId, setManualSkillId] = useState("");
   const [manualName, setManualName] = useState("");
@@ -137,6 +178,8 @@ export function ResourceLibraryView() {
     useState<CentralSkillBundleDeletePreview | null>(null);
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [githubRepoUrl, setGitHubRepoUrl] = useState("");
+  const [importUrlError, setImportUrlError] = useState<string | null>(null);
+  const importMenuRef = useRef<HTMLDivElement | null>(null);
   const detailButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -150,6 +193,17 @@ export function ResourceLibraryView() {
   useEffect(() => {
     loadResourceLibrary();
   }, [loadResourceLibrary]);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!importMenuRef.current?.contains(event.target as Node)) {
+        setIsImportMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
 
   const folderSplit = useMemo(
     () => splitResourceLibrarySkillsByFolder(skills, resourceLibraryDir),
@@ -421,8 +475,19 @@ export function ResourceLibraryView() {
   }
 
   async function handleGitHubPreview() {
+    setImportUrlError(null);
+    let previewUrl = githubRepoUrl;
+    if (importSource === "skillsSh") {
+      try {
+        previewUrl = parseSkillsShImportTarget(githubRepoUrl).repoUrl;
+      } catch {
+        setImportUrlError(t("githubImport.skillsShUrlInvalid"));
+        return null;
+      }
+    }
+
     try {
-      return await previewGitHubRepoImport(githubRepoUrl);
+      return await previewGitHubRepoImport(previewUrl);
     } catch {
       return null;
     }
@@ -432,15 +497,41 @@ export function ResourceLibraryView() {
     selections: Parameters<typeof importGitHubRepoSkills>[1]
   ) {
     try {
-      const result = await importGitHubRepoSkills(githubRepoUrl, selections);
+      let importUrl = githubRepoUrl;
+      if (importSource === "skillsSh") {
+        try {
+          importUrl = parseSkillsShImportTarget(githubRepoUrl).repoUrl;
+        } catch {
+          throw new Error(t("githubImport.skillsShUrlInvalid"));
+        }
+      }
+      const result = await importGitHubRepoSkills(importUrl, selections);
       await Promise.all([loadResourceLibrary(), refreshCounts()]);
       toast.success(t("resource.githubImportSuccess"));
       return result;
     } catch (err) {
-      toast.error(t("marketplace.installError", { error: String(err) }));
+      toast.error(t("githubImport.installError", { error: String(err) }));
       throw err;
     }
   }
+
+  function handleOpenImport(source: ImportSource) {
+    setImportSource(source);
+    setImportUrlError(null);
+    resetGitHubImport();
+    setGitHubRepoUrl("");
+    setIsImportMenuOpen(false);
+    setIsGitHubImportOpen(true);
+  }
+
+  const skillsShTarget = useMemo(() => {
+    if (importSource !== "skillsSh") return null;
+    try {
+      return parseSkillsShImportTarget(githubRepoUrl);
+    } catch {
+      return null;
+    }
+  }, [githubRepoUrl, importSource]);
 
   async function handleInstallImportedSkill(
     skillId: string,
@@ -486,10 +577,57 @@ export function ResourceLibraryView() {
             )}
             {t("resource.updateSources")}
           </Button>
-          <Button variant="outline" onClick={() => setIsGitHubImportOpen(true)}>
-            <Download className="size-4" />
-            {t("marketplace.githubImportSecondaryCta")}
-          </Button>
+          <div ref={importMenuRef} className="relative">
+            <Button
+              variant="outline"
+              onClick={() => setIsImportMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={isImportMenuOpen}
+            >
+              <Download className="size-4" />
+              {t("resource.importSkills")}
+              <ChevronDown className="size-4" />
+            </Button>
+            {isImportMenuOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 z-30 mt-2 w-64 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+                  onClick={() => handleOpenImport("github")}
+                >
+                  <Download className="mt-0.5 size-4 text-primary" />
+                  <span>
+                    <span className="block font-medium">
+                      {t("githubImport.githubImportSecondaryCta")}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {t("resource.importFromGitHubHint")}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+                  onClick={() => handleOpenImport("skillsSh")}
+                >
+                  <Globe2 className="mt-0.5 size-4 text-primary" />
+                  <span>
+                    <span className="block font-medium">
+                      {t("githubImport.skillsShImportSecondaryCta")}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {t("resource.importFromSkillsShHint")}
+                    </span>
+                  </span>
+                </button>
+              </div>
+            ) : null}
+          </div>
           <Button variant="outline" onClick={() => setIsManualCreateOpen(true)}>
             <Plus className="size-4" />
             {t("resource.manualCreate")}
@@ -884,10 +1022,11 @@ export function ResourceLibraryView() {
       <GitHubRepoImportWizard
         open={isGitHubImportOpen}
         onOpenChange={setIsGitHubImportOpen}
+        importSource={importSource}
         repoUrl={githubRepoUrl}
         onRepoUrlChange={setGitHubRepoUrl}
         preview={githubImport.preview}
-        previewError={githubImport.error}
+        previewError={importUrlError ?? githubImport.error}
         isPreviewLoading={githubImport.isPreviewLoading}
         isImporting={githubImport.isImporting}
         importResult={githubImport.importResult}
@@ -900,7 +1039,9 @@ export function ResourceLibraryView() {
         onReset={() => {
           resetGitHubImport();
           setGitHubRepoUrl("");
+          setImportUrlError(null);
         }}
+        preferredSkillSlug={skillsShTarget?.skillSlug ?? null}
         launcherLabel={t("resource.title")}
       />
     </div>

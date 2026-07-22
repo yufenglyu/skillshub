@@ -4,6 +4,29 @@ use crate::db::{self, Agent, DbPool, ScanDirectory};
 use crate::path_utils::{expand_home_path, path_to_string};
 use crate::AppState;
 
+const GITHUB_LATEST_RELEASE_API: &str =
+    "https://api.github.com/repos/yufenglyu/skillshub/releases/latest";
+const GITHUB_LATEST_RELEASE_URL: &str = "https://github.com/yufenglyu/skillshub/releases/latest";
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateInfo {
+    pub current_version: String,
+    pub latest_version: String,
+    pub latest_url: String,
+    pub is_update_available: bool,
+    pub release_name: Option<String>,
+    pub published_at: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GitHubReleaseResponse {
+    tag_name: String,
+    html_url: Option<String>,
+    name: Option<String>,
+    published_at: Option<String>,
+}
+
 // ─── Core Implementations (testable without Tauri State) ──────────────────────
 
 /// Return all scan directories, built-in first then custom ordered by added_at.
@@ -105,6 +128,91 @@ pub async fn update_skill_resource_library_dir_impl(
     Ok(path_to_string(
         &db::set_skill_resource_library_dir(pool, path).await?,
     ))
+}
+
+pub async fn check_app_update_impl(pool: &DbPool) -> Result<AppUpdateInfo, String> {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let client = reqwest::Client::new();
+    let mut request = client
+        .get(GITHUB_LATEST_RELEASE_API)
+        .header(
+            reqwest::header::USER_AGENT,
+            format!("SkillsHub/{}", current_version),
+        )
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json");
+
+    if let Some(token) = get_setting_impl(pool, "github_pat").await? {
+        let token = token.trim();
+        if !token.is_empty() {
+            request = request.bearer_auth(token);
+        }
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("Failed to check updates: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Failed to check updates: GitHub returned {}",
+            response.status()
+        ));
+    }
+
+    let release = response
+        .json::<GitHubReleaseResponse>()
+        .await
+        .map_err(|e| format!("Failed to parse update response: {}", e))?;
+    let latest_version = normalize_version_tag(&release.tag_name);
+    let is_update_available = is_newer_version(&current_version, &latest_version);
+
+    Ok(AppUpdateInfo {
+        current_version,
+        latest_version,
+        latest_url: release
+            .html_url
+            .unwrap_or_else(|| GITHUB_LATEST_RELEASE_URL.to_string()),
+        is_update_available,
+        release_name: release.name,
+        published_at: release.published_at,
+    })
+}
+
+fn normalize_version_tag(tag: &str) -> String {
+    tag.trim()
+        .trim_start_matches('v')
+        .trim_start_matches('V')
+        .to_string()
+}
+
+fn is_newer_version(current: &str, latest: &str) -> bool {
+    compare_versions(latest, current).is_gt()
+}
+
+fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    let left_parts = version_parts(left);
+    let right_parts = version_parts(right);
+    let max_len = left_parts.len().max(right_parts.len()).max(3);
+
+    for index in 0..max_len {
+        let left_value = *left_parts.get(index).unwrap_or(&0);
+        let right_value = *right_parts.get(index).unwrap_or(&0);
+        match left_value.cmp(&right_value) {
+            std::cmp::Ordering::Equal => continue,
+            ordering => return ordering,
+        }
+    }
+
+    std::cmp::Ordering::Equal
+}
+
+fn version_parts(version: &str) -> Vec<u64> {
+    normalize_version_tag(version)
+        .split(|ch: char| !ch.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .map(|part| part.parse::<u64>().unwrap_or(0))
+        .collect()
 }
 
 async fn demote_skills_outside_new_central_root(
@@ -216,6 +324,11 @@ pub async fn update_skill_resource_library_dir(
     path: String,
 ) -> Result<String, String> {
     update_skill_resource_library_dir_impl(&state.db, &path).await
+}
+
+#[tauri::command]
+pub async fn check_app_update(state: State<'_, AppState>) -> Result<AppUpdateInfo, String> {
+    check_app_update_impl(&state.db).await
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -571,5 +684,20 @@ mod tests {
             !legacy.is_central,
             "skills under the old Central root must not remain in the Central library after changing roots"
         );
+    }
+
+    #[test]
+    fn test_normalize_version_tag_strips_v_prefix() {
+        assert_eq!(normalize_version_tag("v0.12.1"), "0.12.1");
+        assert_eq!(normalize_version_tag("V1.0.0"), "1.0.0");
+    }
+
+    #[test]
+    fn test_version_comparison_detects_newer_release() {
+        assert!(is_newer_version("0.12.0", "0.12.1"));
+        assert!(is_newer_version("0.12.0", "0.13.0"));
+        assert!(is_newer_version("0.12.9", "0.13.0"));
+        assert!(!is_newer_version("0.12.0", "0.12.0"));
+        assert!(!is_newer_version("0.12.1", "0.12.0"));
     }
 }

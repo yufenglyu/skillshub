@@ -115,7 +115,7 @@ export interface UnifiedSkillCardProps {
   originKind?: ClaudeSourceKind | null;
   isReadOnly?: boolean;
 
-  // ── marketplace variant ──
+  // ── metadata badges ──
   isInstalled?: boolean;
   tags?: { key: string; label: string }[];
   publisher?: string;
@@ -245,7 +245,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
     );
   }
 
-  // ── Default card style (central, discover, marketplace) ──
+  // ── Default card style (central, discover, resource, collection) ──
   return (
     <div
       className={cn(
@@ -288,7 +288,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
             {/* Icon action buttons */}
             {hasActions && (
               <div className="flex items-center gap-0.5 shrink-0">
-                {/* Install To... (central / platform / collection / marketplace) */}
+                {/* Install To... (central / platform / collection) */}
                 {onInstallTo && (
                   <button
                     onClick={onInstallTo}
@@ -372,12 +372,12 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
                   </button>
                 )}
 
-                {/* Marketplace installed indicator (disabled Check icon) */}
+                {/* Installed indicator (disabled Check icon) */}
                 {onInstall && isInstalled && (
                   <button
                     disabled
-                    title={t("marketplace.installed")}
-                    aria-label={t("marketplace.installed")}
+                    title={t("common.installed")}
+                    aria-label={t("common.installed")}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md text-primary cursor-default"
                   >
                     <Check className="size-4" />
@@ -436,7 +436,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
               </span>
             )}
 
-            {/* Publisher (marketplace recommended) */}
+            {/* Source label */}
             {publisher && (
               <span className="text-[10px] text-muted-foreground truncate">{publisher}</span>
             )}
@@ -461,7 +461,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
               </span>
             )}
 
-            {/* Tags (marketplace recommended) */}
+            {/* Tags */}
             {tags && tags.length > 0 && (
               <div className="flex items-center gap-1">
                 {tags.slice(0, 2).map((tag) => (

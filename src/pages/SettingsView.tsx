@@ -1,5 +1,5 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, Eye } from "lucide-react";
+import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -11,7 +11,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
 import { InlineConfirmAction } from "@/components/ui/inline-confirm-action";
 import { Switch } from "@/components/ui/switch";
@@ -26,10 +25,11 @@ import { AgentWithStatus, BackupOptions, ScanDirectory, WebDavBackupFile } from 
 import { AI_PROVIDERS, REGION_LABELS, RegionId } from "@/data/aiProviders";
 import { isInstallTargetAgent } from "@/lib/agents";
 import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/path";
+import { cn } from "@/lib/utils";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.12.0";
+const APP_VERSION = "0.13.0";
 const DB_PATH_FALLBACK = "~/.skillshub/db.sqlite";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
@@ -37,6 +37,22 @@ const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeAppConfig: true,
   includeInstallations: true,
 };
+
+function HintIcon({ text, className }: { text: string; className?: string }) {
+  return (
+    <span
+      tabIndex={0}
+      title={text}
+      aria-label={text}
+      className={cn(
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className
+      )}
+    >
+      <CircleHelp className="size-3.5" />
+    </span>
+  );
+}
 
 function webDavErrorDetail(t: (key: string) => string, error: unknown): string {
   const message = String(error);
@@ -122,61 +138,141 @@ function ScanDirectoryRow({ dir, onRemove, onToggle, isRemoving }: ScanDirectory
 
 interface SoftwarePlatformRowProps {
   agent: AgentWithStatus;
-  onView: () => void;
   onEdit: () => void;
   onRemove: () => void;
   isRemoving: boolean;
 }
 
-function SoftwarePlatformRow({ agent, onView, onEdit, onRemove, isRemoving }: SoftwarePlatformRowProps) {
+function SoftwarePlatformRow({ agent, onEdit, onRemove, isRemoving }: SoftwarePlatformRowProps) {
   const { t } = useTranslation();
+  const showBuiltinDetection = agent.is_builtin;
   return (
-    <div className="flex items-center gap-3 py-2.5 px-4 border-b border-border/50 last:border-0">
-      <Cpu className="size-4 text-muted-foreground shrink-0" />
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-2 rounded-md border px-3 py-2",
+        showBuiltinDetection && agent.is_detected
+          ? "border-primary/35 bg-primary/5"
+          : showBuiltinDetection
+            ? "border-dashed border-border/70 bg-muted/20 opacity-75"
+            : "border-border/60"
+      )}
+    >
+      <Cpu
+        className={cn(
+          "size-3.5 shrink-0",
+          showBuiltinDetection && agent.is_detected
+            ? "text-primary"
+            : "text-muted-foreground"
+        )}
+      />
       <div className="flex-1 min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="text-sm font-medium truncate">{agent.display_name}</div>
+          <div className="truncate text-xs font-medium">
+            {agent.display_name}
+          </div>
           <span className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
             {agent.is_builtin ? t("settings.builtinPlatform") : t("settings.customPlatform")}
           </span>
+          {showBuiltinDetection && (
+            <span
+              className={cn(
+                "shrink-0 rounded border px-1.5 py-0.5 text-[10px] leading-none",
+                agent.is_detected
+                  ? "border-primary/30 bg-primary/10 text-primary"
+                  : "border-border/70 bg-background text-muted-foreground"
+              )}
+            >
+              {agent.is_detected
+                ? t("settings.platformDirDetected")
+                : t("settings.platformDirMissing")}
+            </span>
+          )}
         </div>
-        <div className="text-xs text-muted-foreground truncate mt-0.5">
+        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
           {formatPathForDisplay(agent.global_skills_dir)}
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {agent.is_builtin ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onView}
-            aria-label={t("settings.viewPlatformLabel", { name: agent.display_name })}
-          >
-            <Eye className="size-3.5" />
-            <span>{t("common.view")}</span>
-          </Button>
-        ) : (
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onEdit}
-              aria-label={t("settings.editPlatformLabel", { name: agent.display_name })}
-            >
-              <Pencil className="size-3.5" />
-              <span>{t("common.edit")}</span>
-            </Button>
-            <InlineConfirmAction
-              onConfirm={onRemove}
-              isLoading={isRemoving}
-              idleAriaLabel={t("settings.removePlatformLabel", { name: agent.display_name })}
-              idleTitle={t("settings.removePlatformLabel", { name: agent.display_name })}
-              confirmLabel={t("common.confirmDelete")}
-              icon={<Trash2 className="size-3.5" />}
-            />
-          </>
-        )}
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onEdit}
+          aria-label={t("settings.editPlatformLabel", { name: agent.display_name })}
+          className="h-7 w-7 p-0"
+          title={t("settings.editPlatformLabel", { name: agent.display_name })}
+        >
+          <Pencil className="size-3.5" />
+        </Button>
+        <InlineConfirmAction
+          onConfirm={onRemove}
+          isLoading={isRemoving}
+          idleAriaLabel={t("settings.removePlatformLabel", { name: agent.display_name })}
+          idleTitle={t("settings.removePlatformLabel", { name: agent.display_name })}
+          confirmLabel={t("common.confirmDelete")}
+          icon={<Trash2 className="size-3.5" />}
+        />
       </div>
+    </div>
+  );
+}
+
+interface SoftwarePlatformGroupProps {
+  title: string;
+  platforms: AgentWithStatus[];
+  onEditPlatform: (agent: AgentWithStatus) => void;
+  onRemovePlatform: (agentId: string) => void;
+  removingAgent: string | null;
+}
+
+function SoftwarePlatformGroup({
+  title,
+  platforms,
+  onEditPlatform,
+  onRemovePlatform,
+  removingAgent,
+}: SoftwarePlatformGroupProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-border">
+      <button
+        type="button"
+        onClick={() => setIsExpanded((expanded) => !expanded)}
+        aria-expanded={isExpanded}
+        className={cn(
+          "flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors",
+          isExpanded && "border-b border-border/60",
+          "hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+          {isExpanded ? (
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <Cpu className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">{title}</span>
+        </div>
+        <span className="shrink-0 text-xs text-muted-foreground">{platforms.length}</span>
+      </button>
+      {isExpanded ? (
+        platforms.length > 0 ? (
+          <div className="grid grid-cols-1 gap-2 p-2 xl:grid-cols-2">
+            {platforms.map((agent) => (
+              <SoftwarePlatformRow
+                key={agent.id}
+                agent={agent}
+                onEdit={() => onEditPlatform(agent)}
+                onRemove={() => onRemovePlatform(agent.id)}
+                isRemoving={removingAgent === agent.id}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="px-3 py-3 text-xs text-muted-foreground">-</p>
+        )
+      ) : null}
     </div>
   );
 }
@@ -189,15 +285,12 @@ interface SoftwarePlatformsCardProps {
   isLoadingScanDirs: boolean;
   removingDir: string | null;
   removingAgent: string | null;
-  showBuiltinPlatforms: boolean;
   onAddDirectory: () => void;
   onAddPlatform: () => void;
   onRemoveDirectory: (path: string) => void;
   onToggleDirectory: (path: string, active: boolean) => void;
-  onViewPlatform: (agent: AgentWithStatus) => void;
   onEditPlatform: (agent: AgentWithStatus) => void;
   onRemovePlatform: (agentId: string) => void;
-  onToggleBuiltinPlatforms: () => void;
 }
 
 function SoftwarePlatformsCard({
@@ -208,28 +301,27 @@ function SoftwarePlatformsCard({
   isLoadingScanDirs,
   removingDir,
   removingAgent,
-  showBuiltinPlatforms,
   onAddDirectory,
   onAddPlatform,
   onRemoveDirectory,
   onToggleDirectory,
-  onViewPlatform,
   onEditPlatform,
   onRemovePlatform,
-  onToggleBuiltinPlatforms,
 }: SoftwarePlatformsCardProps) {
   const { t } = useTranslation();
   const customDirs = scanDirectories.filter((d) => !d.is_builtin);
-  const customPlatforms = softwarePlatforms.filter((agent) => !agent.is_builtin);
-  const builtinPlatforms = softwarePlatforms.filter((agent) => agent.is_builtin);
+  const lobsterPlatforms = softwarePlatforms.filter((agent) => agent.category === "lobster");
+  const codingPlatforms = softwarePlatforms.filter((agent) => agent.category !== "lobster");
 
   return (
     <Card>
       <CardHeader>
         <div>
           <div>
-            <CardTitle role="heading" aria-level={2}>{t("settings.platformProjectLocations")}</CardTitle>
-            <CardDescription className="mt-1">{t("settings.platformProjectLocationsDesc")}</CardDescription>
+            <div className="flex items-center gap-1.5">
+              <CardTitle role="heading" aria-level={2}>{t("settings.platformProjectLocations")}</CardTitle>
+              <HintIcon text={t("settings.platformProjectLocationsDesc")} />
+            </div>
           </div>
         </div>
       </CardHeader>
@@ -308,57 +400,20 @@ function SoftwarePlatformsCard({
               </p>
             ) : (
               <div className="space-y-3">
-                {customPlatforms.length > 0 && (
-                  <div className="rounded-lg border border-border overflow-hidden">
-                    {customPlatforms.map((agent) => (
-                      <SoftwarePlatformRow
-                        key={agent.id}
-                        agent={agent}
-                        onView={() => onViewPlatform(agent)}
-                        onEdit={() => onEditPlatform(agent)}
-                        onRemove={() => onRemovePlatform(agent.id)}
-                        isRemoving={removingAgent === agent.id}
-                      />
-                    ))}
-                  </div>
-                )}
-                {builtinPlatforms.length > 0 && (
-                  <div className="rounded-lg border border-border overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={onToggleBuiltinPlatforms}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-muted/50 transition-colors"
-                      aria-expanded={showBuiltinPlatforms}
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        {showBuiltinPlatforms ? (
-                          <ChevronDown className="size-4 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="size-4 text-muted-foreground" />
-                        )}
-                        <Cpu className="size-4 text-muted-foreground" />
-                        <span>{t("settings.builtinPlatformsCollapsed", { count: builtinPlatforms.length })}</span>
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {showBuiltinPlatforms ? t("common.collapse") : t("common.expand")}
-                      </span>
-                    </button>
-                    {showBuiltinPlatforms && (
-                      <div className="border-t border-border">
-                        {builtinPlatforms.map((agent) => (
-                          <SoftwarePlatformRow
-                            key={agent.id}
-                            agent={agent}
-                            onView={() => onViewPlatform(agent)}
-                            onEdit={() => onEditPlatform(agent)}
-                            onRemove={() => onRemovePlatform(agent.id)}
-                            isRemoving={removingAgent === agent.id}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                <SoftwarePlatformGroup
+                  title={t("sidebar.categoryLobster")}
+                  platforms={lobsterPlatforms}
+                  onEditPlatform={onEditPlatform}
+                  onRemovePlatform={onRemovePlatform}
+                  removingAgent={removingAgent}
+                />
+                <SoftwarePlatformGroup
+                  title={t("sidebar.categoryCoding")}
+                  platforms={codingPlatforms}
+                  onEditPlatform={onEditPlatform}
+                  onRemovePlatform={onRemovePlatform}
+                  removingAgent={removingAgent}
+                />
               </div>
             )}
           </div>
@@ -403,6 +458,9 @@ export function SettingsView() {
   const loadGitHubPat = useSettingsStore((s) => s.loadGitHubPat);
   const saveGitHubPat = useSettingsStore((s) => s.saveGitHubPat);
   const clearGitHubPat = useSettingsStore((s) => s.clearGitHubPat);
+  const updateInfo = useSettingsStore((s) => s.updateInfo);
+  const isCheckingUpdate = useSettingsStore((s) => s.isCheckingUpdate);
+  const checkAppUpdate = useSettingsStore((s) => s.checkAppUpdate);
 
   const agents = usePlatformStore((s) => s.agents);
 
@@ -499,16 +557,15 @@ export function SettingsView() {
   const [showAiTestDetails, setShowAiTestDetails] = useState(false);
 
   const [isAddDirOpen, setIsAddDirOpen] = useState(false);
-  const [showBuiltinPlatforms, setShowBuiltinPlatforms] = useState(false);
   const [isPlatformDialogOpen, setIsPlatformDialogOpen] = useState(false);
   const [editingPlatform, setEditingPlatform] = useState<AgentWithStatus | null>(null);
-  const [isViewingPlatform, setIsViewingPlatform] = useState(false);
   const [removingDir, setRemovingDir] = useState<string | null>(null);
   const [removingAgent, setRemovingAgent] = useState<string | null>(null);
   const [scanDirError, setScanDirError] = useState<string | null>(null);
   const [platformError, setPlatformError] = useState<string | null>(null);
   const [githubPatInput, setGitHubPatInput] = useState("");
   const [githubPatMessage, setGitHubPatMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [updateMessage, setUpdateMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [centralPathInput, setCentralPathInput] = useState("");
   const [isSavingCentralPath, setIsSavingCentralPath] = useState(false);
   const [centralPathMessage, setCentralPathMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -671,21 +728,12 @@ export function SettingsView() {
 
   function handleOpenAddPlatform() {
     setEditingPlatform(null);
-    setIsViewingPlatform(false);
-    setPlatformError(null);
-    setIsPlatformDialogOpen(true);
-  }
-
-  function handleOpenViewPlatform(agent: AgentWithStatus) {
-    setEditingPlatform(agent);
-    setIsViewingPlatform(true);
     setPlatformError(null);
     setIsPlatformDialogOpen(true);
   }
 
   function handleOpenEditPlatform(agent: AgentWithStatus) {
     setEditingPlatform(agent);
-    setIsViewingPlatform(false);
     setPlatformError(null);
     setIsPlatformDialogOpen(true);
   }
@@ -773,6 +821,24 @@ export function SettingsView() {
       const text = String(err);
       setGitHubPatMessage({ type: "error", text });
       toast.error(text);
+    }
+  }
+
+  async function handleCheckAppUpdate() {
+    setUpdateMessage(null);
+    try {
+      const info = await checkAppUpdate();
+      setUpdateMessage({
+        type: "success",
+        text: info.isUpdateAvailable
+          ? t("settings.updateAvailable", { version: info.latestVersion })
+          : t("settings.updateUpToDate"),
+      });
+    } catch (err) {
+      setUpdateMessage({
+        type: "error",
+        text: t("settings.updateCheckFailed", { error: String(err) }),
+      });
     }
   }
 
@@ -932,30 +998,40 @@ export function SettingsView() {
             <div className="flex items-center gap-2">
               <Database className="size-5 text-muted-foreground" />
               <div>
-                <CardTitle>{t("settings.resourcePathTitle")}</CardTitle>
-                <CardDescription className="mt-1">
-                  {t("settings.resourcePathDesc")}
-                </CardDescription>
+                <div className="flex items-center gap-1.5">
+                  <CardTitle>{t("settings.resourcePathTitle")}</CardTitle>
+                  <HintIcon text={t("settings.resourcePathDesc")} />
+                </div>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               <div>
-                <label htmlFor="skill-resource-library-dir" className="mb-1 block text-xs text-muted-foreground">
-                  {t("settings.resourcePathLabel")}
+                <label htmlFor="skill-resource-library-dir" className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>{t("settings.resourcePathLabel")}</span>
+                  <HintIcon text={t("settings.resourcePathHint")} className="size-4" />
                 </label>
-                <Input
-                  id="skill-resource-library-dir"
-                  value={resourcePathInput}
-                  onChange={(event) => setResourcePathInput(event.target.value)}
-                  disabled={isSavingResourcePath}
-                  placeholder={DB_PATH_FALLBACK.replace("db.sqlite", "library")}
-                />
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Input
+                    id="skill-resource-library-dir"
+                    className="min-w-0 flex-1"
+                    value={resourcePathInput}
+                    onChange={(event) => setResourcePathInput(event.target.value)}
+                    disabled={isSavingResourcePath}
+                    placeholder={DB_PATH_FALLBACK.replace("db.sqlite", "library")}
+                  />
+                  <Button
+                    className="shrink-0 sm:min-w-20"
+                    onClick={handleSaveResourcePath}
+                    disabled={isSavingResourcePath || !isResourcePathDirty || !resourcePathInput.trim()}
+                    aria-label={t("settings.saveResourcePath")}
+                  >
+                    {isSavingResourcePath ? <Loader2 className="size-4 animate-spin" /> : null}
+                    <span>{t("common.save")}</span>
+                  </Button>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {t("settings.resourcePathHint")}
-              </p>
               {resourcePathMessage ? (
                 <p
                   className={resourcePathMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
@@ -964,14 +1040,6 @@ export function SettingsView() {
                   {resourcePathMessage.text}
                 </p>
               ) : null}
-              <Button
-                onClick={handleSaveResourcePath}
-                disabled={isSavingResourcePath || !isResourcePathDirty || !resourcePathInput.trim()}
-                aria-label={t("settings.saveResourcePath")}
-              >
-                {isSavingResourcePath ? <Loader2 className="size-4 animate-spin" /> : null}
-                <span>{t("common.save")}</span>
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -982,30 +1050,40 @@ export function SettingsView() {
             <div className="flex items-center gap-2">
               <FolderOpen className="size-5 text-muted-foreground" />
               <div>
-                <CardTitle>{t("settings.centralPathTitle")}</CardTitle>
-                <CardDescription className="mt-1">
-                  {t("settings.centralPathDesc")}
-                </CardDescription>
+                <div className="flex items-center gap-1.5">
+                  <CardTitle>{t("settings.centralPathTitle")}</CardTitle>
+                  <HintIcon text={t("settings.centralPathDesc")} />
+                </div>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               <div>
-                <label htmlFor="central-skills-dir" className="mb-1 block text-xs text-muted-foreground">
-                  {t("settings.centralPathLabel")}
+                <label htmlFor="central-skills-dir" className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>{t("settings.centralPathLabel")}</span>
+                  <HintIcon text={t("settings.centralPathHint")} className="size-4" />
                 </label>
-                <Input
-                  id="central-skills-dir"
-                  value={centralPathInput}
-                  onChange={(event) => setCentralPathInput(event.target.value)}
-                  disabled={isSavingCentralPath}
-                  placeholder={DB_PATH_FALLBACK.replace(".skillshub/db.sqlite", ".skillshub/central-skills")}
-                />
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Input
+                    id="central-skills-dir"
+                    className="min-w-0 flex-1"
+                    value={centralPathInput}
+                    onChange={(event) => setCentralPathInput(event.target.value)}
+                    disabled={isSavingCentralPath}
+                    placeholder={DB_PATH_FALLBACK.replace(".skillshub/db.sqlite", ".skillshub/central-skills")}
+                  />
+                  <Button
+                    className="shrink-0 sm:min-w-20"
+                    onClick={handleSaveCentralPath}
+                    disabled={isSavingCentralPath || !isCentralPathDirty || !centralPathInput.trim()}
+                    aria-label={t("settings.saveCentralPath")}
+                  >
+                    {isSavingCentralPath ? <Loader2 className="size-4 animate-spin" /> : null}
+                    <span>{t("common.save")}</span>
+                  </Button>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {t("settings.centralPathHint")}
-              </p>
               {centralPathMessage ? (
                 <p
                   className={centralPathMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
@@ -1014,14 +1092,6 @@ export function SettingsView() {
                   {centralPathMessage.text}
                 </p>
               ) : null}
-              <Button
-                onClick={handleSaveCentralPath}
-                disabled={isSavingCentralPath || !isCentralPathDirty || !centralPathInput.trim()}
-                aria-label={t("settings.saveCentralPath")}
-              >
-                {isSavingCentralPath ? <Loader2 className="size-4 animate-spin" /> : null}
-                <span>{t("common.save")}</span>
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -1034,15 +1104,12 @@ export function SettingsView() {
           isLoadingScanDirs={isLoadingScanDirs}
           removingDir={removingDir}
           removingAgent={removingAgent}
-          showBuiltinPlatforms={showBuiltinPlatforms}
           onAddDirectory={() => setIsAddDirOpen(true)}
           onAddPlatform={handleOpenAddPlatform}
           onRemoveDirectory={handleRemoveDirectory}
           onToggleDirectory={handleToggleDirectory}
-          onViewPlatform={handleOpenViewPlatform}
           onEditPlatform={handleOpenEditPlatform}
           onRemovePlatform={handleRemovePlatform}
-          onToggleBuiltinPlatforms={() => setShowBuiltinPlatforms((value) => !value)}
         />
 
         {/* Section 2: Backup and migration */}
@@ -1051,105 +1118,133 @@ export function SettingsView() {
             <div className="flex items-center gap-2">
               <Database className="size-5 text-muted-foreground" />
               <div>
-                <CardTitle>{t("settings.backupTitle")}</CardTitle>
-                <CardDescription className="mt-1">
-                  {t("settings.backupDesc")}
-                </CardDescription>
+                <div className="flex items-center gap-1.5">
+                  <CardTitle>{t("settings.backupTitle")}</CardTitle>
+                  <HintIcon text={t("settings.backupDesc")} />
+                </div>
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" onClick={handleExportBackup} disabled={isBackupBusy}>
-                {isExportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-                <span>{t("settings.exportBackup")}</span>
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => backupInputRef.current?.click()}
-                disabled={isBackupBusy}
-              >
-                {isImportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                <span>{t("settings.importBackup")}</span>
-              </Button>
-              <input
-                ref={backupInputRef}
-                type="file"
-                accept="application/zip,.zip,application/json,.json"
-                className="hidden"
-                onChange={handleImportBackup}
-                aria-label={t("settings.importBackup")}
-              />
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              {t("settings.backupHint")}
-            </p>
-            <div className="mt-5 space-y-3 border-t border-border/60 pt-4">
-              <div>
-                <div className="text-sm font-medium">{t("settings.webdavTitle")}</div>
-                <p className="mt-1 text-xs text-muted-foreground">{t("settings.webdavPersistHint")}</p>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label htmlFor="webdav-url" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavUrlLabel")}</label>
-                  <Input id="webdav-url" value={webDavBaseUrl} onChange={(event) => setWebDavBaseUrl(event.target.value)} placeholder={t("settings.webdavUrlPlaceholder")} />
-                </div>
-                <div>
-                  <label htmlFor="webdav-remote-dir" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavRemoteDirLabel")}</label>
-                  <Input id="webdav-remote-dir" value={webDavRemoteDir} onChange={(event) => setWebDavRemoteDir(event.target.value)} placeholder={t("settings.webdavRemoteDirPlaceholder")} />
-                </div>
-                <div>
-                  <label htmlFor="webdav-username" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavUsernameLabel")}</label>
-                  <Input id="webdav-username" value={webDavUsername} onChange={(event) => setWebDavUsername(event.target.value)} autoComplete="off" />
-                </div>
-                <div>
-                  <label htmlFor="webdav-password" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavPasswordLabel")}</label>
-                  <Input id="webdav-password" type="password" value={webDavPassword} onChange={(event) => setWebDavPassword(event.target.value)} autoComplete="off" />
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border/70 bg-background/40 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                      <span>{t("settings.backupLocalTitle")}</span>
+                      <HintIcon text={`${t("settings.backupLocalDesc")}\n\n${t("settings.backupHint")}`} />
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <Button variant="outline" onClick={handleExportBackup} disabled={isBackupBusy}>
+                      {isExportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                      <span>{t("settings.exportBackup")}</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => backupInputRef.current?.click()}
+                      disabled={isBackupBusy}
+                    >
+                      {isImportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+                      <span>{t("settings.importBackup")}</span>
+                    </Button>
+                    <input
+                      ref={backupInputRef}
+                      type="file"
+                      accept="application/zip,.zip,application/json,.json"
+                      className="hidden"
+                      onChange={handleImportBackup}
+                      aria-label={t("settings.importBackup")}
+                    />
+                  </div>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  onClick={handleSaveWebDavConfig}
-                  disabled={isBackupBusy || !isWebDavConfigDirty || !webDavBaseUrl.trim() || !webDavRemoteDir.trim()}
-                >
-                  {isSavingWebDavConfig ? <Loader2 className="size-4 animate-spin" /> : null}
-                  <span>{t("settings.webdavSaveConfig")}</span>
-                </Button>
-                <Button variant="outline" onClick={handleRefreshWebDavBackups} disabled={isBackupBusy}>
-                  {isRefreshingWebDav ? <Loader2 className="size-4 animate-spin" /> : null}
-                  <span>{t("settings.webdavRefresh")}</span>
-                </Button>
-                <Button variant="outline" onClick={handleUploadWebDavBackup} disabled={isBackupBusy}>
-                  {isUploadingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                  <span>{t("settings.webdavUpload")}</span>
-                </Button>
+
+              <div className="rounded-lg border border-border/70 bg-background/40 p-4">
+                <div>
+                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                    <span>{t("settings.webdavTitle")}</span>
+                    <HintIcon text={t("settings.webdavPersistHint")} />
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {t("settings.webdavConnectionTitle")}
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label htmlFor="webdav-url" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavUrlLabel")}</label>
+                      <Input id="webdav-url" value={webDavBaseUrl} onChange={(event) => setWebDavBaseUrl(event.target.value)} placeholder={t("settings.webdavUrlPlaceholder")} />
+                    </div>
+                    <div>
+                      <label htmlFor="webdav-remote-dir" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavRemoteDirLabel")}</label>
+                      <Input id="webdav-remote-dir" value={webDavRemoteDir} onChange={(event) => setWebDavRemoteDir(event.target.value)} placeholder={t("settings.webdavRemoteDirPlaceholder")} />
+                    </div>
+                    <div>
+                      <label htmlFor="webdav-username" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavUsernameLabel")}</label>
+                      <Input id="webdav-username" value={webDavUsername} onChange={(event) => setWebDavUsername(event.target.value)} autoComplete="off" />
+                    </div>
+                    <div>
+                      <label htmlFor="webdav-password" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavPasswordLabel")}</label>
+                      <Input id="webdav-password" type="password" value={webDavPassword} onChange={(event) => setWebDavPassword(event.target.value)} autoComplete="off" />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleSaveWebDavConfig}
+                      disabled={isBackupBusy || !isWebDavConfigDirty || !webDavBaseUrl.trim() || !webDavRemoteDir.trim()}
+                    >
+                      {isSavingWebDavConfig ? <Loader2 className="size-4 animate-spin" /> : null}
+                      <span>{t("settings.webdavSaveConfig")}</span>
+                    </Button>
+                    {webDavConfigMessage ? (
+                      <span
+                        className={webDavConfigMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
+                        role="status"
+                      >
+                        {webDavConfigMessage.text}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="mt-5 space-y-3 border-t border-border/60 pt-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("settings.webdavRemoteBackupsTitle")}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="outline" onClick={handleRefreshWebDavBackups} disabled={isBackupBusy}>
+                        {isRefreshingWebDav ? <Loader2 className="size-4 animate-spin" /> : null}
+                        <span>{t("settings.webdavRefresh")}</span>
+                      </Button>
+                      <Button variant="outline" onClick={handleUploadWebDavBackup} disabled={isBackupBusy}>
+                        {isUploadingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+                        <span>{t("settings.webdavUpload")}</span>
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border/70">
+                    {webDavFiles.length === 0 ? (
+                      <p className="px-3 py-3 text-xs text-muted-foreground">{t("settings.webdavNoBackups")}</p>
+                    ) : (
+                      webDavFiles.map((file) => (
+                        <label key={file.remotePath} className="flex items-center gap-2 border-b border-border/50 px-3 py-2 text-sm last:border-0">
+                          <input type="radio" name="webdav-backup-file" checked={selectedWebDavPath === file.remotePath} onChange={() => setSelectedWebDavPath(file.remotePath)} />
+                          <span className="flex-1 truncate">{file.name}</span>
+                          {file.modifiedAt ? <span className="text-xs text-muted-foreground">{file.modifiedAt}</span> : null}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  <Button onClick={handleImportSelectedWebDavBackup} disabled={isBackupBusy || !selectedWebDavPath}>
+                    {isImportingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                    <span>{t("settings.webdavImportSelected")}</span>
+                  </Button>
+                </div>
               </div>
-              {webDavConfigMessage ? (
-                <p
-                  className={webDavConfigMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
-                  role="status"
-                >
-                  {webDavConfigMessage.text}
-                </p>
-              ) : null}
-              <div className="rounded-lg border border-border/70">
-                {webDavFiles.length === 0 ? (
-                  <p className="px-3 py-3 text-xs text-muted-foreground">{t("settings.webdavNoBackups")}</p>
-                ) : (
-                  webDavFiles.map((file) => (
-                    <label key={file.remotePath} className="flex items-center gap-2 border-b border-border/50 px-3 py-2 text-sm last:border-0">
-                      <input type="radio" name="webdav-backup-file" checked={selectedWebDavPath === file.remotePath} onChange={() => setSelectedWebDavPath(file.remotePath)} />
-                      <span className="flex-1 truncate">{file.name}</span>
-                      {file.modifiedAt ? <span className="text-xs text-muted-foreground">{file.modifiedAt}</span> : null}
-                    </label>
-                  ))
-                )}
-              </div>
-              <Button onClick={handleImportSelectedWebDavBackup} disabled={isBackupBusy || !selectedWebDavPath}>
-                {isImportingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-                <span>{t("settings.webdavImportSelected")}</span>
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -1160,10 +1255,12 @@ export function SettingsView() {
             <div className="flex items-center gap-2">
               <KeyRound className="size-5 text-muted-foreground" />
               <div>
-                <CardTitle>{t("settings.githubPatTitle")}</CardTitle>
-                <CardDescription className="mt-1">
-                  {t("settings.githubPatDesc")}
-                </CardDescription>
+                <div className="flex items-center gap-1.5">
+                  <CardTitle>{t("settings.githubPatTitle")}</CardTitle>
+                  <HintIcon
+                    text={`${t("settings.githubPatDesc")}\n\n${t("settings.githubPatDirectOnly")}\n\n${t("settings.githubPatRateLimitHint")}`}
+                  />
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -1181,11 +1278,6 @@ export function SettingsView() {
                   onChange={(event) => setGitHubPatInput(event.target.value)}
                   disabled={isLoadingGitHubPat || isSavingGitHubPat}
                 />
-              </div>
-
-              <div className="rounded-lg border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
-                <p>{t("settings.githubPatDirectOnly")}</p>
-                <p className="mt-2">{t("settings.githubPatRateLimitHint")}</p>
               </div>
 
               {githubPatMessage ? (
@@ -1226,10 +1318,12 @@ export function SettingsView() {
             <div className="flex items-center gap-2">
               <Bot className="size-5 text-muted-foreground" />
               <div>
-                <CardTitle>{lang === "zh" ? "AI 提供商" : "AI Provider"}</CardTitle>
-                <CardDescription className="mt-1">
-                  {lang === "zh" ? "配置用于技能解释的 AI 服务。所有提供商兼容 Anthropic API 格式。" : "Configure AI service for skill explanation. All providers use Anthropic-compatible API."}
-                </CardDescription>
+                <div className="flex items-center gap-1.5">
+                  <CardTitle>{lang === "zh" ? "AI 提供商" : "AI Provider"}</CardTitle>
+                  <HintIcon
+                    text={lang === "zh" ? "配置用于技能解释的 AI 服务。所有提供商兼容 Anthropic API 格式。" : "Configure AI service for skill explanation. All providers use Anthropic-compatible API."}
+                  />
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -1351,6 +1445,53 @@ export function SettingsView() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
+                <RefreshCw className="size-4 text-muted-foreground shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-muted-foreground">{t("settings.checkUpdates")}</div>
+                  <div
+                    className={cn(
+                      "mt-0.5 truncate text-sm",
+                      updateMessage?.type === "error" ? "text-destructive" : "text-muted-foreground"
+                    )}
+                    role={updateMessage ? "status" : undefined}
+                  >
+                    {updateMessage?.text ?? (
+                      updateInfo
+                        ? t("settings.latestVersion", { version: updateInfo.latestVersion })
+                        : t("settings.updateNotChecked")
+                    )}
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCheckAppUpdate}
+                    disabled={isCheckingUpdate}
+                  >
+                    {isCheckingUpdate ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-3.5" />
+                    )}
+                    <span>
+                      {isCheckingUpdate ? t("settings.checkingUpdates") : t("settings.checkUpdates")}
+                    </span>
+                  </Button>
+                  {updateInfo?.isUpdateAvailable && updateInfo.latestUrl ? (
+                    <a
+                      href={updateInfo.latestUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm transition-colors hover:bg-muted"
+                    >
+                      <ExternalLink className="size-3.5" />
+                      <span>{t("settings.openLatestRelease")}</span>
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
                 <Database className="size-4 text-muted-foreground shrink-0" />
                 <div>
                   <div className="text-xs text-muted-foreground">{t("settings.dbPath")}</div>
@@ -1398,10 +1539,8 @@ export function SettingsView() {
         open={isPlatformDialogOpen}
         onOpenChange={(open) => {
           setIsPlatformDialogOpen(open);
-          if (!open) setIsViewingPlatform(false);
         }}
         platform={editingPlatform}
-        readOnly={isViewingPlatform}
         onAdd={handleAddPlatform}
         onEdit={handleEditPlatform}
       />

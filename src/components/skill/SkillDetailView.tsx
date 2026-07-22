@@ -276,7 +276,7 @@ const detailTypographyClassName = cn(
 const DEFAULT_DETAIL_SIDEBAR_WIDTH = 512;
 const MIN_DETAIL_SIDEBAR_WIDTH = 360;
 const MAX_DETAIL_SIDEBAR_WIDTH = 720;
-const SOURCE_TYPE_OPTIONS = ["manual", "github", "marketplace", "raw"] as const;
+const SOURCE_TYPE_OPTIONS = ["manual", "github", "raw"] as const;
 
 function clampDetailSidebarWidth(width: number) {
   return Math.min(MAX_DETAIL_SIDEBAR_WIDTH, Math.max(MIN_DETAIL_SIDEBAR_WIDTH, width));

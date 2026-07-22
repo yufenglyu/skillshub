@@ -6,11 +6,14 @@ import {
   Blocks,
   Layers,
   Radar,
-  Store,
   Eye,
   EyeOff,
   ChevronLeft,
   ChevronRight,
+  Monitor,
+  Moon,
+  Settings,
+  Sun,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
@@ -20,6 +23,7 @@ import { useDiscoverStore } from "@/stores/discoverStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useObsidianStore } from "@/stores/obsidianStore";
+import { useThemeStore } from "@/stores/themeStore";
 import { cn } from "@/lib/utils";
 import { isEnabledInstallTargetAgent } from "@/lib/agents";
 
@@ -125,6 +129,8 @@ export function Sidebar() {
   const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
   const obsidianVaults = useObsidianStore((s) => s.vaults);
   const loadObsidianVaults = useObsidianStore((s) => s.loadVaults);
+  const themeMode = useThemeStore((s) => s.mode);
+  const cycleThemeMode = useThemeStore((s) => s.cycleMode);
 
   const [expanded, setExpanded] = useState(true);
   const [showAllPlatforms, setShowAllPlatforms] = useState(() => {
@@ -167,6 +173,10 @@ export function Sidebar() {
   const activeObsidianVaultId = getActiveObsidianVaultId(pathname);
 
   const isCollectionActive = pathname === "/collections";
+  const themeLabel = t("topBar.cycleTheme", {
+    mode: t(`topBar.themeMode.${themeMode}`),
+  });
+  const ThemeIcon = themeMode === "system" ? Monitor : themeMode === "light" ? Sun : Moon;
 
   function handleCollectionClick() {
     navigate("/collections");
@@ -176,7 +186,7 @@ export function Sidebar() {
     <nav
       className={cn(
         "flex flex-col shrink-0 h-full border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200",
-        expanded ? "w-52" : "w-14"
+          expanded ? "w-56" : "w-14"
       )}
       aria-label={t("sidebar.mainNav")}
     >
@@ -239,15 +249,6 @@ export function Sidebar() {
           icon={<Radar className="size-4" />}
           expanded={expanded}
           count={totalDiscovered}
-        />
-
-        {/* Marketplace */}
-        <NavItem
-          label={t("marketplace.title")}
-          isActive={pathname === "/marketplace"}
-          onClick={() => navigate("/marketplace")}
-          icon={<Store className="size-4" />}
-          expanded={expanded}
         />
 
         {/* Collections */}
@@ -383,6 +384,33 @@ export function Sidebar() {
           </>
         )}
 
+      </div>
+
+      <div className="border-t border-sidebar-border/70 px-1.5 py-2 space-y-0.5">
+        <button
+          type="button"
+          onClick={cycleThemeMode}
+          title={themeLabel}
+          aria-label={themeLabel}
+          className={cn(
+            "flex w-full items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary",
+            expanded ? "gap-2.5 px-2.5 py-1.5 text-sm" : "justify-center px-1.5 py-2"
+          )}
+        >
+          <ThemeIcon className="size-4 shrink-0" />
+          {expanded && (
+            <span className="truncate text-left">
+              {t(`topBar.themeMode.${themeMode}`)}
+            </span>
+          )}
+        </button>
+        <NavItem
+          label={t("sidebar.settings")}
+          isActive={pathname === "/settings"}
+          onClick={() => navigate("/settings")}
+          icon={<Settings className="size-4" />}
+          expanded={expanded}
+        />
       </div>
 
     </nav>

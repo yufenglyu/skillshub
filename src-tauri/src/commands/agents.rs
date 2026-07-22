@@ -176,7 +176,7 @@ pub async fn add_custom_agent_impl(
     Ok(agent_to_with_status(persisted))
 }
 
-/// Update an existing user-defined (non-builtin) agent and return its updated representation.
+/// Update an existing agent and return its updated representation.
 pub async fn update_custom_agent_impl(
     pool: &DbPool,
     agent_id: &str,
@@ -204,7 +204,7 @@ pub async fn update_custom_agent_impl(
     Ok(agent_to_with_status(updated))
 }
 
-/// Remove a user-defined (non-builtin) agent by ID.
+/// Remove an agent by ID.
 pub async fn remove_custom_agent_impl(pool: &DbPool, agent_id: &str) -> Result<(), String> {
     db::delete_custom_agent(pool, agent_id).await
 }
@@ -232,7 +232,7 @@ pub async fn add_custom_agent(
     add_custom_agent_impl(&state.db, config).await
 }
 
-/// Tauri command: update an existing user-defined agent.
+/// Tauri command: update an existing agent.
 #[tauri::command]
 pub async fn update_custom_agent(
     state: State<'_, AppState>,
@@ -242,7 +242,7 @@ pub async fn update_custom_agent(
     update_custom_agent_impl(&state.db, &agent_id, config).await
 }
 
-/// Tauri command: remove a user-defined (non-builtin) agent by ID.
+/// Tauri command: remove an agent by ID.
 #[tauri::command]
 pub async fn remove_custom_agent(
     state: State<'_, AppState>,
@@ -607,17 +607,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_update_builtin_agent_fails() {
+    async fn test_update_builtin_agent_success() {
         let pool = setup_test_db().await;
 
         let config = UpdateCustomAgentConfig {
-            display_name: "Hacked Name".to_string(),
-            category: None,
-            global_skills_dir: "/tmp/hacked/skills".to_string(),
+            display_name: "Edited Claude".to_string(),
+            category: Some("coding".to_string()),
+            global_skills_dir: "/tmp/edited-claude/skills".to_string(),
         };
 
-        let result = update_custom_agent_impl(&pool, "claude-code", config).await;
-        assert!(result.is_err(), "Updating a built-in agent should fail");
+        let updated = update_custom_agent_impl(&pool, "claude-code", config)
+            .await
+            .unwrap();
+        assert_eq!(updated.display_name, "Edited Claude");
+        assert_eq!(updated.global_skills_dir, "/tmp/edited-claude/skills");
+        assert!(
+            updated.is_builtin,
+            "Editing a built-in platform should preserve the built-in marker"
+        );
     }
 
     #[tokio::test]
@@ -659,9 +666,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remove_builtin_agent_fails() {
+    async fn test_remove_builtin_agent_success() {
         let pool = setup_test_db().await;
-        let result = remove_custom_agent_impl(&pool, "cursor").await;
-        assert!(result.is_err(), "Removing a built-in agent should fail");
+        remove_custom_agent_impl(&pool, "cursor").await.unwrap();
+
+        let agents = get_agents_impl(&pool).await.unwrap();
+        assert!(
+            agents.iter().all(|a| a.id != "cursor"),
+            "Removed built-in agent should no longer appear in agent list"
+        );
     }
 }

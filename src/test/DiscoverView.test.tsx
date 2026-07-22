@@ -120,7 +120,7 @@ vi.mock("react-i18next", () => ({
         "central.installTo": "Install to...",
         "central.toggleInstallLabel": `Toggle ${params?.platform ?? ""} for ${params?.skill ?? ""}`,
         "collection.removeSkillLabel": `Remove ${params?.name ?? ""}`,
-        "marketplace.installed": "Installed",
+        "common.installed": "Installed",
         "sidebar.categoryLobster": "Lobster",
         "sidebar.categoryCoding": "Coding",
         "platform.sourceCentral": "Central Skills",

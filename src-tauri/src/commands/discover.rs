@@ -3075,8 +3075,8 @@ mod tests {
 
         db::add_scan_directory(
             &pool,
-            &obsidian_parent.to_string_lossy(),
-            Some("Fixture Obsidian Parent"),
+            &fixture_root.to_string_lossy(),
+            Some("Fixture Project Root"),
         )
         .await
         .unwrap();

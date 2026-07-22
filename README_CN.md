@@ -1,181 +1,133 @@
 # SkillsHub
 
-SkillsHub 是一个本地优先的 Tauri 桌面应用，用来在技能资源库、中央技能库和多个 AI coding 平台之间管理、同步和安装 agent skills。
+SkillsHub 是一个本地优先的桌面应用，用来收集、查看、整理并安装 AI agent skills 到多个 coding 工具。
 
 [English](README.md)
 
 > **免责声明**
 >
-> SkillsHub 是一个独立的非官方桌面应用，用于管理本地 skill 目录并导入公开 skill 元数据。它与 Anthropic、OpenAI、GitHub、MiniMax 或其他受支持平台、发布方、商标所有者均无隶属、背书或赞助关系。
+> SkillsHub 是独立的非官方应用。它与 Anthropic、OpenAI、GitHub、skills.sh、MiniMax 或其他受支持平台、发布方、商标所有者均无隶属、背书或赞助关系。
 
-## 项目简介
+## 它解决什么问题
 
-SkillsHub 将长期存储和平台安装拆开处理：
+SkillsHub 把技能的长期保存和平台安装拆开：
 
-- **技能资源库** 是默认首页，用于保存下载、市场安装、GitHub 导入和带来源信息的 skills。资源库路径可自定义，并会尽量按 `作者/项目` 分组。
-- **中央技能库** 通常是 `~/.agents/skills/`，用于兼容支持该目录的平台，也用于把资源库中的技能分发到指定平台。
-- **平台视图** 展示每个工具实际可见的 skills，支持单个或批量卸载平台安装，同时保留资源库或中央库中的原始技能。
+- **技能资源库** 是默认入口，用于保存导入、下载和手动创建的 skills。GitHub 仓库和支持的 skills.sh 链接都会先导入这里。
+- **中央技能库** 通常是 `~/.agents/skills/`，用于把你明确选择共享的技能放入兼容目录。
+- **软件平台** 是具体工具自己的 skills 目录，例如 Claude Code、Codex CLI、Cursor、Gemini CLI、OpenClaw 等。
+- **技能集合** 用于把中央技能组成可复用分组，并批量安装到平台。
+- **项目技能库** 用于扫描已配置的项目目录，发现还没有纳入 SkillsHub 管理的 skills。
 
-应用数据保存在 `~/.skillshub/db.sqlite`。从旧版本升级时，如果新目录还没有数据库，SkillsHub 会在首次启动时把已有的 `~/.skillsmanage/db.sqlite` 复制到新目录。
+应用数据保存在 `~/.skillshub/db.sqlite`。从旧版本升级时，如果新数据库不存在，SkillsHub 会在首次启动时迁移已有的 `~/.skillsmanage/db.sqlite`。
 
 ## 核心能力
 
-- 以技能资源库为默认工作流，GitHub 导入、市场安装和下载默认进入资源库。
-- 资源库技能可一键加入中央技能库，并保留 `owner/repo/skill` 这样的来源分组路径；加入后会自动同步到已启用且已检测到的软件平台。
-- 技能资源库支持手动创建技能、按名称/创建时间/修改时间排序、按 `作者/项目` 展示目录视图，以及按目录安全删除。
-- 资源库技能可直接安装到指定平台，支持符号链接、复制安装和自动回退；直接安装只影响所选平台，不会进入中央技能库。
-- 中央技能库专注于管理已进入中央目录的技能，支持目录视图、批量从平台卸载和安全删除预览。
-- 技能详情页支持全宽 Markdown 预览、原始源码、可读性更高的分区元数据、安装状态、备注、标签和 AI 生成备注。
-- 搜索支持名称、描述、备注、标签和来源元信息。
-- 标签筛选与技能集合，便于整理和批量安装复用技能。
-- GitHub 仓库导入支持预览、重命名/覆盖/跳过冲突处理、记录来源元数据，并可从 `owner/repo/skill` 这类资源库路径自动推断来源信息。
-- 技能市场支持源同步、技能下载、按来源更新和单个来源更新。
-- 支持本地 ZIP 备份和 WebDAV 备份/导入；每份备份固定包含技能资源库文件、中央技能库文件、软件配置和平台安装状态。WebDAV 登录配置可保存到本机设置，密钥类内容不会写入备份文件。
-- 支持扫描项目级 skills，包括 Obsidian vault 分组和本地项目 skill 目录。
-- 中英文界面、参考 VS Code 的浅色/深色主题、跟随系统主题切换、响应式导航和紧凑快捷按钮。
+- 以技能资源库为默认工作流，支持 GitHub 导入、支持的 skills.sh 导入和手动创建技能。
+- 资源库顶部提供统一的 **导入技能** 菜单，合并“从 GitHub 导入”和“从 skills.sh 导入”。
+- GitHub 仓库导入支持先预览，再选择导入，并处理重命名、覆盖或跳过冲突。
+- 导入技能会记录来源信息；可追踪来源的技能支持从来源更新。
+- 技能资源库目录视图按 `owner/repo` 这类来源路径分组，更贴近 `作者/项目/技能` 的本地结构。
+- 资源库技能可以直接安装到指定平台，不强制加入中央技能库。
+- 资源库技能也可以一键加入中央技能库，用于共享兼容和统一分发。
+- 中央技能库支持目录视图、安全删除预览、平台安装状态和批量从平台卸载。
+- 技能详情页支持 Markdown 预览、原始源码、备注、标签、来源信息、时间信息、存储路径、安装状态和技能集合等分区。
+- 来源信息支持手动编辑，包括来源类型、来源仓库、来源作者、来源路径和来源 URL。
+- 设置页的软件平台管理支持编辑/删除内置平台、添加自定义平台、龙虾类/编程类分组、紧凑两列布局，并区分本机已检测到目录和未检测到目录的平台。
+- 支持本地 ZIP 备份和 WebDAV 备份/导入；备份文件不会包含 API Key、Token 或密码类内容。
+- 关于区域支持检查更新。
+- 中英文界面、左下角系统/浅色/深色主题切换，顶部区域去掉全局搜索框，主视图保留各页面自己的搜索和操作入口。
 
-## 项目截图
+## 界面截图
 
-中文文档中的截图示意和说明使用中文界面；英文文档的截图示意和说明保留英文界面，避免中英文界面截图混用。
+中文 README 使用中文界面截图；英文 README 使用英文界面截图，避免中英文混用。
 
-### 技能资源库、作者/项目目录、排序与手动创建
+### 技能资源库
 
-![技能资源库视图](images/01.png)
-
-### 从 GitHub 仓库导入技能
-
-![GitHub 仓库导入向导](images/02.png)
+![技能资源库](images/01.png)
 
 ### 中央技能库
 
-![中央技能库视图](images/03.png)
+![中央技能库](images/02.png)
 
-### 设置、备份与 WebDAV
+### 技能集合
 
-![设置与备份视图](images/04.png)
+![技能集合](images/03.png)
 
-### 管理可复用技能集合
+### 设置、软件平台与备份
 
-![技能集合视图](images/05.png)
+![设置、软件平台与备份](images/04.png)
 
-### 查看特定平台的已安装技能
+### 平台技能
 
-![平台技能视图](images/06.png)
+![平台技能](images/05.png)
 
-## 下载
+### 项目技能库
 
-- 最新发布：<https://github.com/yufenglyu/skillshub/releases/latest>
-- Windows、macOS 和 Linux 安装包分别通过 `scripts/` 下的平台专用脚本构建。
-- 如果对应平台还没有发布预编译包，可以从源码运行。
-
-### macOS 未签名构建说明
-
-如果 macOS 提示应用损坏或无法验证，通常是未签名构建被 Gatekeeper 的 quarantine 机制拦截。
-
-把应用移动到 `/Applications` 后，执行：
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/SkillsHub.app"
-```
-
-然后回到 Finder 再次打开应用。如果你的应用不在 `/Applications`，把命令中的路径替换成实际 `.app` 路径即可。
-
-## 支持的平台
-
-| 类别 | 平台 | Skills 目录 |
-|------|------|------------|
-| Coding | Claude Code | `~/.claude/skills/` |
-| Coding | Codex CLI | `~/.codex/skills/`（并只读兼容 `~/.agents/skills/`） |
-| Coding | Cursor | `~/.cursor/skills/` |
-| Coding | Gemini CLI | `~/.gemini/skills/` |
-| Coding | Trae | `~/.trae/skills/` |
-| Coding | Factory Droid | `~/.factory/skills/` |
-| Coding | Junie | `~/.junie/skills/` |
-| Coding | Qwen | `~/.qwen/skills/` |
-| Coding | Trae CN | `~/.trae-cn/skills/` |
-| Coding | Windsurf | `~/.windsurf/skills/` |
-| Coding | Qoder | `~/.qoder/skills/` |
-| Coding | Augment | `~/.augment/skills/` |
-| Coding | OpenCode | `~/.opencode/skills/` |
-| Coding | KiloCode | `~/.kilocode/skills/` |
-| Coding | OB1 | `~/.ob1/skills/` |
-| Coding | Amp | `~/.amp/skills/` |
-| Coding | Kiro | `~/.kiro/skills/` |
-| Coding | CodeBuddy | `~/.codebuddy/skills/` |
-| Coding | Hermes | `~/.hermes/skills/` |
-| Coding | Copilot | `~/.copilot/skills/` |
-| Coding | Aider | `~/.aider/skills/` |
-| Lobster | OpenClaw（开爪） | `~/.openclaw/skills/` |
-| Lobster | QClaw（千爪） | `~/.qclaw/skills/` |
-| Lobster | EasyClaw（简爪） | `~/.easyclaw/skills/` |
-| Lobster | EasyClaw V2 | `~/.easyclaw-20260322-01/skills/` |
-| Lobster | AutoClaw | `~/.openclaw-autoclaw/skills/` |
-| Lobster | WorkBuddy（打工搭子） | `~/.workbuddy/skills-marketplace/skills/` |
-| Central | 中央技能库 | `~/.agents/skills/` |
-
-Claude Code 还可以在平台视图中展示插件和兼容目录中的只读 skills。这些条目只用于查看，不会被普通卸载操作删除。
-
-也可以在设置中添加自定义平台。
+![项目技能库](images/06.png)
 
 ## 存储模型
 
-SkillsHub 将三个概念分开：
+SkillsHub 使用三个不同的存储概念：
 
-1. **技能资源库**：长期保存导入或下载的 skills。
-2. **中央技能库**：保存明确选择加入 `~/.agents/skills/` 共享的 skills；加入中央技能库后会同步到已启用且已检测到的平台。
-3. **平台目录**：保存该平台自己的符号链接或复制安装。从技能资源库直接安装时，只写入所选平台，不会在中央技能库创建副本。
+| 区域 | 用途 | 常见路径 |
+|------|------|----------|
+| 技能资源库 | 长期保存导入或手动创建的技能 | `~/.skillshub/library` |
+| 中央技能库 | 保存明确加入共享兼容目录的技能 | `~/.agents/skills` |
+| 平台目录 | 某个工具自己的安装目标，通常是符号链接或复制文件 | 取决于平台 |
 
-修改技能资源库路径不会移动已有平台安装。修改中央技能库路径会保留旧数据库和设置，但已有平台链接可能需要重新安装。
+从技能资源库直接安装技能时，只写入所选平台。加入中央技能库时，会写入中央目录，并可同步到已检测到的平台。
+
+修改技能资源库路径或中央技能库路径不会自动改写已有平台软链接或副本；如果你确实移动了目录，需要按需重新安装相关技能。
+
+## 支持的平台
+
+内置平台可以在设置页编辑或删除。对内置平台的修改会写入本地配置文件，下次启动后仍然保留。
+
+| 分类 | 示例 |
+|------|------|
+| 编程类 | Claude Code、Codex CLI、Cursor、Gemini CLI、GitHub Copilot、Kiro CLI、Warp、Windsurf、Trae、Aider、OpenCode、Continue、Qwen 等 |
+| 龙虾类 | OpenClaw、AutoClaw、EasyClaw、QClaw、WorkBuddy 等 |
+| 自定义 | 任意拥有稳定 skills 目录的本地平台 |
+
+左侧栏默认只展示本机已存在对应 skills 目录的内置平台；也可以手动切换为显示全部平台。
+
+## 导入技能
+
+技能资源库提供一个统一的导入菜单：
+
+- **从 GitHub 导入**：输入仓库 URL，预览仓库中的 `SKILL.md`，选择后导入到技能资源库。
+- **从 skills.sh 导入**：输入支持的 skills.sh 技能链接，解析背后的 GitHub 来源后导入到技能资源库。
+
+可以在设置页配置 GitHub Personal Access Token，用于需要认证或遇到 GitHub 限流时的直连请求。Token 只用于 GitHub 相关域名，不会写入备份文件。
+
+## 备份与迁移
+
+SkillsHub 支持导出和导入完整本地备份文件。WebDAV 备份支持远端备份列表、上传和选择远端备份恢复。
+
+备份包含技能文件、来源信息、技能集合、自定义平台、普通应用配置和平台安装状态。API Key、Token 和密码类内容会被排除，恢复后需要重新填写。
 
 ## 隐私与安全
 
-- **本地优先**：元数据、集合、扫描结果、设置和 AI explanation 缓存都保存在 `~/.skillshub/db.sqlite` 或你自己管理的本地 skill 目录中。
-- **无遥测**：应用不包含分析、崩溃上报或使用追踪。
-- **网络访问由功能触发**：只有在你使用市场同步/下载、GitHub 导入、来源更新、WebDAV 备份或 AI explanation 时才会发起外部请求。
-- **凭据仅本地存储**：GitHub PAT、AI API key 和 WebDAV 连接配置会保存在本地 SQLite settings 表中，应用本身不提供静态加密；导出的备份文件不会包含密钥、Token 或密码类设置。
-- 不要在 issue、PR、截图或日志里公开真实密钥。
-
-## 技术栈
-
-| 层 | 技术 |
-|----|------|
-| 桌面框架 | Tauri v2 |
-| 前端 | React 18、TypeScript、Tailwind CSS 4 |
-| UI 组件 | shadcn/ui、Lucide icons |
-| 状态管理 | Zustand |
-| Markdown | react-markdown |
-| 国际化 | react-i18next、i18next-browser-languagedetector |
-| 主题 | 参考 VS Code 的浅色/深色主题 |
-| 后端 | Rust、serde、sqlx、chrono、uuid |
-| 数据库 | SQLite via sqlx（WAL 模式） |
-| 路由 | react-router-dom v7 |
+- SkillsHub 本地优先，不包含遥测。
+- 只有在使用 GitHub 导入、skills.sh 链接解析、来源更新、WebDAV 备份、检查更新或 AI 备注等网络功能时才会发起请求。
+- 你选择保存的凭据会保存在本机；应用不会对本地设置做静态加密。
+- 不要在 issue、PR、截图或日志中公开真实 Token、API Key、私有路径或其他敏感信息。
 
 ## 开发
 
-### 前置依赖
+### 环境要求
 
-- [Node.js](https://nodejs.org/) LTS
-- [pnpm](https://pnpm.io/)
-- [Rust toolchain](https://rustup.rs/) stable
+- Node.js LTS
+- pnpm
+- Rust stable toolchain
 - Tauri v2 系统依赖：<https://v2.tauri.app/start/prerequisites/>
 
-### 安装依赖
+### 常用命令
 
 ```bash
 pnpm install
-```
-
-### 启动开发环境
-
-```bash
 pnpm tauri dev
-```
-
-Vite 开发服务器默认使用 `24200` 端口。
-
-### 验证命令
-
-```bash
+pnpm build
 pnpm test
 pnpm typecheck
 pnpm lint
@@ -183,77 +135,34 @@ cd src-tauri && cargo test
 cd src-tauri && cargo clippy -- -D warnings
 ```
 
-### 打包发布
+Vite 开发服务器默认使用 `24200` 端口。
 
-发布打包按宿主平台拆分。每个脚本只构建自己平台的安装包，但 Windows、macOS、Linux 的命令形态和参数保持一致。
+## 发布
 
-| 平台 | pnpm 命令 | 直接调用脚本 |
-|------|-----------|--------------|
-| Windows | `pnpm package:release:windows -- -Version 0.11.1` | `powershell -ExecutionPolicy Bypass -File scripts\package-release-windows.ps1 -Version 0.11.1` |
-| macOS | `pnpm package:release:macos -- -Version 0.11.1` | `bash scripts/package-release-macos.sh -Version 0.11.1` |
-| Linux | `pnpm package:release:linux -- -Version 0.11.1` | `bash scripts/package-release-linux.sh -Version 0.11.1` |
+推送 `v0.13.0` 这样的版本 tag 后，GitHub Actions 会构建并发布桌面安装包。发布工作流会从 `CHANGELOG.md` 读取对应版本的 release notes，因此每次发布都必须有匹配的更新日志条目。
 
-三个脚本都会更新版本元数据，默认执行 TypeScript 与 Rust 编译检查，构建 Tauri 安装包，并把产物写入 `release-assets/`。
+本地仍可使用分平台脚本打包：
 
-通用参数：
+| 平台 | 命令 |
+|------|------|
+| Windows | `pnpm package:release:windows -- -Version 0.13.0` |
+| macOS | `pnpm package:release:macos -- -Version 0.13.0` |
+| Linux | `pnpm package:release:linux -- -Version 0.13.0` |
 
-| 用途 | Windows | macOS | Linux |
-|------|---------|-------|-------|
-| 指定版本 | `-Version 0.11.1` | `-Version 0.11.1` | `-Version 0.11.1` |
-| 输出目录 | `-OutputDir release-assets` | `-OutputDir release-assets` | `-OutputDir release-assets` |
-| 跳过检查 | `-SkipTests` | `-SkipTests` | `-SkipTests` |
-| 跳过依赖安装 | `-SkipInstall` | `-SkipInstall` | `-SkipInstall` |
-| 跳过构建和产物复制 | `-SkipBuild` | `-SkipBuild` | `-SkipBuild` |
-| 只更新版本 | `-VersionOnly` | `-VersionOnly` | `-VersionOnly` |
-
-Bash 脚本仍保留 `--version`、`--output-dir`、`--skip-tests` 等小写长参数，便于在终端中使用。
-
-Tauri 桌面安装包依赖宿主系统：
-
-- Windows 在 Windows 上构建 MSI。
-- macOS 在 macOS 上构建 universal `.dmg`、`.zip` 和 `.tar.gz`；macOS 脚本会检查并安装所需 Rust targets：`aarch64-apple-darwin` 和 `x86_64-apple-darwin`。
-- Linux 在 Linux 上构建 `.deb`、`.rpm` 和 `.AppImage`。
+只需要更新版本元数据时使用 `-VersionOnly`。
 
 ## 项目结构
 
 ```text
 skillshub/
-├── src/                        # React 前端
-│   ├── components/             # UI 组件
-│   ├── i18n/                   # 语言文件和 i18n 配置
-│   ├── lib/                    # 前端工具函数
-│   ├── pages/                  # 路由页面
-│   ├── stores/                 # Zustand stores
-│   ├── test/                   # Vitest + RTL 测试
-│   └── types/                  # 共享 TypeScript 类型
-├── src-tauri/                  # Rust 后端
-│   └── src/
-│       ├── commands/           # Tauri IPC 处理器
-│       ├── db.rs               # SQLite schema、迁移、查询
-│       ├── lib.rs              # Tauri 应用初始化
-│       └── main.rs             # 桌面入口
-├── public/                     # 静态资源
-├── scripts/                    # 各平台专用打包脚本
-├── CHANGELOG.md                # 英文更新日志
-└── CHANGELOG.zh.md             # 中文更新日志
+├── src/                 # React 前端
+├── src-tauri/           # Rust/Tauri 后端
+├── images/              # 中文 README 截图
+├── images/en/           # 英文 README 截图
+├── scripts/             # 发布打包脚本
+├── CHANGELOG.md         # 英文更新日志
+└── CHANGELOG.zh.md      # 中文更新日志
 ```
-
-## 数据库
-
-SQLite 数据库位于 `~/.skillshub/db.sqlite`。如果检测到旧的 `~/.skillsmanage/db.sqlite` 且新数据库不存在，首次启动会自动迁移旧数据。
-
-## 更新日志
-
-- 英文：[CHANGELOG.md](CHANGELOG.md)
-- 中文：[CHANGELOG.zh.md](CHANGELOG.zh.md)
-
-## 参与贡献
-
-开发环境、验证命令和 PR 约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-## 安全报告
-
-漏洞反馈和数据处理说明见 [SECURITY.md](SECURITY.md)。
 
 ## 许可证
 

@@ -5,6 +5,7 @@ import { Sidebar } from "../components/layout/Sidebar";
 import { usePlatformStore } from "../stores/platformStore";
 import { useResourceLibraryStore } from "../stores/resourceLibraryStore";
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
+import { useThemeStore } from "../stores/themeStore";
 import type { DiscoveredProject, DiscoveredSkill, ObsidianVault } from "../types";
 import {
   OBSIDIAN_CROSS_AREA_FIXTURE,
@@ -22,6 +23,10 @@ vi.mock("../stores/resourceLibraryStore", () => ({
 
 vi.mock("../stores/centralSkillsStore", () => ({
   useCentralSkillsStore: vi.fn(),
+}));
+
+vi.mock("../stores/themeStore", () => ({
+  useThemeStore: vi.fn(),
 }));
 
 // Mock the collectionStore
@@ -146,6 +151,8 @@ const defaultCentralSkillsState = {
   loadCentralSkills: vi.fn(),
 };
 
+const mockCycleThemeMode = vi.fn();
+
 function LocationProbe() {
   const location = useLocation();
   return <div data-testid="location-path">{location.pathname}</div>;
@@ -233,6 +240,14 @@ function renderSidebar(
       vaults: obsidianVaults,
     })
   );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  vi.mocked(useThemeStore).mockImplementation((selector: any) =>
+    selector({
+      mode: "system",
+      resolvedTheme: "dark",
+      cycleMode: mockCycleThemeMode,
+    })
+  );
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <Sidebar />
@@ -265,6 +280,14 @@ describe("Sidebar", () => {
     vi.mocked(useObsidianStore).mockImplementation((selector: any) =>
       selector(defaultObsidianState)
     );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(useThemeStore).mockImplementation((selector: any) =>
+      selector({
+        mode: "system",
+        resolvedTheme: "dark",
+        cycleMode: mockCycleThemeMode,
+      })
+    );
   });
 
   // ── Rendering ─────────────────────────────────────────────────────────────
@@ -272,7 +295,7 @@ describe("Sidebar", () => {
   it("renders expanded sidebar by default", () => {
     const { container } = renderSidebar();
     const nav = container.querySelector("nav");
-    expect(nav?.className).toContain("w-52");
+    expect(nav?.className).toContain("w-56");
   });
 
   it("renders platform agents as icon buttons", () => {
@@ -299,10 +322,15 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: /导入技能集/i })).not.toBeInTheDocument();
   });
 
-  it("does not render Settings (moved to TopBar)", () => {
+  it("renders Settings in the bottom utility area", () => {
     renderSidebar();
-    // Settings button no longer exists in sidebar
-    expect(screen.queryByRole("button", { name: /设置/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /设置/ })).toBeInTheDocument();
+  });
+
+  it("renders and handles the theme button in the bottom utility area", () => {
+    renderSidebar();
+    fireEvent.click(screen.getByRole("button", { name: /切换主题|Cycle theme/i }));
+    expect(mockCycleThemeMode).toHaveBeenCalledTimes(1);
   });
 
   it("does not render legacy section headers", () => {
@@ -378,10 +406,10 @@ describe("Sidebar", () => {
     expect(centralButton.className).not.toContain("bg-hover-bg");
   });
 
-  it("does not highlight Settings in sidebar (moved to TopBar)", () => {
+  it("highlights Settings in the sidebar", () => {
     renderSidebar("/settings");
-    // No settings button in sidebar anymore
-    expect(screen.queryByRole("button", { name: /设置/ })).not.toBeInTheDocument();
+    const settingsButton = screen.getByRole("button", { name: /设置/ });
+    expect(settingsButton).toHaveAttribute("aria-current", "page");
   });
 
   // ── Empty States ──────────────────────────────────────────────────────────

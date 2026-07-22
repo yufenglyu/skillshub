@@ -4,7 +4,11 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
     FromRow, Row, SqlitePool,
 };
-use std::{collections::HashSet, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use uuid::Uuid;
 
 use crate::path_utils::{app_data_dir, expand_home_path, path_to_string, resolve_home_dir};
@@ -12,6 +16,10 @@ use crate::path_utils::{app_data_dir, expand_home_path, path_to_string, resolve_
 pub type DbPool = SqlitePool;
 
 pub const SKILL_RESOURCE_LIBRARY_DIR_SETTING_KEY: &str = "skill_resource_library_dir";
+#[cfg(not(test))]
+const BUILTIN_AGENT_OVERRIDES_FILE: &str = "builtin-agent-overrides.json";
+#[cfg(test)]
+const BUILTIN_AGENT_OVERRIDES_ENV: &str = "SKILLSHUB_BUILTIN_AGENT_OVERRIDES";
 
 // ─── Data Types ──────────────────────────────────────────────────────────────
 
@@ -86,6 +94,21 @@ pub struct Agent {
     pub is_detected: bool,
     pub is_builtin: bool,
     pub is_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BuiltinAgentOverride {
+    display_name: String,
+    category: String,
+    global_skills_dir: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct BuiltinAgentOverrides {
+    #[serde(default)]
+    edited: HashMap<String, BuiltinAgentOverride>,
+    #[serde(default)]
+    deleted: HashSet<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -503,44 +526,74 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
     // Seed built-in scan directories from the built-in agent registry.
     seed_builtin_scan_directories(pool).await?;
 
-    // Seed built-in skill registries (marketplace sources)
-    seed_builtin_registries(pool).await?;
-
     Ok(())
 }
 
 async fn seed_builtin_agents(pool: &DbPool) -> Result<(), String> {
+    let overrides = load_builtin_agent_overrides()?;
+    seed_builtin_agents_with_overrides(pool, &overrides).await
+}
+
+async fn seed_builtin_agents_with_overrides(
+    pool: &DbPool,
+    overrides: &BuiltinAgentOverrides,
+) -> Result<(), String> {
     let agents = builtin_agents();
-    let builtin_ids: Vec<&str> = agents.iter().map(|a| a.id.as_str()).collect();
+    let active_builtin_ids: Vec<&str> = agents
+        .iter()
+        .filter(|a| !overrides.deleted.contains(&a.id))
+        .map(|a| a.id.as_str())
+        .collect();
 
     for agent in &agents {
+        if overrides.deleted.contains(&agent.id) {
+            continue;
+        }
+
+        let override_config = overrides.edited.get(&agent.id);
+        let display_name = override_config
+            .map(|config| config.display_name.as_str())
+            .unwrap_or(&agent.display_name);
+        let category = override_config
+            .map(|config| config.category.as_str())
+            .unwrap_or(&agent.category);
+        let global_skills_dir = override_config
+            .map(|config| config.global_skills_dir.as_str())
+            .unwrap_or(&agent.global_skills_dir);
+
         sqlx::query(
-            "INSERT INTO agents
+            "INSERT OR IGNORE INTO agents
              (id, display_name, category, global_skills_dir, project_skills_dir,
               icon_name, is_detected, is_builtin, is_enabled)
-             VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1)
-             ON CONFLICT(id) DO UPDATE SET
-              display_name = excluded.display_name,
-              category = excluded.category,
-              global_skills_dir = CASE
-                                    WHEN agents.id = 'central' THEN agents.global_skills_dir
-                                    ELSE excluded.global_skills_dir
-                                  END,
-              project_skills_dir = excluded.project_skills_dir,
-              icon_name = excluded.icon_name",
+             VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1)",
         )
         .bind(&agent.id)
-        .bind(&agent.display_name)
-        .bind(&agent.category)
-        .bind(&agent.global_skills_dir)
+        .bind(display_name)
+        .bind(category)
+        .bind(global_skills_dir)
         .bind(&agent.project_skills_dir)
         .bind(&agent.icon_name)
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
+
+        if override_config.is_some() {
+            sqlx::query(
+                "UPDATE agents
+                 SET display_name = ?, category = ?, global_skills_dir = ?
+                 WHERE id = ? AND is_builtin = 1",
+            )
+            .bind(display_name)
+            .bind(category)
+            .bind(global_skills_dir)
+            .bind(&agent.id)
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
     }
 
-    // Remove builtin agents that no longer exist in code
+    // Remove builtin agents that no longer exist in code or were hidden locally.
     let all_db_agents: Vec<(String,)> =
         sqlx::query_as("SELECT id FROM agents WHERE is_builtin = 1")
             .fetch_all(pool)
@@ -548,7 +601,7 @@ async fn seed_builtin_agents(pool: &DbPool) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
 
     for (id,) in &all_db_agents {
-        if !builtin_ids.contains(&id.as_str()) {
+        if !active_builtin_ids.contains(&id.as_str()) {
             sqlx::query("DELETE FROM agents WHERE id = ? AND is_builtin = 1")
                 .bind(id)
                 .execute(pool)
@@ -558,6 +611,90 @@ async fn seed_builtin_agents(pool: &DbPool) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(not(test))]
+fn builtin_agent_overrides_path() -> Option<PathBuf> {
+    Some(app_data_dir().join(BUILTIN_AGENT_OVERRIDES_FILE))
+}
+
+#[cfg(test)]
+fn builtin_agent_overrides_path() -> Option<PathBuf> {
+    std::env::var_os(BUILTIN_AGENT_OVERRIDES_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+fn load_builtin_agent_overrides() -> Result<BuiltinAgentOverrides, String> {
+    let Some(path) = builtin_agent_overrides_path() else {
+        return Ok(BuiltinAgentOverrides::default());
+    };
+    load_builtin_agent_overrides_from_path(&path)
+}
+
+fn load_builtin_agent_overrides_from_path(path: &Path) -> Result<BuiltinAgentOverrides, String> {
+    if !path.exists() {
+        return Ok(BuiltinAgentOverrides::default());
+    }
+
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read built-in platform overrides: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Invalid built-in platform overrides: {}", e))
+}
+
+fn save_builtin_agent_overrides(overrides: &BuiltinAgentOverrides) -> Result<(), String> {
+    let Some(path) = builtin_agent_overrides_path() else {
+        return Ok(());
+    };
+    save_builtin_agent_overrides_to_path(&path, overrides)
+}
+
+fn save_builtin_agent_overrides_to_path(
+    path: &Path,
+    overrides: &BuiltinAgentOverrides,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create built-in platform override directory: {}",
+                e
+            )
+        })?;
+    }
+    let content = serde_json::to_string_pretty(overrides)
+        .map_err(|e| format!("Failed to serialize built-in platform overrides: {}", e))?;
+    std::fs::write(path, content)
+        .map_err(|e| format!("Failed to write built-in platform overrides: {}", e))
+}
+
+fn persist_builtin_agent_edit(agent: &Agent) -> Result<(), String> {
+    if !agent.is_builtin {
+        return Ok(());
+    }
+
+    let mut overrides = load_builtin_agent_overrides()?;
+    overrides.deleted.remove(&agent.id);
+    overrides.edited.insert(
+        agent.id.clone(),
+        BuiltinAgentOverride {
+            display_name: agent.display_name.clone(),
+            category: agent.category.clone(),
+            global_skills_dir: agent.global_skills_dir.clone(),
+        },
+    );
+    save_builtin_agent_overrides(&overrides)
+}
+
+fn persist_builtin_agent_delete(agent: &Agent) -> Result<(), String> {
+    if !agent.is_builtin {
+        return Ok(());
+    }
+
+    let mut overrides = load_builtin_agent_overrides()?;
+    overrides.edited.remove(&agent.id);
+    overrides.deleted.insert(agent.id.clone());
+    save_builtin_agent_overrides(&overrides)
 }
 
 /// Seed `scan_directories` with one row per unique `global_skills_dir` path
@@ -603,46 +740,6 @@ async fn seed_builtin_scan_directories(pool: &DbPool) -> Result<(), String> {
         }
     }
 
-    Ok(())
-}
-
-async fn seed_builtin_registries(pool: &DbPool) -> Result<(), String> {
-    let now = chrono::Utc::now().to_rfc3339();
-    let registries = vec![
-        (
-            "anthropic",
-            "Anthropic",
-            "github",
-            "https://github.com/anthropics/skills",
-        ),
-        (
-            "openai",
-            "OpenAI",
-            "github",
-            "https://github.com/openai/skills",
-        ),
-        (
-            "baoyu-skills",
-            "baoyu-skills",
-            "github",
-            "https://github.com/jimliu/baoyu-skills",
-        ),
-    ];
-    for (id, name, source_type, url) in registries {
-        sqlx::query(
-            "INSERT OR IGNORE INTO skill_registries
-             (id, name, source_type, url, is_builtin, is_enabled, created_at)
-             VALUES (?, ?, ?, ?, 1, 1, ?)",
-        )
-        .bind(id)
-        .bind(name)
-        .bind(source_type)
-        .bind(url)
-        .bind(&now)
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-    }
     Ok(())
 }
 
@@ -2092,23 +2189,25 @@ pub async fn insert_custom_agent(pool: &DbPool, agent: &Agent) -> Result<(), Str
     .map_err(|e| e.to_string())
 }
 
-/// Delete a custom (non-builtin) agent by ID. Returns an error if the agent is builtin.
+/// Delete an agent by ID.
 pub async fn delete_custom_agent(pool: &DbPool, agent_id: &str) -> Result<(), String> {
     let agent = get_agent_by_id(pool, agent_id).await?;
     match agent {
         None => Err(format!("Agent '{}' not found", agent_id)),
-        Some(a) if a.is_builtin => Err(format!("Cannot delete built-in agent '{}'", agent_id)),
-        Some(_) => sqlx::query("DELETE FROM agents WHERE id = ?")
-            .bind(agent_id)
-            .execute(pool)
-            .await
-            .map(|_| ())
-            .map_err(|e| e.to_string()),
+        Some(agent) => {
+            sqlx::query("DELETE FROM agents WHERE id = ?")
+                .bind(agent_id)
+                .execute(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            persist_builtin_agent_delete(&agent)?;
+            Ok(())
+        }
     }
 }
 
-/// Update a custom (non-builtin) agent's mutable fields.
-/// Returns the updated agent record, or an error if the agent is builtin or not found.
+/// Update an agent's mutable fields.
+/// Returns the updated agent record, or an error if the agent is not found.
 pub async fn update_custom_agent(
     pool: &DbPool,
     agent_id: &str,
@@ -2117,13 +2216,7 @@ pub async fn update_custom_agent(
     global_skills_dir: &str,
 ) -> Result<Agent, String> {
     let agent = get_agent_by_id(pool, agent_id).await?;
-    match agent {
-        None => return Err(format!("Agent '{}' not found", agent_id)),
-        Some(a) if a.is_builtin => {
-            return Err(format!("Cannot update built-in agent '{}'", agent_id))
-        }
-        Some(_) => {}
-    }
+    let previous = agent.ok_or_else(|| format!("Agent '{}' not found", agent_id))?;
 
     sqlx::query(
         "UPDATE agents SET display_name = ?, category = ?, global_skills_dir = ? WHERE id = ?",
@@ -2136,9 +2229,13 @@ pub async fn update_custom_agent(
     .await
     .map_err(|e| e.to_string())?;
 
-    get_agent_by_id(pool, agent_id)
+    let updated = get_agent_by_id(pool, agent_id)
         .await?
-        .ok_or_else(|| "Failed to retrieve updated agent".to_string())
+        .ok_or_else(|| "Failed to retrieve updated agent".to_string())?;
+    if previous.is_builtin {
+        persist_builtin_agent_edit(&updated)?;
+    }
+    Ok(updated)
 }
 
 pub async fn update_central_agent_skills_dir(
@@ -2524,6 +2621,7 @@ pub async fn set_setting(pool: &DbPool, key: &str, value: &str) -> Result<(), St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     /// Create an in-memory SQLite pool and initialize the schema.
     async fn setup_test_db() -> DbPool {
@@ -3234,13 +3332,80 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cannot_delete_builtin_agent() {
+    async fn test_can_delete_builtin_agent() {
         let pool = setup_test_db().await;
         let result = delete_custom_agent(&pool, "claude-code").await;
-        assert!(
-            result.is_err(),
-            "Should not be able to delete built-in agent"
+        assert!(result.is_ok(), "Built-in agents can be removed by the user");
+
+        let retrieved = get_agent_by_id(&pool, "claude-code").await.unwrap();
+        assert!(retrieved.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_builtin_agent_edit_override_is_applied_during_seed() {
+        let pool = setup_test_db().await;
+        let mut overrides = BuiltinAgentOverrides::default();
+        overrides.edited.insert(
+            "claude-code".to_string(),
+            BuiltinAgentOverride {
+                display_name: "Edited Claude".to_string(),
+                category: "coding".to_string(),
+                global_skills_dir: "/tmp/edited-claude/skills".to_string(),
+            },
         );
+
+        seed_builtin_agents_with_overrides(&pool, &overrides)
+            .await
+            .unwrap();
+
+        let updated = get_agent_by_id(&pool, "claude-code")
+            .await
+            .unwrap()
+            .expect("claude-code should still exist");
+        assert_eq!(updated.display_name, "Edited Claude");
+        assert_eq!(updated.global_skills_dir, "/tmp/edited-claude/skills");
+        assert!(updated.is_builtin);
+    }
+
+    #[tokio::test]
+    async fn test_builtin_agent_delete_override_is_applied_during_seed() {
+        let pool = setup_test_db().await;
+        let mut overrides = BuiltinAgentOverrides::default();
+        overrides.deleted.insert("cursor".to_string());
+
+        seed_builtin_agents_with_overrides(&pool, &overrides)
+            .await
+            .unwrap();
+
+        let deleted = get_agent_by_id(&pool, "cursor").await.unwrap();
+        assert!(
+            deleted.is_none(),
+            "deleted built-in override should remove the platform during seed"
+        );
+    }
+
+    #[test]
+    fn test_builtin_agent_overrides_roundtrip_local_file() {
+        let dir = tempdir().expect("temp dir");
+        let path = dir.path().join("builtin-agent-overrides.json");
+        let mut overrides = BuiltinAgentOverrides::default();
+        overrides.deleted.insert("cursor".to_string());
+        overrides.edited.insert(
+            "claude-code".to_string(),
+            BuiltinAgentOverride {
+                display_name: "Edited Claude".to_string(),
+                category: "coding".to_string(),
+                global_skills_dir: "/tmp/edited-claude/skills".to_string(),
+            },
+        );
+
+        save_builtin_agent_overrides_to_path(&path, &overrides).unwrap();
+        let loaded = load_builtin_agent_overrides_from_path(&path).unwrap();
+
+        assert!(loaded.deleted.contains("cursor"));
+        let edited = loaded.edited.get("claude-code").unwrap();
+        assert_eq!(edited.display_name, "Edited Claude");
+        assert_eq!(edited.global_skills_dir, "/tmp/edited-claude/skills");
     }
 
     #[tokio::test]

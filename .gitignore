@@ -60,6 +60,7 @@ desktop.ini
 docs/
 tmp/
 /tmp/
+.tmp-chrome-profile/
 reference/
 .factory/
 .worktrees/

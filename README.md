@@ -1,181 +1,133 @@
 # SkillsHub
 
-SkillsHub is a local-first Tauri desktop app for managing AI agent skills across a resource library, a central skill library, and many coding platforms.
+SkillsHub is a local-first desktop app for collecting, reviewing, and installing AI agent skills across multiple coding tools.
 
 [中文文档](README_CN.md)
 
 > **Disclaimer**
 >
-> SkillsHub is an independent, unofficial desktop application for managing local skill directories and importing public skill metadata. It is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, GitHub, MiniMax, or any other supported platform, publisher, or trademark owner.
+> SkillsHub is an independent, unofficial application. It is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, GitHub, skills.sh, MiniMax, or any other supported platform, publisher, or trademark owner.
 
-## Overview
+## What It Does
 
-SkillsHub separates long-term skill storage from platform installation:
+SkillsHub keeps skill storage and platform installation separate:
 
-- **Skill Resource Library** is the default home for downloaded, imported, and source-backed skills. It can be any local directory and is organized by `author/project` when source metadata or a GitHub-style folder layout is available.
-- **Central Skills** is the compatibility directory, usually `~/.agents/skills/`, used when a skill should be shared with compatible tools or distributed to selected platforms.
-- **Platform views** show what each coding agent can see and let you install, uninstall, or batch-uninstall skills without deleting the resource copy.
+- **Skill Resource Library** is the default place for imported, downloaded, and manually created skills. GitHub repositories and supported skills.sh links import here first.
+- **Central Skills** is the compatibility library, usually `~/.agents/skills/`, for skills you intentionally promote into the shared central directory.
+- **Software Platforms** are the concrete tool-specific skills folders, such as Claude Code, Codex CLI, Cursor, Gemini CLI, OpenClaw, and similar tools.
+- **Collections** let you group central skills and install them as reusable sets.
+- **Discovered Skills** scans configured project directories for skills that are not yet managed by SkillsHub.
 
-Application data is stored in `~/.skillshub/db.sqlite`. On first launch after upgrading, SkillsHub copies an existing `~/.skillsmanage/db.sqlite` database into the new directory if the new database does not exist yet.
+Application data is stored in `~/.skillshub/db.sqlite`. On first launch after upgrading from older releases, SkillsHub can migrate an existing `~/.skillsmanage/db.sqlite` database when the new database does not exist yet.
 
 ## Highlights
 
-- Resource library first workflow for GitHub imports, marketplace installs, and local skill storage.
-- One-click promotion from the resource library to Central Skills while preserving source grouping such as `owner/repo/skill`; promoted skills are synchronized to enabled and detected platforms.
-- Manual skill creation, sorting by name/created/updated time, folder view grouped by `author/project`, and safe folder deletion in the Skill Resource Library.
-- Direct platform installation from the resource library, with symlink, copy, and automatic fallback modes. A direct install only affects the selected platform and never adds the skill to Central Skills.
-- Central Skills management focused on the central directory, with folder mode, bulk platform uninstall, and safe delete previews.
-- Full-width skill detail view with Markdown preview, raw source, readable grouped metadata sections, install status, notes, tags, and AI-generated notes.
-- Search across names, descriptions, notes, tags, and source metadata.
-- Tag filtering and collection management for reusable skill sets.
-- GitHub repository import with preview, rename/overwrite/skip conflict handling, source metadata tracking, and automatic source inference from resource library paths such as `owner/repo/skill`.
-- Marketplace browsing, source sync, and per-source updates.
-- Local ZIP backup and WebDAV backup/import. Every backup includes the resource library files, Central Skills files, app configuration, and platform installation state; WebDAV connection details can be saved locally, while passwords, tokens, and API keys are excluded from backup files.
-- Project skill discovery, including Obsidian vault grouping and local project skill directories.
-- Bilingual UI, VS Code-inspired light/dark themes, system theme cycling, responsive navigation, and compact shortcut buttons.
+- Resource-library-first workflow for GitHub imports, supported skills.sh imports, and manual skill creation.
+- A single **Import Skills** menu that supports GitHub repository import and skills.sh skill link import.
+- GitHub repository preview before import, with conflict handling for rename, overwrite, or skip.
+- Source metadata tracking for imported skills, plus one-click source updates when a skill can be traced back to its origin.
+- Resource Library folder view grouped by source-style paths such as `owner/repo`, matching common local layouts like `author/project/skill`.
+- Direct installation from the Resource Library to selected platforms without forcing the skill into Central Skills.
+- One-click promotion from the Resource Library to Central Skills when a skill should become part of the shared central library.
+- Central Skills management with folder view, safe deletion previews, platform install status, and batch uninstall from selected platforms.
+- Full skill detail page with Markdown preview, raw source view, grouped notes, tags, source information, time information, storage paths, installation status, and collections.
+- Editable source metadata fields for manually maintained records, including source type, repository, author, source path, and source URL.
+- Software platform management in Settings, including editable built-in platforms, custom platforms, Lobster/Coding grouping, two-column compact layout, and visual distinction for detected local skills directories.
+- Local ZIP backup and WebDAV backup/import. Backup files exclude API keys, tokens, and password-like values.
+- Update checking from the About section.
+- Bilingual UI, system/light/dark theme mode from the lower-left sidebar, and a simplified top area without a global search box.
 
 ## Screenshots
 
-The screenshots in this English README use English captions and should be refreshed with the English UI. Chinese screenshot examples and captions are maintained separately in [README_CN.md](README_CN.md), so the two documents do not mix interface languages.
+English screenshots are generated from the English UI. Chinese screenshots are kept in [README_CN.md](README_CN.md).
 
-### Skill Resource Library, Author/Project Folders, Sorting, And Manual Creation
+### Skill Resource Library
 
-![Skill resource library view](images/en/01.png)
-
-### Import skills from a GitHub repository
-
-![GitHub repository import wizard](images/en/02.png)
+![Skill Resource Library](images/en/01.png)
 
 ### Central Skills
 
-![Central Skills view](images/en/03.png)
+![Central Skills](images/en/02.png)
 
-### Settings, Backup, And WebDAV
+### Collections
 
-![Settings and backup view](images/en/04.png)
+![Collections](images/en/03.png)
 
-### Organize reusable collections
+### Settings, Platforms, And Backup
 
-![Skill collections view](images/en/05.png)
+![Settings, platforms, and backup](images/en/04.png)
 
-### Review installed skills on a specific platform
+### Platform Skills
 
-![Platform skill view](images/en/06.png)
+![Platform skills](images/en/05.png)
 
-## Download
+### Discovered Skills
 
-- Latest release: <https://github.com/yufenglyu/skillshub/releases/latest>
-- Windows, macOS, and Linux packages are built by separate platform-specific scripts under `scripts/`.
-- If a platform package is not published yet, run from source.
+![Discovered skills](images/en/06.png)
 
-### macOS Unsigned Build
+## Skill Storage Model
 
-If macOS reports that the app is damaged or cannot be verified, the unsigned build may be blocked by Gatekeeper quarantine.
+SkillsHub uses three different storage concepts:
 
-After moving the app to `/Applications`, run:
+| Area | Purpose | Typical Path |
+|------|---------|--------------|
+| Skill Resource Library | Long-term local storage for imported or manually created skills | `~/.skillshub/library` |
+| Central Skills | Shared compatibility directory for intentionally promoted skills | `~/.agents/skills` |
+| Platform directory | Tool-specific install target created as a symlink or copy | Depends on platform |
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/SkillsHub.app"
-```
+Installing a skill directly from the Resource Library writes only to the selected platform. Promoting a skill to Central Skills writes to the central directory and can synchronize it to detected platforms.
 
-Then launch the app again from Finder. If your app is stored somewhere else, replace the path with the actual `.app` path.
+Changing the Resource Library path or Central Skills path does not automatically rewrite existing platform symlinks or copies. Reinstall affected skills if you intentionally move those directories.
 
 ## Supported Platforms
 
-| Category | Platform | Skills Directory |
-|----------|----------|-----------------|
-| Coding | Claude Code | `~/.claude/skills/` |
-| Coding | Codex CLI | `~/.codex/skills/` (with read-only compatibility for `~/.agents/skills/`) |
-| Coding | Cursor | `~/.cursor/skills/` |
-| Coding | Gemini CLI | `~/.gemini/skills/` |
-| Coding | Trae | `~/.trae/skills/` |
-| Coding | Factory Droid | `~/.factory/skills/` |
-| Coding | Junie | `~/.junie/skills/` |
-| Coding | Qwen | `~/.qwen/skills/` |
-| Coding | Trae CN | `~/.trae-cn/skills/` |
-| Coding | Windsurf | `~/.windsurf/skills/` |
-| Coding | Qoder | `~/.qoder/skills/` |
-| Coding | Augment | `~/.augment/skills/` |
-| Coding | OpenCode | `~/.opencode/skills/` |
-| Coding | KiloCode | `~/.kilocode/skills/` |
-| Coding | OB1 | `~/.ob1/skills/` |
-| Coding | Amp | `~/.amp/skills/` |
-| Coding | Kiro | `~/.kiro/skills/` |
-| Coding | CodeBuddy | `~/.codebuddy/skills/` |
-| Coding | Hermes | `~/.hermes/skills/` |
-| Coding | Copilot | `~/.copilot/skills/` |
-| Coding | Aider | `~/.aider/skills/` |
-| Lobster | OpenClaw | `~/.openclaw/skills/` |
-| Lobster | QClaw | `~/.qclaw/skills/` |
-| Lobster | EasyClaw | `~/.easyclaw/skills/` |
-| Lobster | EasyClaw V2 | `~/.easyclaw-20260322-01/skills/` |
-| Lobster | AutoClaw | `~/.openclaw-autoclaw/skills/` |
-| Lobster | WorkBuddy | `~/.workbuddy/skills-marketplace/skills/` |
-| Central | Central Skills | `~/.agents/skills/` |
+Built-in platform definitions can be edited or removed from Settings. They are stored in local app configuration when changed, so the customizations survive restart.
 
-Claude Code can also surface plugin and compatibility directories as read-only rows. Those entries are display-only and are not removed from platform views by uninstall actions.
+| Category | Examples |
+|----------|----------|
+| Coding | Claude Code, Codex CLI, Cursor, Gemini CLI, GitHub Copilot, Kiro CLI, Warp, Windsurf, Trae, Aider, OpenCode, Continue, Qwen, and other coding agents |
+| Lobster | OpenClaw, AutoClaw, EasyClaw, QClaw, WorkBuddy, and related Lobster-style platforms |
+| Custom | Any local platform with a stable skills directory |
 
-Custom platforms can be added from Settings.
+In the sidebar, built-in platforms are shown only when their configured skills directory exists locally, unless you explicitly choose to show all platforms.
 
-## Storage Model
+## Importing Skills
 
-SkillsHub keeps three concepts separate:
+The Resource Library has a single import menu:
 
-1. **Resource Library** stores imported or downloaded skills for long-term management.
-2. **Central Skills** stores skills intentionally promoted for sharing through `~/.agents/skills/`; promotion synchronizes the skill to enabled and detected platforms.
-3. **Platform Directories** contain symlinks or copies created for that platform. Installing directly from the Resource Library affects only the selected platform and does not create a Central Skills copy.
+- **Import from GitHub** accepts a repository URL, previews discovered `SKILL.md` files, and imports selected skills into the Resource Library.
+- **Import from skills.sh** accepts a supported skills.sh skill URL and resolves the GitHub-backed source before importing into the Resource Library.
 
-Changing the Resource Library path does not move existing platform installs. Changing the Central Skills path keeps the old database and settings, but existing platform links may need to be reinstalled.
+GitHub Personal Access Tokens can be configured in Settings for authenticated GitHub requests. Tokens are used only for direct GitHub domains and are not written into backup files.
 
-## Privacy & Security
+## Backup And Migration
 
-- **Local-first storage**: metadata, collections, scan results, settings, and cached AI explanations stay in `~/.skillshub/db.sqlite` or the local skill directories you manage.
-- **No telemetry**: the app does not include analytics, crash reporting, or usage tracking.
-- **Network access is feature-driven**: outbound requests only happen when you use marketplace sync/download, GitHub import, source updates, WebDAV backup, or AI explanation generation.
-- **Credentials are stored locally**: GitHub PAT, AI API keys, and WebDAV connection settings are stored in the local SQLite settings table and are not encrypted at rest by the app. Backup files exclude API keys, tokens, and password-like settings.
-- Never post real secrets in issues, pull requests, screenshots, or logs.
+SkillsHub can export and import complete local backup files. WebDAV backup support adds a remote backup list, upload, and selected-remote-restore workflow.
 
-## Tech Stack
+Backups include skills, source metadata, collections, custom platform settings, regular app settings, and platform installation state. API keys, tokens, and passwords are intentionally excluded and must be re-entered after restore.
 
-| Layer | Technology |
-|-------|-----------|
-| Desktop framework | Tauri v2 |
-| Frontend | React 18, TypeScript, Tailwind CSS 4 |
-| UI components | shadcn/ui, Lucide icons |
-| State management | Zustand |
-| Markdown | react-markdown |
-| i18n | react-i18next, i18next-browser-languagedetector |
-| Theming | VS Code-inspired light/dark themes |
-| Backend | Rust, serde, sqlx, chrono, uuid |
-| Database | SQLite via sqlx, WAL mode |
-| Routing | react-router-dom v7 |
+## Privacy And Security
+
+- SkillsHub is local-first and does not include telemetry.
+- Network requests happen only when you use network-backed features such as GitHub import, skills.sh import resolution, source updates, WebDAV backup, update checking, or AI-generated notes.
+- Credentials are stored locally when you choose to save them. The app does not encrypt local settings at rest.
+- Do not share real tokens, API keys, private paths, or sensitive screenshots in issues, pull requests, or logs.
 
 ## Development
 
-### Prerequisites
+### Requirements
 
-- [Node.js](https://nodejs.org/) LTS
-- [pnpm](https://pnpm.io/)
-- [Rust toolchain](https://rustup.rs/) stable
+- Node.js LTS
+- pnpm
+- Rust stable toolchain
 - Tauri v2 system dependencies: <https://v2.tauri.app/start/prerequisites/>
 
-### Install Dependencies
+### Commands
 
 ```bash
 pnpm install
-```
-
-### Run in Development
-
-```bash
 pnpm tauri dev
-```
-
-The Vite dev server runs on port `24200`.
-
-### Validation
-
-```bash
+pnpm build
 pnpm test
 pnpm typecheck
 pnpm lint
@@ -183,78 +135,35 @@ cd src-tauri && cargo test
 cd src-tauri && cargo clippy -- -D warnings
 ```
 
-### Package a Release
+The Vite development server uses port `24200`.
 
-Release packaging is split by host platform. Each script only builds its own platform bundle, but the command shape and options are consistent across Windows, macOS, and Linux.
+## Release
 
-| Platform | pnpm command | Direct script |
-|----------|--------------|---------------|
-| Windows | `pnpm package:release:windows -- -Version 0.11.1` | `powershell -ExecutionPolicy Bypass -File scripts\package-release-windows.ps1 -Version 0.11.1` |
-| macOS | `pnpm package:release:macos -- -Version 0.11.1` | `bash scripts/package-release-macos.sh -Version 0.11.1` |
-| Linux | `pnpm package:release:linux -- -Version 0.11.1` | `bash scripts/package-release-linux.sh -Version 0.11.1` |
+GitHub Actions publishes desktop packages when a version tag such as `v0.13.0` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
-All scripts update version metadata, run TypeScript and Rust checks unless skipped, build Tauri bundles, and copy release assets into `release-assets/`.
+Local packaging scripts are still available for host-specific builds:
 
-Shared options:
+| Platform | Command |
+|----------|---------|
+| Windows | `pnpm package:release:windows -- -Version 0.13.0` |
+| macOS | `pnpm package:release:macos -- -Version 0.13.0` |
+| Linux | `pnpm package:release:linux -- -Version 0.13.0` |
 
-| Purpose | Windows | macOS | Linux |
-|---------|---------|-------|-------|
-| Version | `-Version 0.11.1` | `-Version 0.11.1` | `-Version 0.11.1` |
-| Output directory | `-OutputDir release-assets` | `-OutputDir release-assets` | `-OutputDir release-assets` |
-| Skip checks | `-SkipTests` | `-SkipTests` | `-SkipTests` |
-| Skip dependency install | `-SkipInstall` | `-SkipInstall` | `-SkipInstall` |
-| Skip build and asset copy | `-SkipBuild` | `-SkipBuild` | `-SkipBuild` |
-| Update version only | `-VersionOnly` | `-VersionOnly` | `-VersionOnly` |
-
-The Bash scripts also keep lowercase shell aliases such as `--version`, `--output-dir`, and `--skip-tests` for terminal convenience.
-
-Tauri desktop bundles are host-specific:
-
-- Windows builds MSI assets on Windows.
-- macOS builds universal `.dmg`, `.zip`, and `.tar.gz` assets on macOS. The macOS script verifies and installs the required Rust targets: `aarch64-apple-darwin` and `x86_64-apple-darwin`.
-- Linux builds `.deb`, `.rpm`, and `.AppImage` assets on Linux.
+Use `-VersionOnly` when you only need to update version metadata before committing a release.
 
 ## Project Structure
 
 ```text
 skillshub/
-├── src/                        # React frontend
-│   ├── components/             # UI components
-│   ├── i18n/                   # Locale files and i18n setup
-│   ├── lib/                    # Frontend helpers
-│   ├── pages/                  # Route views
-│   ├── stores/                 # Zustand stores
-│   ├── test/                   # Vitest + RTL tests
-│   └── types/                  # Shared TypeScript types
-├── src-tauri/                  # Rust backend
-│   └── src/
-│       ├── commands/           # Tauri IPC handlers
-│       ├── db.rs               # SQLite schema, migrations, queries
-│       ├── lib.rs              # Tauri app setup
-│       └── main.rs             # Desktop entry point
-├── public/                     # Static assets
-├── scripts/                    # Platform-specific release packaging scripts
-├── CHANGELOG.md                # English changelog
-└── CHANGELOG.zh.md             # Chinese changelog
+├── src/                 # React frontend
+├── src-tauri/           # Rust/Tauri backend
+├── images/              # Chinese README screenshots
+├── images/en/           # English README screenshots
+├── scripts/             # Release packaging scripts
+├── CHANGELOG.md         # English changelog
+└── CHANGELOG.zh.md      # Chinese changelog
 ```
-
-## Database
-
-The SQLite database lives at `~/.skillshub/db.sqlite`. Existing `~/.skillsmanage/db.sqlite` data is migrated automatically on first launch when no new database is present.
-
-## Changelog
-
-- English: [CHANGELOG.md](CHANGELOG.md)
-- Chinese: [CHANGELOG.zh.md](CHANGELOG.zh.md)
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, validation commands, and pull request expectations.
-
-## Security
-
-See [SECURITY.md](SECURITY.md) for vulnerability reporting and data-handling notes.
 
 ## License
 
-This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE).

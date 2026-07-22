@@ -34,12 +34,12 @@ import {
 import { isTauriRuntime } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { InstallDialog } from "@/components/central/InstallDialog";
-import { MarkdownPreview } from "@/components/marketplace/MarkdownPreview";
+import { MarkdownPreview } from "@/components/github-import/MarkdownPreview";
 import {
-  useMarketplaceStore,
+  useGitHubImportStore,
   type GitHubImportAiSummaryEntry,
   type SkillMarkdownEntry,
-} from "@/stores/marketplaceStore";
+} from "@/stores/githubImportStore";
 
 type WizardStep = "input" | "preview" | "confirm" | "result";
 
@@ -63,10 +63,12 @@ type SelectionState = {
 };
 
 type DetailTab = "overview" | "ai";
+type ImportSource = "github" | "skillsSh";
 
 interface GitHubRepoImportWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  importSource?: ImportSource;
   repoUrl: string;
   onRepoUrlChange: (value: string) => void;
   preview: GitHubRepoPreview | null;
@@ -91,22 +93,71 @@ interface GitHubRepoImportWizardProps {
     result: GitHubRepoImportResult,
   ) => Promise<void> | void;
   onOpenResourceLibrary?: () => void;
+  preferredSkillSlug?: string | null;
+}
+
+function normalizeSkillMatchValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function matchesPreferredSkill(skill: GitHubSkillPreview, preferredSkillSlug: string) {
+  const expected = normalizeSkillMatchValue(preferredSkillSlug);
+  if (!expected) return false;
+  const sourceSegments = skill.sourcePath.split("/").filter(Boolean);
+
+  const candidates = [
+    skill.skillId,
+    skill.skillName,
+    sourceSegments[sourceSegments.length - 2] ?? "",
+  ];
+
+  return candidates.some((candidate) => normalizeSkillMatchValue(candidate) === expected);
 }
 
 function buildInitialSelections(
   preview: GitHubRepoPreview | null,
+  preferredSkillSlug?: string | null,
 ): Record<string, SelectionState> {
   if (!preview) return {};
+  const preferredMatches = preferredSkillSlug
+    ? new Set(
+        preview.skills
+          .filter((skill) => matchesPreferredSkill(skill, preferredSkillSlug))
+          .map((skill) => skill.sourcePath),
+      )
+    : null;
+  const shouldFilterToPreferred = Boolean(preferredMatches?.size);
+
   return Object.fromEntries(
     preview.skills.map((skill) => [
       skill.sourcePath,
       {
-        selected: true,
+        selected: shouldFilterToPreferred
+          ? preferredMatches?.has(skill.sourcePath) === true
+          : true,
         resolution: skill.conflict ? "skip" : "overwrite",
         renamedSkillId: skill.skillId,
       },
     ]),
   );
+}
+
+function getInitialSelectedSkillPath(
+  preview: GitHubRepoPreview | null,
+  preferredSkillSlug?: string | null,
+  current?: string | null,
+) {
+  if (!preview) return null;
+  if (current && preview.skills.some((skill) => skill.sourcePath === current)) {
+    return current;
+  }
+  if (preferredSkillSlug) {
+    const preferred = preview.skills.find((skill) =>
+      matchesPreferredSkill(skill, preferredSkillSlug),
+    );
+    if (preferred) return preferred.sourcePath;
+  }
+  return preview.skills[0]?.sourcePath ?? null;
 }
 
 function normalizeMessage(message: string) {
@@ -124,6 +175,7 @@ function clampPercent(value: number) {
 export function GitHubRepoImportWizard({
   open,
   onOpenChange,
+  importSource = "github",
   repoUrl,
   onRepoUrlChange,
   preview,
@@ -140,6 +192,7 @@ export function GitHubRepoImportWizard({
   onInstallImportedSkill,
   onAfterImportSuccess,
   onOpenResourceLibrary,
+  preferredSkillSlug = null,
 }: GitHubRepoImportWizardProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -148,34 +201,34 @@ export function GitHubRepoImportWizard({
   );
   const [selectionState, setSelectionState] = useState<
     Record<string, SelectionState>
-  >(() => buildInitialSelections(preview));
+  >(() => buildInitialSelections(preview, preferredSkillSlug));
   const [postImportTargetSkillId, setPostImportTargetSkillId] = useState<
     string | null
   >(null);
   const [selectedSkillPath, setSelectedSkillPath] = useState<string | null>(() =>
-    preview?.skills[0]?.sourcePath ?? null,
+    getInitialSelectedSkillPath(preview, preferredSkillSlug),
   );
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
   const [isRenameEditing, setIsRenameEditing] = useState(false);
   const detailScrollRef = useRef<HTMLDivElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const browserMode = !isTauriRuntime();
-  const skillMarkdown = useMarketplaceStore(
+  const skillMarkdown = useGitHubImportStore(
     (state) => state.githubImport.skillMarkdown,
   ) ?? EMPTY_SKILL_MARKDOWN;
-  const aiSummaries = useMarketplaceStore(
+  const aiSummaries = useGitHubImportStore(
     (state) => state.githubImport.aiSummaries,
   ) ?? EMPTY_AI_SUMMARIES;
-  const fetchGitHubSkillMarkdown = useMarketplaceStore(
+  const fetchGitHubSkillMarkdown = useGitHubImportStore(
     (state) => state.fetchGitHubSkillMarkdown,
   ) ?? noopFetchGitHubSkillMarkdown;
-  const generateGitHubImportAiSummary = useMarketplaceStore(
+  const generateGitHubImportAiSummary = useGitHubImportStore(
     (state) => state.generateGitHubImportAiSummary,
   ) ?? noopGenerateGitHubImportAiSummary;
-  const importProgress = useMarketplaceStore(
+  const importProgress = useGitHubImportStore(
     (state) => state.githubImport.importProgress,
   ) ?? null;
-  const importStartedAt = useMarketplaceStore(
+  const importStartedAt = useGitHubImportStore(
     (state) => state.githubImport.importStartedAt,
   ) ?? null;
   const [progressNow, setProgressNow] = useState(() => Date.now());
@@ -194,18 +247,16 @@ export function GitHubRepoImportWizard({
       return;
     }
     if (preview) {
-      setSelectionState(buildInitialSelections(preview));
+      setSelectionState(buildInitialSelections(preview, preferredSkillSlug));
       setSelectedSkillPath((current) =>
-        current && preview.skills.some((skill) => skill.sourcePath === current)
-          ? current
-          : (preview.skills[0]?.sourcePath ?? null),
+        getInitialSelectedSkillPath(preview, preferredSkillSlug, current),
       );
       setStep("preview");
       return;
     }
     setSelectedSkillPath(null);
     setStep("input");
-  }, [open, preview, importResult]);
+  }, [open, preview, importResult, preferredSkillSlug]);
 
   const postImportSkill = useMemo(() => {
     if (!postImportTargetSkillId) return null;
@@ -277,6 +328,30 @@ export function GitHubRepoImportWizard({
     }
     return importProgress.phase === "finalizing" ? 100 : 0;
   }, [importProgress]);
+  const importSourceLabel =
+    importSource === "skillsSh"
+      ? t("githubImport.skillsShSourceLabel")
+      : t("githubImport.githubSourceLabel");
+  const importTitle =
+    importSource === "skillsSh"
+      ? t("githubImport.skillsShImportTitle")
+      : t("githubImport.githubImportTitle");
+  const importDescription =
+    importSource === "skillsSh"
+      ? t("githubImport.skillsShImportDesc", { launcher: launcherLabel })
+      : t("githubImport.githubImportDesc", { launcher: launcherLabel });
+  const repoUrlLabel =
+    importSource === "skillsSh"
+      ? t("githubImport.skillsShUrl")
+      : t("githubImport.githubRepoUrl");
+  const repoUrlPlaceholder =
+    importSource === "skillsSh"
+      ? "https://skills.sh/owner/repo/skill"
+      : "https://github.com/owner/repo";
+  const importHint =
+    importSource === "skillsSh"
+      ? t("githubImport.skillsShImportNoWriteHint")
+      : t("githubImport.githubImportNoWriteHint");
   const importEtaSeconds = useMemo(() => {
     if (
       !isImporting ||
@@ -518,13 +593,12 @@ export function GitHubRepoImportWizard({
   }
 
   async function handlePreviewSubmit() {
-    const nextSelectedSkillPath = selectedSkillPath;
     try {
       const nextPreview = await onPreview();
       if (nextPreview) {
-        if (!preview) {
-          setSelectedSkillPath(nextSelectedSkillPath);
-        }
+        setSelectedSkillPath((current) =>
+          getInitialSelectedSkillPath(nextPreview, preferredSkillSlug, current),
+        );
         setStep("preview");
         return;
       }
@@ -586,14 +660,14 @@ export function GitHubRepoImportWizard({
           className="mb-2 block text-sm font-medium"
           htmlFor="github-repo-url"
         >
-          {t("marketplace.githubRepoUrl")}
+          {repoUrlLabel}
         </label>
         <div className="flex gap-2">
           <Input
             id="github-repo-url"
             value={repoUrl}
             onChange={(event) => onRepoUrlChange(event.target.value)}
-            placeholder="https://github.com/owner/repo"
+            placeholder={repoUrlPlaceholder}
             className="flex-1"
           />
           <Button
@@ -605,19 +679,19 @@ export function GitHubRepoImportWizard({
             ) : (
               <Sparkles className="size-4" />
             )}
-            <span>{t("marketplace.previewImport")}</span>
+            <span>{t("githubImport.previewImport")}</span>
           </Button>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           {browserMode
-            ? t("marketplace.githubImportDesktopOnlyHint")
-            : t("marketplace.githubImportNoWriteHint")}
+            ? t("githubImport.githubImportDesktopOnlyHint")
+            : importHint}
         </p>
         {browserMode ? (
           <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
             <div className="flex items-start gap-2">
               <AlertCircle className="mt-0.5 size-4 shrink-0 text-primary" />
-              <span>{t("marketplace.githubImportDesktopOnlyState")}</span>
+              <span>{t("githubImport.githubImportDesktopOnlyState")}</span>
             </div>
           </div>
         ) : null}
@@ -629,7 +703,7 @@ export function GitHubRepoImportWizard({
                 <span className="block">{normalizeMessage(previewError)}</span>
                 {looksLikeGitHubAuthGuidance(previewError) ? (
                   <span className="block text-xs text-destructive/90">
-                    {t("marketplace.githubPatSettingsHint")}
+                    {t("githubImport.githubPatSettingsHint")}
                   </span>
                 ) : null}
               </div>
@@ -650,7 +724,7 @@ export function GitHubRepoImportWizard({
           <div className="min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-                {t("marketplace.githubImportToolbarLabel")}
+                {t("githubImport.githubImportToolbarLabel")}
               </span>
               <span className="truncate text-sm font-semibold">
                 {currentPreview.repo.owner}/{currentPreview.repo.repo}
@@ -663,12 +737,12 @@ export function GitHubRepoImportWizard({
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
               <span>
-                {t("marketplace.githubImportFoundSkills", {
+                {t("githubImport.githubImportFoundSkills", {
                   count: currentPreview.skills.length,
                 })}
               </span>
               <span>
-                {t("marketplace.githubImportToolbarSelected", {
+                {t("githubImport.githubImportToolbarSelected", {
                   count: selectedSkills.length,
                 })}
               </span>
@@ -686,7 +760,7 @@ export function GitHubRepoImportWizard({
               className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-background px-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               <ExternalLink className="size-3.5" />
-              <span>{t("marketplace.previewOpenSource")}</span>
+              <span>{t("githubImport.previewOpenSource")}</span>
             </a>
             <Button
               variant="outline"
@@ -699,7 +773,7 @@ export function GitHubRepoImportWizard({
               ) : (
                 <RefreshCw className="size-4" />
               )}
-              <span>{t("marketplace.githubImportRepreview")}</span>
+              <span>{t("githubImport.githubImportRepreview")}</span>
             </Button>
           </div>
         </div>
@@ -712,10 +786,10 @@ export function GitHubRepoImportWizard({
 
     const progressLabel =
       importProgress.phase === "preparing"
-        ? t("marketplace.githubImportProgressPhasePreparing")
+        ? t("githubImport.githubImportProgressPhasePreparing")
         : importProgress.phase === "finalizing"
-          ? t("marketplace.githubImportProgressPhaseFinalizing")
-          : t("marketplace.githubImportProgressPhaseWriting");
+          ? t("githubImport.githubImportProgressPhaseFinalizing")
+          : t("githubImport.githubImportProgressPhaseWriting");
 
     return (
       <div
@@ -724,7 +798,7 @@ export function GitHubRepoImportWizard({
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-semibold">
-            {t("marketplace.githubImportProgressTitle")}
+            {t("githubImport.githubImportProgressTitle")}
           </div>
           <div className="text-xs text-muted-foreground">{progressLabel}</div>
         </div>
@@ -743,20 +817,20 @@ export function GitHubRepoImportWizard({
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           {importProgress.totalFiles > 0 ? (
             <span>
-              {t("marketplace.githubImportProgressFiles", {
+              {t("githubImport.githubImportProgressFiles", {
                 completed: importProgress.completedFiles,
                 total: importProgress.totalFiles,
               })}
             </span>
           ) : null}
           <span>
-            {t("marketplace.githubImportProgressPercent", {
+            {t("githubImport.githubImportProgressPercent", {
               percent: Math.round(importProgressPercent),
             })}
           </span>
           {importEtaSeconds ? (
             <span>
-              {t("marketplace.githubImportProgressEta", {
+              {t("githubImport.githubImportProgressEta", {
                 seconds: importEtaSeconds,
               })}
             </span>
@@ -767,14 +841,14 @@ export function GitHubRepoImportWizard({
           <div className="mt-2 text-xs text-muted-foreground">
             {importProgress.currentSkill ? (
               <div>
-                {t("marketplace.githubImportProgressSkill", {
+                {t("githubImport.githubImportProgressSkill", {
                   skill: importProgress.currentSkill,
                 })}
               </div>
             ) : null}
             {importProgress.currentPath ? (
               <div>
-                {t("marketplace.githubImportProgressCurrentFile", {
+                {t("githubImport.githubImportProgressCurrentFile", {
                   path: importProgress.currentPath,
                 })}
               </div>
@@ -800,14 +874,14 @@ export function GitHubRepoImportWizard({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 text-emerald-700 dark:text-emerald-300">
                   <div className="text-base font-semibold">
-                    {t("marketplace.githubImportSuccessTitle")}
+                    {t("githubImport.githubImportSuccessTitle")}
                   </div>
                   <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium">
                     {currentImportResult.repo.owner}/{currentImportResult.repo.repo}
                   </span>
                 </div>
                 <div className="mt-2 text-sm text-muted-foreground">
-                  {t("marketplace.githubImportSuccessDesc", {
+                  {t("githubImport.githubImportSuccessDesc", {
                     count: currentImportResult.importedSkills.length,
                   })}
                 </div>
@@ -818,7 +892,7 @@ export function GitHubRepoImportWizard({
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-xl border border-border/70 bg-card/80 px-4 py-3">
               <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t("marketplace.githubImportDecision.import")}
+                {t("githubImport.githubImportDecision.import")}
               </div>
               <div className="mt-2 text-2xl font-semibold">
                 {currentImportResult.importedSkills.length}
@@ -826,7 +900,7 @@ export function GitHubRepoImportWizard({
             </div>
             <div className="rounded-xl border border-border/70 bg-card/80 px-4 py-3">
               <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t("marketplace.githubImportDecision.skip")}
+                {t("githubImport.githubImportDecision.skip")}
               </div>
               <div className="mt-2 text-2xl font-semibold">
                 {currentImportResult.skippedSkills.length}
@@ -834,7 +908,7 @@ export function GitHubRepoImportWizard({
             </div>
             <div className="rounded-xl border border-border/70 bg-card/80 px-4 py-3">
               <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {t("marketplace.githubImportResultInstalledReady")}
+                {t("githubImport.githubImportResultInstalledReady")}
               </div>
               <div className="mt-2 text-2xl font-semibold">
                 {currentImportResult.importedSkills.length}
@@ -845,7 +919,7 @@ export function GitHubRepoImportWizard({
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.95fr)]">
             <div className="rounded-xl border border-border/70 bg-card/80 p-4">
               <div className="text-sm font-semibold">
-                {t("marketplace.githubImportResultImportedTitle")}
+                {t("githubImport.githubImportResultImportedTitle")}
               </div>
               <ul className="mt-4 space-y-2 text-sm">
                 {currentImportResult.importedSkills.map((skill) => (
@@ -861,7 +935,7 @@ export function GitHubRepoImportWizard({
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs text-muted-foreground">
-                        {t(`marketplace.duplicateResolution.${skill.resolution}`)}
+                        {t(`githubImport.duplicateResolution.${skill.resolution}`)}
                       </span>
                       {onInstallImportedSkill ? (
                         <Button
@@ -870,7 +944,7 @@ export function GitHubRepoImportWizard({
                           onClick={() => handleInstallImported(skill.importedSkillId)}
                         >
                           <span>
-                            {t("marketplace.githubImportInstallImportedSkill")}
+                            {t("githubImport.githubImportInstallImportedSkill")}
                           </span>
                         </Button>
                       ) : null}
@@ -883,10 +957,10 @@ export function GitHubRepoImportWizard({
             <div className="space-y-4">
               <div className="rounded-xl border border-border/70 bg-card/80 p-4">
                 <div className="text-sm font-semibold">
-                  {t("marketplace.githubImportResultNextTitle")}
+                  {t("githubImport.githubImportResultNextTitle")}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {t("marketplace.githubImportResultNextDesc")}
+                  {t("githubImport.githubImportResultNextDesc")}
                 </div>
                 <div className="mt-4 flex flex-col gap-2">
                   {currentImportResult.importedSkills.length > 0 &&
@@ -900,7 +974,7 @@ export function GitHubRepoImportWizard({
                       }
                     >
                       <span>
-                        {t("marketplace.githubImportResultActionInstall")}
+                        {t("githubImport.githubImportResultActionInstall")}
                       </span>
                       <ArrowRight className="size-4" />
                     </Button>
@@ -910,7 +984,7 @@ export function GitHubRepoImportWizard({
                     className="justify-between"
                     onClick={handleOpenResourceLibraryClick}
                   >
-                    <span>{t("marketplace.githubImportResultActionResource")}</span>
+                    <span>{t("githubImport.githubImportResultActionResource")}</span>
                     <ArrowRight className="size-4" />
                   </Button>
                   <Button
@@ -918,7 +992,7 @@ export function GitHubRepoImportWizard({
                     className="justify-between"
                     onClick={handleStartAnotherImport}
                   >
-                    <span>{t("marketplace.githubImportResultActionRestart")}</span>
+                    <span>{t("githubImport.githubImportResultActionRestart")}</span>
                     <RefreshCw className="size-4" />
                   </Button>
                 </div>
@@ -926,12 +1000,12 @@ export function GitHubRepoImportWizard({
 
               <div className="rounded-xl border border-border/70 bg-card/80 p-4">
                 <div className="text-sm font-semibold">
-                  {t("marketplace.githubImportResultSkippedTitle")}
+                  {t("githubImport.githubImportResultSkippedTitle")}
                 </div>
                 <div className="mt-3 text-xs text-muted-foreground">
                   {currentImportResult.skippedSkills.length > 0
                     ? currentImportResult.skippedSkills.join(", ")
-                    : t("marketplace.githubImportResultSkippedNone")}
+                    : t("githubImport.githubImportResultSkippedNone")}
                 </div>
               </div>
             </div>
@@ -953,19 +1027,20 @@ export function GitHubRepoImportWizard({
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
                 <DialogTitle className="flex items-center gap-2 text-[1.05rem]">
                   <GitBranch className="size-5" />
-                  <span>{t("marketplace.githubImportTitle")}</span>
+                  <span>{importTitle}</span>
                 </DialogTitle>
                 <DialogDescription className="text-xs leading-5 text-muted-foreground">
-                  {t("marketplace.githubImportDesc", {
-                    launcher: launcherLabel,
-                  })}
+                  {importDescription}
                 </DialogDescription>
               </div>
               <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
                 <span className="rounded-full border border-border/70 bg-muted/20 px-2.5 py-1 font-medium">
-                  {t("marketplace.githubImportHeaderLauncher", {
+                  {t("githubImport.githubImportHeaderLauncher", {
                     launcher: launcherLabel,
                   })}
+                </span>
+                <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 font-medium text-primary">
+                  {importSourceLabel}
                 </span>
               </div>
             </div>
@@ -1007,7 +1082,7 @@ export function GitHubRepoImportWizard({
                         {index + 1}
                       </span>
                       <span className="font-medium">
-                        {t(`marketplace.githubImportStep.${item}`)}
+                        {t(`githubImport.githubImportStep.${item}`)}
                       </span>
                     </div>
                     {index < 3 ? (
@@ -1050,10 +1125,10 @@ export function GitHubRepoImportWizard({
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-1">
                         <div className="text-sm font-semibold">
-                          {t("marketplace.confirmImportTitle")}
+                          {t("githubImport.confirmImportTitle")}
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          {t("marketplace.confirmImportDesc", {
+                          {t("githubImport.confirmImportDesc", {
                             count: selectedSkills.length,
                           })}
                         </div>
@@ -1068,22 +1143,22 @@ export function GitHubRepoImportWizard({
                         [
                           [
                             "write",
-                            t("marketplace.githubImportDecision.write"),
+                            t("githubImport.githubImportDecision.write"),
                             decisionCounts.write,
                           ],
                           [
                             "overwrite",
-                            t("marketplace.githubImportDecision.overwrite"),
+                            t("githubImport.githubImportDecision.overwrite"),
                             decisionCounts.overwrite,
                           ],
                           [
                             "rename",
-                            t("marketplace.githubImportDecision.rename"),
+                            t("githubImport.githubImportDecision.rename"),
                             decisionCounts.rename,
                           ],
                           [
                             "skip",
-                            t("marketplace.githubImportDecision.skip"),
+                            t("githubImport.githubImportDecision.skip"),
                             decisionCounts.skip,
                           ],
                         ] as const
@@ -1103,7 +1178,7 @@ export function GitHubRepoImportWizard({
                     </div>
                     {skippedPreviewSkills.length > 0 ? (
                       <div className="mt-3 text-xs text-muted-foreground">
-                        {t("marketplace.githubImportDecisionHintUnselected", {
+                        {t("githubImport.githubImportDecisionHintUnselected", {
                           count: skippedPreviewSkills.length,
                         })}
                       </div>
@@ -1114,10 +1189,10 @@ export function GitHubRepoImportWizard({
                     <div className="space-y-4">
                       <div className="rounded-xl border border-border/70 bg-card/80 p-4">
                         <div className="text-sm font-semibold">
-                          {t("marketplace.githubImportReadyListTitle")}
+                          {t("githubImport.githubImportReadyListTitle")}
                         </div>
                         <div className="mt-1 text-xs text-muted-foreground">
-                          {t("marketplace.githubImportReadyListDesc")}
+                          {t("githubImport.githubImportReadyListDesc")}
                         </div>
                         <ul className="mt-4 space-y-2 text-sm">
                           {selectedSkills.map((skill) => {
@@ -1139,7 +1214,7 @@ export function GitHubRepoImportWizard({
                                 <div className="text-right text-xs text-muted-foreground">
                                   <div>
                                     {t(
-                                      `marketplace.duplicateResolution.${resolution}`,
+                                      `githubImport.duplicateResolution.${resolution}`,
                                     )}
                                   </div>
                                   {resolution === "rename" &&
@@ -1159,24 +1234,24 @@ export function GitHubRepoImportWizard({
                     <div className="space-y-4">
                       <div className="rounded-xl border border-border/70 bg-card/80 p-4">
                         <div className="text-sm font-semibold">
-                          {t("marketplace.githubImportConflictSummaryTitle")}
+                          {t("githubImport.githubImportConflictSummaryTitle")}
                         </div>
                         <div className="mt-3 space-y-3 text-sm">
                           <div>
                             <div className="font-medium">
-                              {t("marketplace.githubImportDecision.overwrite")}
+                              {t("githubImport.githubImportDecision.overwrite")}
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
                               {overwriteSelections.length > 0
                                 ? overwriteSelections
                                     .map((skill) => skill.skillName)
                                     .join(", ")
-                                : t("marketplace.githubImportDecisionNone")}
+                                : t("githubImport.githubImportDecisionNone")}
                             </div>
                           </div>
                           <div>
                             <div className="font-medium">
-                              {t("marketplace.githubImportDecision.rename")}
+                              {t("githubImport.githubImportDecision.rename")}
                             </div>
                             <div className="mt-1 space-y-1 text-xs text-muted-foreground">
                               {renamedSelections.length > 0 ? (
@@ -1192,14 +1267,14 @@ export function GitHubRepoImportWizard({
                                 })
                               ) : (
                                 <div>
-                                  {t("marketplace.githubImportDecisionNone")}
+                                  {t("githubImport.githubImportDecisionNone")}
                                 </div>
                               )}
                             </div>
                           </div>
                           <div>
                             <div className="font-medium">
-                              {t("marketplace.githubImportDecision.skip")}
+                              {t("githubImport.githubImportDecision.skip")}
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
                               {skippedConflictSelections.length > 0 ||
@@ -1212,7 +1287,7 @@ export function GitHubRepoImportWizard({
                                       (skill) => skill.skillName,
                                     ),
                                   ].join(", ")
-                                : t("marketplace.githubImportDecisionNone")}
+                                : t("githubImport.githubImportDecisionNone")}
                             </div>
                           </div>
                         </div>
@@ -1220,11 +1295,11 @@ export function GitHubRepoImportWizard({
 
                       {blockingConflict ? (
                         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-                          {t("marketplace.resolveConflictsBeforeImport")}
+                          {t("githubImport.resolveConflictsBeforeImport")}
                         </div>
                       ) : (
                         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm text-muted-foreground">
-                          {t("marketplace.githubImportConfirmCalmHint")}
+                          {t("githubImport.githubImportConfirmCalmHint")}
                         </div>
                       )}
                     </div>
@@ -1241,14 +1316,14 @@ export function GitHubRepoImportWizard({
                     <div className="border-b border-border/60 px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-sm font-semibold">
-                          {t("marketplace.githubImportSelectionTitle")}
+                          {t("githubImport.githubImportSelectionTitle")}
                         </div>
                         <span className="rounded-full border border-border/70 bg-background/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                           {preview.skills.length}
                         </span>
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {t("marketplace.githubImportSelectionDesc", {
+                        {t("githubImport.githubImportSelectionDesc", {
                           count: preview.skills.length,
                         })}
                       </div>
@@ -1280,7 +1355,7 @@ export function GitHubRepoImportWizard({
                           >
                             <div className="flex items-start gap-3">
                               <input
-                                aria-label={t("marketplace.selectSkill")}
+                                aria-label={t("githubImport.selectSkill")}
                                 type="checkbox"
                                 className="mt-1"
                                 checked={selected}
@@ -1300,7 +1375,7 @@ export function GitHubRepoImportWizard({
                                 </div>
                                 <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                                   {skill.description ||
-                                    t("marketplace.githubImportNoDescription")}
+                                    t("githubImport.githubImportNoDescription")}
                                 </div>
                               </div>
                             </div>
@@ -1358,11 +1433,11 @@ export function GitHubRepoImportWizard({
                                         >
                                           {!selectedPreviewSkill.conflict
                                             ? t(
-                                                "marketplace.githubImportStatusReady",
+                                                "githubImport.githubImportStatusReady",
                                               )
                                             : currentResolution === "overwrite"
                                               ? t(
-                                                  "marketplace.githubImportStatusWillOverwrite",
+                                                  "githubImport.githubImportStatusWillOverwrite",
                                                   {
                                                     name: selectedPreviewSkill
                                                       .conflict.existingName,
@@ -1370,13 +1445,13 @@ export function GitHubRepoImportWizard({
                                                 )
                                               : currentResolution === "rename"
                                                 ? t(
-                                                    "marketplace.githubImportStatusWillRename",
+                                                    "githubImport.githubImportStatusWillRename",
                                                     {
                                                       id: resolvedRenameId,
                                                     },
                                                   )
                                                 : t(
-                                                    "marketplace.githubImportStatusWillSkip",
+                                                    "githubImport.githubImportStatusWillSkip",
                                                     {
                                                       name: selectedPreviewSkill
                                                         .conflict.existingName,
@@ -1387,7 +1462,7 @@ export function GitHubRepoImportWizard({
                                     ) : (
                                       <div className="flex flex-wrap items-center gap-2">
                                         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                          {t("marketplace.githubImportIdLabel")}
+                                          {t("githubImport.githubImportIdLabel")}
                                         </span>
                                         <Input
                                           ref={renameInputRef}
@@ -1418,7 +1493,7 @@ export function GitHubRepoImportWizard({
                                             }
                                           }}
                                           placeholder={t(
-                                            "marketplace.renameSkillIdPlaceholder",
+                                            "githubImport.renameSkillIdPlaceholder",
                                           )}
                                           className="h-8 w-[min(24rem,100%)] font-mono text-sm"
                                         />
@@ -1452,7 +1527,7 @@ export function GitHubRepoImportWizard({
                                         <>
                                           {selectedPreviewSkill.sourcePath}
                                           {selectedPreviewSkill.rootDirectory
-                                            ? ` · ${t("marketplace.githubImportRootDirectory")}: ${selectedPreviewSkill.rootDirectory}`
+                                            ? ` · ${t("githubImport.githubImportRootDirectory")}: ${selectedPreviewSkill.rootDirectory}`
                                             : ""}
                                         </>
                                       ) : (
@@ -1482,7 +1557,7 @@ export function GitHubRepoImportWizard({
                                           }
                                         >
                                           {t(
-                                            "marketplace.githubImportStatusResetDefault",
+                                            "githubImport.githubImportStatusResetDefault",
                                           )}
                                         </Button>
                                       ) : currentResolution === "rename" ? (
@@ -1498,7 +1573,7 @@ export function GitHubRepoImportWizard({
                                             }
                                           >
                                             {t(
-                                              "marketplace.githubImportStatusChangeToRename",
+                                              "githubImport.githubImportStatusChangeToRename",
                                             )}
                                           </Button>
                                           <Button
@@ -1515,7 +1590,7 @@ export function GitHubRepoImportWizard({
                                             }
                                           >
                                             {t(
-                                              "marketplace.githubImportStatusResetDefault",
+                                              "githubImport.githubImportStatusResetDefault",
                                             )}
                                           </Button>
                                         </>
@@ -1535,7 +1610,7 @@ export function GitHubRepoImportWizard({
                                             }
                                           >
                                             {t(
-                                              "marketplace.githubImportStatusChangeToOverwrite",
+                                              "githubImport.githubImportStatusChangeToOverwrite",
                                             )}
                                           </Button>
                                           <Button
@@ -1549,7 +1624,7 @@ export function GitHubRepoImportWizard({
                                             }
                                           >
                                             {t(
-                                              "marketplace.githubImportStatusChangeToRename",
+                                              "githubImport.githubImportStatusChangeToRename",
                                             )}
                                           </Button>
                                         </>
@@ -1562,10 +1637,10 @@ export function GitHubRepoImportWizard({
                                         rel="noreferrer"
                                         className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                                         aria-label={t(
-                                          "marketplace.githubImportOpenOnGithub",
+                                          "githubImport.githubImportOpenOnGithub",
                                         )}
                                         title={t(
-                                          "marketplace.githubImportOpenOnGithub",
+                                          "githubImport.githubImportOpenOnGithub",
                                         )}
                                       >
                                         <ExternalLink className="size-3.5" />
@@ -1585,13 +1660,13 @@ export function GitHubRepoImportWizard({
                                       [
                                         "overview",
                                         t(
-                                          "marketplace.githubImportDetailTabs.overview",
+                                          "githubImport.githubImportDetailTabs.overview",
                                         ),
                                       ],
                                       [
                                         "ai",
                                         t(
-                                          "marketplace.githubImportDetailTabs.ai",
+                                          "githubImport.githubImportDetailTabs.ai",
                                         ),
                                       ],
                                     ] as const
@@ -1630,7 +1705,7 @@ export function GitHubRepoImportWizard({
                                         <FileQuestion className="size-6 text-muted-foreground/70" />
                                         <span>
                                           {t(
-                                            "marketplace.githubImportMarkdownBrowserFallback",
+                                            "githubImport.githubImportMarkdownBrowserFallback",
                                           )}
                                         </span>
                                       </div>
@@ -1654,7 +1729,7 @@ export function GitHubRepoImportWizard({
                                         <AlertCircle className="size-6 text-destructive" />
                                         <div className="text-sm text-muted-foreground">
                                           {t(
-                                            "marketplace.githubImportMarkdownError",
+                                            "githubImport.githubImportMarkdownError",
                                           )}
                                         </div>
                                         <Button
@@ -1670,7 +1745,7 @@ export function GitHubRepoImportWizard({
                                           <RefreshCw className="size-3.5" />
                                           <span>
                                             {t(
-                                              "marketplace.githubImportMarkdownRetry",
+                                              "githubImport.githubImportMarkdownRetry",
                                             )}
                                           </span>
                                         </Button>
@@ -1682,7 +1757,7 @@ export function GitHubRepoImportWizard({
                                         <FileQuestion className="size-6 text-muted-foreground/70" />
                                         <span>
                                           {t(
-                                            "marketplace.githubImportMarkdownEmpty",
+                                            "githubImport.githubImportMarkdownEmpty",
                                           )}
                                         </span>
                                       </div>
@@ -1710,13 +1785,13 @@ export function GitHubRepoImportWizard({
                                             <Sparkles className="size-4 text-primary" />
                                             <span>
                                               {t(
-                                                "marketplace.githubImportAiSummaryTitle",
+                                                "githubImport.githubImportAiSummaryTitle",
                                               )}
                                             </span>
                                           </div>
                                           <p className="mt-1 text-xs text-muted-foreground">
                                             {t(
-                                              "marketplace.githubImportAiSummaryDesc",
+                                              "githubImport.githubImportAiSummaryDesc",
                                             )}
                                           </p>
                                         </div>
@@ -1793,7 +1868,7 @@ export function GitHubRepoImportWizard({
                                       ) : selectedPreviewSkill.description ? (
                                         <p className="mt-3 text-sm leading-6 text-muted-foreground">
                                           {t(
-                                            "marketplace.githubImportAiSummaryBody",
+                                            "githubImport.githubImportAiSummaryBody",
                                             {
                                               name: selectedPreviewSkill.skillName,
                                               description:
@@ -1804,7 +1879,7 @@ export function GitHubRepoImportWizard({
                                       ) : (
                                         <p className="mt-3 text-sm leading-6 text-muted-foreground">
                                           {t(
-                                            "marketplace.githubImportAiSummaryFallback",
+                                            "githubImport.githubImportAiSummaryFallback",
                                             {
                                               name: selectedPreviewSkill.skillName,
                                             },
@@ -1840,7 +1915,7 @@ export function GitHubRepoImportWizard({
                 <Button variant="outline" onClick={handleStartAnotherImport}>
                   <RefreshCw className="size-4" />
                   <span>
-                    {t("marketplace.githubImportResultActionRestart")}
+                    {t("githubImport.githubImportResultActionRestart")}
                   </span>
                 </Button>
                 <Button onClick={handleClose.bind(null, false)}>
@@ -1857,13 +1932,13 @@ export function GitHubRepoImportWizard({
                   onClick={() => setStep("confirm")}
                   disabled={!canReview}
                 >
-                  <span>{t("marketplace.reviewImportSelection")}</span>
+                  <span>{t("githubImport.reviewImportSelection")}</span>
                 </Button>
               </div>
             ) : (
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setStep("preview")}>
-                  <span>{t("marketplace.githubImportBackToPreview")}</span>
+                  <span>{t("githubImport.githubImportBackToPreview")}</span>
                 </Button>
                 <Button
                   onClick={handleImportConfirmClick}

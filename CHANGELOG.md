@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.13.0 - 2026-07-22
+
+Release focused on the Resource Library workflow, settings cleanup, and a leaner navigation model.
+
+### Features
+
+- Add a unified Resource Library import menu that combines GitHub repository import and supported skills.sh skill-link import.
+- Import GitHub-backed skills into the Skill Resource Library with preview, selection, conflict handling, and source metadata tracking.
+- Allow built-in software platforms to be edited, removed, and restored through local persisted configuration.
+- Add update checking in Settings so users can compare the installed app version with the latest GitHub release.
+
+### Improvements
+
+- Remove the dedicated Skill Marketplace page and related frontend market browsing UI.
+- Rework the Resource Library directory view around `author/project` grouping instead of author-only cards.
+- Improve the skill detail sidebar with clearer grouped sections for notes, tags, source information, time information, storage paths, install status, and collections.
+- Compact Settings by hiding explanatory copy behind hint icons, aligning directory save buttons with their inputs, and reorganizing backup/WebDAV controls.
+- Group software platforms by Lobster and Coding categories while keeping each group in a responsive two-column layout.
+- Distinguish detected built-in platform directories from missing ones in Settings and hide missing built-in platforms from the main sidebar by default.
+- Move theme and Settings controls to the lower-left sidebar, rename the system theme option to "System", remove the top global search box, and widen the expanded sidebar.
+- Refresh English and Chinese README screenshots so each document uses screenshots from the matching UI language.
+- Unify the app font stack across platforms.
+
+### Fixes
+
+- Keep GitHub import functionality after removing the Skill Marketplace UI.
+- Preserve modified built-in platform definitions across app restarts.
+- Reduce duplicated and ungrouped metadata in the skill detail sidebar.
+
 ## 0.12.0 - 2026-07-20
 
 Release focused on clearer platform management, project discovery behavior, and platform-specific packaging scripts.

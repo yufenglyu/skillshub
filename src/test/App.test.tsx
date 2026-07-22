@@ -137,7 +137,7 @@ describe("App", () => {
     expect(screen.queryByRole("heading", { name: "中央技能库" })).not.toBeInTheDocument();
   });
 
-  it("renders the app shell with top bar", async () => {
+  it("renders the app shell with sidebar branding", async () => {
     await act(async () => {
       render(
         <MemoryRouter initialEntries={["/central"]}>
@@ -145,7 +145,6 @@ describe("App", () => {
         </MemoryRouter>
       );
     });
-    // TopBar shows the app name
     expect(screen.getByText("SkillsHub")).toBeInTheDocument();
   });
 

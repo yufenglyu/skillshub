@@ -46,6 +46,15 @@ export interface WebDavBackupFile {
   modifiedAt?: string | null;
 }
 
+export interface AppUpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  latestUrl: string;
+  isUpdateAvailable: boolean;
+  releaseName?: string | null;
+  publishedAt?: string | null;
+}
+
 // ─── Scan Types ───────────────────────────────────────────────────────────────
 
 export interface ScanResult {
@@ -356,37 +365,7 @@ export interface DiscoverImportResult {
   target: string;
 }
 
-// ─── Marketplace Types ───────────────────────────────────────────────────────
-
-export interface SkillRegistry {
-  id: string;
-  name: string;
-  source_type: "github" | "http_json";
-  url: string;
-  normalized_url?: string | null;
-  is_builtin: boolean;
-  is_enabled: boolean;
-  last_synced: string | null;
-  last_attempted_sync?: string | null;
-  last_sync_status?: "never" | "success" | "error";
-  last_sync_error?: string | null;
-  cache_updated_at?: string | null;
-  cache_expires_at?: string | null;
-  etag?: string | null;
-  last_modified?: string | null;
-  created_at: string;
-}
-
-export interface MarketplaceSkill {
-  id: string;
-  registry_id: string;
-  name: string;
-  description?: string;
-  download_url: string;
-  is_installed: boolean;
-  synced_at: string;
-  cache_updated_at?: string | null;
-}
+// ─── GitHub Import Types ─────────────────────────────────────────────────────
 
 export interface GitHubRepoRef {
   owner: string;

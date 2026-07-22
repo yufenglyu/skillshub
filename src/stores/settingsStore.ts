@@ -8,6 +8,7 @@ import {
   BackupOptions,
   WebDavConfig,
   WebDavBackupFile,
+  AppUpdateInfo,
 } from "@/types";
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -24,6 +25,8 @@ interface SettingsState {
   webDavConfig: WebDavConfig;
   isLoadingWebDavConfig: boolean;
   isSavingWebDavConfig: boolean;
+  updateInfo: AppUpdateInfo | null;
+  isCheckingUpdate: boolean;
 
   // Actions — scan directories
   loadScanDirectories: () => Promise<void>;
@@ -52,6 +55,7 @@ interface SettingsState {
   listWebDavBackups: (config: WebDavConfig) => Promise<WebDavBackupFile[]>;
   uploadWebDavBackup: (config: WebDavConfig, options?: BackupOptions) => Promise<WebDavBackupFile>;
   downloadWebDavBackup: (config: WebDavConfig, remotePath: string) => Promise<Uint8Array>;
+  checkAppUpdate: () => Promise<AppUpdateInfo>;
 
   clearError: () => void;
 }
@@ -90,6 +94,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   webDavConfig: DEFAULT_WEBDAV_CONFIG,
   isLoadingWebDavConfig: false,
   isSavingWebDavConfig: false,
+  updateInfo: null,
+  isCheckingUpdate: false,
 
   // ── Scan Directories ───────────────────────────────────────────────────────
 
@@ -323,6 +329,18 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       remotePath,
     });
     return toBackupBytes(backup);
+  },
+
+  checkAppUpdate: async () => {
+    set({ isCheckingUpdate: true, error: null });
+    try {
+      const updateInfo = await invoke<AppUpdateInfo>("check_app_update");
+      set({ updateInfo, isCheckingUpdate: false });
+      return updateInfo;
+    } catch (err) {
+      set({ error: String(err), isCheckingUpdate: false });
+      throw err;
+    }
   },
 
   // ── Misc ───────────────────────────────────────────────────────────────────

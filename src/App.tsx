@@ -5,7 +5,6 @@ import { CentralSkillsView } from "@/pages/CentralSkillsView";
 import { ResourceLibraryView } from "@/pages/ResourceLibraryView";
 import { SkillDetailPage } from "@/pages/SkillDetailPage";
 import { CollectionsListView } from "@/pages/CollectionsListView";
-import { MarketplaceView } from "@/pages/MarketplaceView";
 import { SettingsView } from "@/pages/SettingsView";
 import { DiscoverView } from "@/pages/DiscoverView";
 import { ObsidianVaultView } from "@/pages/ObsidianVaultView";
@@ -26,8 +25,6 @@ function App() {
         <Route path="skill/:skillId" element={<SkillDetailPage />} />
         {/* Collections */}
         <Route path="collections" element={<CollectionsListView />} />
-        {/* Marketplace */}
-        <Route path="marketplace" element={<MarketplaceView />} />
         {/* Discover project skills */}
         <Route path="discover" element={<DiscoverView />} />
         {/* Discover filtered by project */}

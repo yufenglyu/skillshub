@@ -22,10 +22,6 @@ vi.mock("../stores/skillStore", () => ({
   useSkillStore: vi.fn(),
 }));
 
-vi.mock("../stores/marketplaceStore", () => ({
-  useMarketplaceStore: vi.fn(),
-}));
-
 vi.mock("../components/skill/SkillDetailDrawer", () => ({
   SkillDetailDrawer: ({
     open,
@@ -74,7 +70,6 @@ vi.mock("../components/skill/SkillDetailView", () => ({
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
 import { usePlatformStore } from "../stores/platformStore";
 import { useSkillStore } from "../stores/skillStore";
-import { useMarketplaceStore } from "../stores/marketplaceStore";
 import * as tauriBridge from "@/lib/tauri";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -208,13 +203,9 @@ const mockUpdateSourceBackedSkills = vi.fn();
 const mockUpdateSourceBackedSkill = vi.fn();
 const mockRescan = vi.fn();
 const mockGetSkillsByAgent = vi.fn();
-const mockPreviewGitHubRepoImport = vi.fn();
-const mockImportGitHubRepoSkills = vi.fn();
-const mockResetGitHubImport = vi.fn();
 const mockUseCentralSkillsStore = vi.mocked(useCentralSkillsStore);
 const mockUsePlatformStore = vi.mocked(usePlatformStore);
 const mockUseSkillStore = vi.mocked(useSkillStore);
-const mockUseMarketplaceStore = vi.mocked(useMarketplaceStore);
 
 function buildCentralStoreState(overrides = {}) {
   return {
@@ -289,24 +280,6 @@ function renderCentralSkillsView(centralOverrides = {}) {
     if (typeof selector === "function") return selector(state);
     return state;
   });
-  mockUseMarketplaceStore.mockImplementation((selector?: unknown) => {
-    const state = {
-      githubImport: {
-        isPreviewLoading: false,
-        isImporting: false,
-        preview: null,
-        importResult: null,
-        previewedRepoUrl: null,
-        error: null,
-      },
-      previewGitHubRepoImport: mockPreviewGitHubRepoImport,
-      importGitHubRepoSkills: mockImportGitHubRepoSkills,
-      resetGitHubImport: mockResetGitHubImport,
-    };
-    if (typeof selector === "function") return selector(state);
-    return state;
-  });
-
   return render(
     <MemoryRouter>
       <CentralSkillsView />
@@ -607,24 +580,6 @@ describe("CentralSkillsView", () => {
       if (typeof selector === "function") return selector(state);
       return state;
     });
-    mockUseMarketplaceStore.mockImplementation((selector?: unknown) => {
-      const state = {
-        githubImport: {
-          isPreviewLoading: false,
-          isImporting: false,
-          preview: null,
-          importResult: null,
-          previewedRepoUrl: null,
-          error: null,
-        },
-        previewGitHubRepoImport: mockPreviewGitHubRepoImport,
-        importGitHubRepoSkills: mockImportGitHubRepoSkills,
-        resetGitHubImport: mockResetGitHubImport,
-      };
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
     render(
       <MemoryRouter>
         <CentralSkillsView />
@@ -974,104 +929,14 @@ describe("CentralSkillsView", () => {
   });
 
   it("offers post-import platform installation for imported skills", async () => {
-    mockUseMarketplaceStore.mockImplementation((selector?: unknown) => {
-      const state = {
-        githubImport: {
-          isPreviewLoading: false,
-          isImporting: false,
-          preview: null,
-          importResult: {
-            repo: {
-              owner: "dorukardahan",
-              repo: "twitterapi-io-skill",
-              branch: "main",
-              normalizedUrl: "https://github.com/dorukardahan/twitterapi-io-skill",
-            },
-            importedSkills: [
-              {
-                sourcePath: "twitterapi-io-skill/SKILL.md",
-                originalSkillId: "frontend-design",
-                importedSkillId: "frontend-design",
-                skillName: "frontend-design",
-                targetDirectory: "/Users/test/.agents/skills/frontend-design",
-                resolution: "overwrite",
-              },
-            ],
-            skippedSkills: [],
-          },
-          previewedRepoUrl: "https://github.com/dorukardahan/twitterapi-io-skill",
-          error: null,
-        },
-        previewGitHubRepoImport: mockPreviewGitHubRepoImport,
-        importGitHubRepoSkills: mockImportGitHubRepoSkills,
-        resetGitHubImport: mockResetGitHubImport,
-      };
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
-    render(
-      <MemoryRouter>
-        <CentralSkillsView />
-      </MemoryRouter>
-    );
+    renderCentralSkillsView();
 
     expect(screen.queryByRole("button", { name: /从 GitHub 导入/i })).toBeNull();
     expect(screen.queryByText(/导入结果|GitHub 仓库/i)).toBeNull();
   });
 
   it("does not expose the shared github wizard from the central page", async () => {
-    mockUseMarketplaceStore.mockImplementation((selector?: unknown) => {
-      const state = {
-        githubImport: {
-          isPreviewLoading: false,
-          isImporting: false,
-          preview: {
-            repo: {
-              owner: "anthropics",
-              repo: "skills",
-              branch: "main",
-              normalizedUrl: "https://github.com/anthropics/skills",
-            },
-            skills: [
-              {
-                sourcePath: "skills/first/SKILL.md",
-                skillId: "frontend-design",
-                skillName: "frontend-design",
-                description: "First imported skill",
-                rootDirectory: "skills",
-                skillDirectoryName: "first",
-                downloadUrl: "https://example.com/first",
-                conflict: {
-                  existingSkillId: "frontend-design",
-                  existingName: "frontend-design",
-                  existingCanonicalPath: "/Users/test/.agents/skills/frontend-design",
-                  proposedSkillId: "frontend-design",
-                  proposedName: "frontend-design",
-                },
-              },
-            ],
-            importResult: null,
-            previewedRepoUrl: "https://github.com/anthropics/skills",
-            error: null,
-          },
-          previewGitHubRepoImport: mockPreviewGitHubRepoImport,
-          importGitHubRepoSkills: mockImportGitHubRepoSkills,
-          resetGitHubImport: mockResetGitHubImport,
-        },
-        previewGitHubRepoImport: mockPreviewGitHubRepoImport,
-        importGitHubRepoSkills: mockImportGitHubRepoSkills,
-        resetGitHubImport: mockResetGitHubImport,
-      };
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
-    render(
-      <MemoryRouter>
-        <CentralSkillsView />
-      </MemoryRouter>
-    );
+    renderCentralSkillsView();
 
     expect(screen.queryByRole("button", { name: /从 GitHub 导入/i })).toBeNull();
     expect(screen.queryByTestId("github-import-confirm-summary")).toBeNull();

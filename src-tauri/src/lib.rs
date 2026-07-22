@@ -133,6 +133,7 @@ pub fn run() {
             commands::settings::update_central_skills_dir,
             commands::settings::get_skill_resource_library_dir,
             commands::settings::update_skill_resource_library_dir,
+            commands::settings::check_app_update,
             // Discover
             commands::discover::discover_scan_roots,
             commands::discover::get_scan_roots,
@@ -148,15 +149,7 @@ pub fn run() {
             commands::github_import::preview_github_repo_import,
             commands::github_import::import_github_repo_skills,
             commands::github_import::fetch_github_skill_markdown,
-            // Marketplace
-            commands::marketplace::list_registries,
-            commands::marketplace::add_registry,
-            commands::marketplace::remove_registry,
-            commands::marketplace::sync_registry,
-            commands::marketplace::sync_registry_with_options,
-            commands::marketplace::search_marketplace_skills,
-            commands::marketplace::install_marketplace_skill,
-            commands::marketplace::install_remote_skill_from_url,
+            // Source updates and AI explanations
             commands::marketplace::update_source_backed_central_skills,
             commands::marketplace::update_source_backed_central_skill,
             commands::marketplace::explain_skill,

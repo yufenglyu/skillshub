@@ -213,7 +213,8 @@ describe("SkillDetailPage", () => {
     expect(screen.getByRole("tab", { name: /原始源码/i })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /AI 解释/i })).toBeNull();
     expect(screen.getByRole("button", { name: /AI 备注/i })).toBeInTheDocument();
-    // The view's metadata section
-    expect(screen.getByRole("region", { name: /技能基本信息/i })).toBeInTheDocument();
+    // The view's grouped sidebar metadata sections
+    expect(screen.getByRole("region", { name: /技能来源信息/i })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /技能时间信息/i })).toBeInTheDocument();
   });
 });

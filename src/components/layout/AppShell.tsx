@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
-import { TopBar } from "./TopBar";
 import { GlobalSearchDialog } from "./GlobalSearchDialog";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
@@ -9,7 +8,7 @@ import { useDiscoverStore } from "@/stores/discoverStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 
 /**
- * Top-level app shell: TopBar + icon sidebar + scrollable main content area.
+ * Top-level app shell: sidebar + scrollable main content area.
  * Triggers the initial platform scan on mount.
  */
 export function AppShell() {
@@ -51,14 +50,11 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
-      <TopBar onSearchClick={() => setIsSearchOpen(true)} onRescan={() => void handleGlobalRescan()} />
-      <div className="flex flex-1 min-h-0">
-        <Sidebar />
-        <main ref={mainRef} className="flex-1 min-h-0 min-w-0 overflow-hidden">
-          <Outlet />
-        </main>
-      </div>
+    <div className="flex h-screen bg-background text-foreground overflow-hidden">
+      <Sidebar />
+      <main ref={mainRef} className="flex-1 min-h-0 min-w-0 overflow-hidden">
+        <Outlet />
+      </main>
       <GlobalSearchDialog
         open={isSearchOpen}
         onOpenChange={setIsSearchOpen}

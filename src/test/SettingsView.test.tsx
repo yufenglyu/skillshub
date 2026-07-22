@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { SettingsView } from "../pages/SettingsView";
-import { ScanDirectory, AgentWithStatus } from "../types";
+import { ScanDirectory, AgentWithStatus, AppUpdateInfo } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
 // Mock stores
@@ -74,6 +74,16 @@ const mockBuiltinAgent: AgentWithStatus = {
   is_enabled: true,
 };
 
+const mockMissingBuiltinAgent: AgentWithStatus = {
+  id: "cursor",
+  display_name: "Cursor",
+  category: "coding",
+  global_skills_dir: "/Users/test/.cursor/skills/",
+  is_detected: false,
+  is_builtin: true,
+  is_enabled: true,
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function setupMocks({
@@ -113,6 +123,9 @@ function setupMocks({
   isSavingWebDavConfig = false,
   loadWebDavConfig = vi.fn(),
   saveWebDavConfig = vi.fn(),
+  updateInfo = null as AppUpdateInfo | null,
+  isCheckingUpdate = false,
+  checkAppUpdate = vi.fn(),
   loadCentralSkills = vi.fn(),
   rescan = vi.fn(),
   refreshCounts = vi.fn(),
@@ -150,6 +163,9 @@ function setupMocks({
       isSavingWebDavConfig,
       loadWebDavConfig,
       saveWebDavConfig,
+      updateInfo,
+      isCheckingUpdate,
+      checkAppUpdate,
       clearError: vi.fn(),
     })
   );
@@ -533,8 +549,8 @@ describe("SettingsView", () => {
     renderSettingsView();
 
     expect(screen.getByLabelText("GitHub Personal Access Token")).toHaveValue("github_pat_saved");
-    expect(screen.getByText(/它绝不会被发送到公共镜像或代理回退链路/)).toBeTruthy();
-    expect(screen.getByText(/当 GitHub 预览\/导入遇到限流/)).toBeTruthy();
+    const githubHint = screen.getByLabelText(/它绝不会被发送到公共镜像或代理回退链路/);
+    expect(githubHint).toHaveAttribute("title", expect.stringContaining("当 GitHub 预览/导入遇到限流"));
   });
 
   it("saves the github pat from settings", async () => {
@@ -645,7 +661,7 @@ describe("SettingsView", () => {
     expect(projectHeading).toBeTruthy();
     expect(platformHeading).toBeTruthy();
     expect(projectHeading).toContainElement(screen.getByRole("button", { name: "添加项目目录" }));
-    expect(platformHeading).toContainElement(screen.getByRole("button", { name: "添加自定义平台" }));
+    expect(platformHeading).toContainElement(screen.getByRole("button", { name: "添加平台" }));
   });
 
   it("opens add directory dialog when button is clicked", async () => {
@@ -697,27 +713,61 @@ describe("SettingsView", () => {
 
   // ── Custom Platforms section ──────────────────────────────────────────────
 
+  function expandPlatformGroup(name: string) {
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(name) }));
+  }
+
   it("shows empty state when no software platforms", () => {
     setupMocks({ agents: [] });
     renderSettingsView();
-    expect(screen.getByText("暂无软件平台。点击「添加平台」注册自定义平台。")).toBeTruthy();
+    expect(screen.getByText("暂无软件平台。点击「添加平台」注册平台。")).toBeTruthy();
   });
 
-  it("renders builtin platform with a view action and no edit or remove actions", () => {
+  it("renders builtin platform with edit and remove actions", () => {
     setupMocks({ agents: [mockBuiltinAgent] });
     renderSettingsView();
-
-    fireEvent.click(screen.getByRole("button", { name: /内置平台（1）/ }));
+    expandPlatformGroup("编程类");
 
     expect(screen.getByText("Claude Code")).toBeTruthy();
-    expect(screen.getByRole("button", { name: `查看平台 ${mockBuiltinAgent.display_name}` })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: `编辑平台 ${mockBuiltinAgent.display_name}` })).toBeNull();
-    expect(screen.queryByRole("button", { name: `删除平台 ${mockBuiltinAgent.display_name}` })).toBeNull();
+    expect(screen.getByRole("button", { name: `编辑平台 ${mockBuiltinAgent.display_name}` })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `删除平台 ${mockBuiltinAgent.display_name}` })).toBeTruthy();
+  });
+
+  it("distinguishes builtin platforms with existing skills directories from missing ones", () => {
+    setupMocks({ agents: [mockBuiltinAgent, mockMissingBuiltinAgent] });
+    renderSettingsView();
+    expandPlatformGroup("编程类");
+
+    expect(screen.getByText("Claude Code")).toBeTruthy();
+    expect(screen.getByText("Cursor")).toBeTruthy();
+    expect(screen.getByText("已检测到目录")).toBeTruthy();
+    expect(screen.getByText("未检测到目录")).toBeTruthy();
+  });
+
+  it("groups software platforms by lobster and coding categories", () => {
+    setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
+    renderSettingsView();
+
+    expect(screen.getByText("龙虾类")).toBeTruthy();
+    expect(screen.getByText("编程类")).toBeTruthy();
+    expect(screen.queryByText("Claude Code")).toBeNull();
+    expect(screen.queryByText("QClaw")).toBeNull();
+  });
+
+  it("expands software platform groups on demand", () => {
+    setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
+    renderSettingsView();
+
+    expandPlatformGroup("编程类");
+
+    expect(screen.getByText("Claude Code")).toBeTruthy();
+    expect(screen.getByText("QClaw")).toBeTruthy();
   });
 
   it("renders custom platform with name and path", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
+    expandPlatformGroup("编程类");
     expect(screen.getByText("QClaw")).toBeTruthy();
     expect(screen.getByText("/Users/test/.qclaw/skills/")).toBeTruthy();
   });
@@ -725,6 +775,7 @@ describe("SettingsView", () => {
   it("shows edit button for custom platforms", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
+    expandPlatformGroup("编程类");
     expect(
       screen.getByRole("button", { name: `编辑平台 ${mockCustomAgent.display_name}` })
     ).toBeTruthy();
@@ -733,62 +784,50 @@ describe("SettingsView", () => {
   it("shows remove button for custom platforms", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
+    expandPlatformGroup("编程类");
     expect(
       screen.getByRole("button", { name: `删除平台 ${mockCustomAgent.display_name}` })
     ).toBeTruthy();
   });
 
-  it("collapses builtin agents in the software platforms list by default", () => {
-    setupMocks({ agents: [mockBuiltinAgent] });
-    renderSettingsView();
-    expect(screen.getByRole("button", { name: /内置平台（1）/ })).toBeTruthy();
-    expect(screen.queryByText(mockBuiltinAgent.display_name)).toBeNull();
-  });
-
-  it("shows builtin agents after expanding builtin platforms", () => {
-    setupMocks({ agents: [mockBuiltinAgent] });
-    renderSettingsView();
-    fireEvent.click(screen.getByRole("button", { name: /内置平台（1）/ }));
-    expect(screen.getByText(mockBuiltinAgent.display_name)).toBeTruthy();
-  });
-
   it("shows add platform button", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByRole("button", { name: "添加自定义平台" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "添加平台" })).toBeTruthy();
   });
 
   it("opens add platform dialog when button is clicked", async () => {
     setupMocks();
     renderSettingsView();
-    fireEvent.click(screen.getByRole("button", { name: "添加自定义平台" }));
+    fireEvent.click(screen.getByRole("button", { name: "添加平台" }));
     await waitFor(() => {
-      expect(screen.getByText("添加自定义平台")).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "添加平台" })).toBeTruthy();
     });
   });
 
   it("opens edit platform dialog when edit button is clicked", async () => {
     setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
+    expandPlatformGroup("编程类");
     fireEvent.click(
       screen.getByRole("button", { name: `编辑平台 ${mockCustomAgent.display_name}` })
     );
     await waitFor(() => {
-      expect(screen.getByText("编辑自定义平台")).toBeTruthy();
+      expect(screen.getByText("编辑平台")).toBeTruthy();
     });
   });
 
-  it("opens readonly platform dialog when builtin view button is clicked", async () => {
+  it("opens editable platform dialog for builtin platforms", async () => {
     setupMocks({ agents: [mockBuiltinAgent] });
     renderSettingsView();
-    fireEvent.click(screen.getByRole("button", { name: /内置平台（1）/ }));
+    expandPlatformGroup("编程类");
     fireEvent.click(
-      screen.getByRole("button", { name: `查看平台 ${mockBuiltinAgent.display_name}` })
+      screen.getByRole("button", { name: `编辑平台 ${mockBuiltinAgent.display_name}` })
     );
     await waitFor(() => {
-      expect(screen.getByText("查看内置平台")).toBeTruthy();
-      expect(screen.getByLabelText("平台名称 *")).toBeDisabled();
-      expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
+      expect(screen.getByText("编辑平台")).toBeTruthy();
+      expect(screen.getByLabelText("平台名称 *")).toBeEnabled();
+      expect(screen.getByRole("button", { name: "保存" })).toBeTruthy();
     });
   });
 
@@ -801,6 +840,7 @@ describe("SettingsView", () => {
       rescan,
     });
     renderSettingsView();
+    expandPlatformGroup("编程类");
 
     fireEvent.click(
       screen.getByRole("button", { name: `删除平台 ${mockCustomAgent.display_name}` })
@@ -823,6 +863,7 @@ describe("SettingsView", () => {
       rescan,
     });
     renderSettingsView();
+    expandPlatformGroup("编程类");
 
     fireEvent.click(
       screen.getByRole("button", { name: `删除平台 ${mockCustomAgent.display_name}` })
@@ -839,7 +880,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.12.0")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.13.0")).toBeTruthy();
   });
 
   it("shows the database path in the about section", () => {
@@ -852,6 +893,46 @@ describe("SettingsView", () => {
     setupMocks();
     renderSettingsView();
     expect(screen.getByText("应用版本")).toBeTruthy();
+  });
+
+  it("checks for app updates from the about section", async () => {
+    const checkAppUpdate = vi.fn().mockResolvedValue({
+      currentVersion: "0.12.0",
+      latestVersion: "0.13.0",
+      latestUrl: "https://github.com/yufenglyu/skillshub/releases/tag/v0.13.0",
+      isUpdateAvailable: true,
+      releaseName: "v0.13.0",
+      publishedAt: "2026-07-22T00:00:00Z",
+    });
+    setupMocks({ checkAppUpdate });
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
+
+    await waitFor(() => {
+      expect(checkAppUpdate).toHaveBeenCalled();
+    });
+    expect(await screen.findByText("发现新版本 v0.13.0。")).toBeTruthy();
+  });
+
+  it("shows the latest release link after an update check", () => {
+    setupMocks({
+      updateInfo: {
+        currentVersion: "0.12.0",
+        latestVersion: "0.12.1",
+        latestUrl: "https://github.com/yufenglyu/skillshub/releases/tag/v0.12.1",
+        isUpdateAvailable: true,
+        releaseName: "v0.12.1",
+        publishedAt: "2026-07-22T00:00:00Z",
+      },
+    });
+    renderSettingsView();
+
+    expect(screen.getByText("最新版本 v0.12.1")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "打开发布页" })).toHaveAttribute(
+      "href",
+      "https://github.com/yufenglyu/skillshub/releases/tag/v0.12.1"
+    );
   });
 
   it("shows database path label", () => {
