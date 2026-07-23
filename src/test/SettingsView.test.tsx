@@ -111,8 +111,10 @@ function setupMocks({
   exportAppBackup = vi.fn(),
   importAppBackup = vi.fn(),
   listWebDavBackups = vi.fn(),
+  testWebDavConnection = vi.fn(),
   uploadWebDavBackup = vi.fn(),
   downloadWebDavBackup = vi.fn(),
+  deleteWebDavBackup = vi.fn(),
   webDavConfig = {
     baseUrl: "",
     username: "",
@@ -156,8 +158,10 @@ function setupMocks({
       exportAppBackup,
       importAppBackup,
       listWebDavBackups,
+      testWebDavConnection,
       uploadWebDavBackup,
       downloadWebDavBackup,
+      deleteWebDavBackup,
       webDavConfig,
       isLoadingWebDavConfig,
       isSavingWebDavConfig,
@@ -318,7 +322,7 @@ describe("SettingsView", () => {
     fireEvent.change(screen.getByLabelText("远端目录"), {
       target: { value: "saved-dir" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存 WebDAV 配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
 
     await waitFor(() => {
       expect(saveWebDavConfig).toHaveBeenCalledWith({
@@ -365,7 +369,7 @@ describe("SettingsView", () => {
     fireEvent.change(screen.getByLabelText("远端目录"), {
       target: { value: "skillshub" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看远端" }));
 
     expect(await screen.findByText("skillshub-backup-2026-07-15-120000.zip")).toBeTruthy();
   });
@@ -386,10 +390,10 @@ describe("SettingsView", () => {
     fireEvent.change(screen.getByLabelText("远端目录"), {
       target: { value: "skillshub" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看远端" }));
 
     expect(await screen.findByText("skillshub-backup-2026-07-15-120000.zip")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "导入选中的 WebDAV 备份" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "导入选中" })).toBeEnabled();
 
     fireEvent.change(screen.getByLabelText("WebDAV URL"), {
       target: { value: "https://other.example.com/dav" },
@@ -397,7 +401,7 @@ describe("SettingsView", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("skillshub-backup-2026-07-15-120000.zip")).toBeNull();
-      expect(screen.getByRole("button", { name: "导入选中的 WebDAV 备份" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "导入选中" })).toBeDisabled();
     });
   });
 
@@ -417,15 +421,41 @@ describe("SettingsView", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "导出备份" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "导入备份" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "刷新远端备份" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "上传到 WebDAV" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "测试连接" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "查看远端" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "上传备份" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "删除选中" })).toBeDisabled();
     });
 
     resolveExport(new Uint8Array([80, 75, 3, 4]));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "导出备份" })).toBeEnabled();
-      expect(screen.getByRole("button", { name: "刷新远端备份" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "查看远端" })).toBeEnabled();
+    });
+  });
+
+  it("tests the WebDAV connection with the current form config", async () => {
+    const testWebDavConnection = vi.fn().mockResolvedValue(undefined);
+    setupMocks({ testWebDavConnection });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://example.com/dav" },
+    });
+    fireEvent.change(screen.getByLabelText("远端目录"), {
+      target: { value: "skillshub" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+
+    await waitFor(() => {
+      expect(testWebDavConnection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseUrl: "https://example.com/dav",
+          remoteDir: "skillshub",
+        })
+      );
+      expect(toast.success).toHaveBeenCalledWith("WebDAV 连接测试成功");
     });
   });
 
@@ -444,7 +474,7 @@ describe("SettingsView", () => {
     fireEvent.change(screen.getByLabelText("远端目录"), {
       target: { value: "skillshub" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "上传到 WebDAV" }));
+    fireEvent.click(screen.getByRole("button", { name: "上传备份" }));
 
     await waitFor(() => {
       expect(uploadWebDavBackup).toHaveBeenCalledWith(
@@ -478,7 +508,7 @@ describe("SettingsView", () => {
     fireEvent.change(screen.getByLabelText("远端目录"), {
       target: { value: "skillshub" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "上传到 WebDAV" }));
+    fireEvent.click(screen.getByRole("button", { name: "上传备份" }));
 
     await waitFor(() => {
       expect(toast.success).toHaveBeenCalledWith("备份已上传到 WebDAV");
@@ -499,13 +529,48 @@ describe("SettingsView", () => {
     fireEvent.change(screen.getByLabelText("远端目录"), {
       target: { value: "skillshub" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看远端" }));
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith("刷新远端备份失败: 远端服务请求失败");
     });
     expect(toast.error).not.toHaveBeenCalledWith(expect.stringContaining(rawError));
     expect(toast.error).not.toHaveBeenCalledWith(expect.stringContaining("12345"));
+  });
+
+  it("deletes the selected WebDAV backup then refreshes the remote list", async () => {
+    const deleteWebDavBackup = vi.fn().mockResolvedValue(undefined);
+    const listWebDavBackups = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          name: "skillshub-backup.zip",
+          remotePath: "skillshub-backup.zip",
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    setupMocks({ deleteWebDavBackup, listWebDavBackups });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://example.com/dav" },
+    });
+    fireEvent.change(screen.getByLabelText("远端目录"), {
+      target: { value: "skillshub" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "查看远端" }));
+    await screen.findByText("skillshub-backup.zip");
+    fireEvent.click(screen.getByRole("radio", { name: /skillshub-backup\.zip/ }));
+    fireEvent.click(screen.getByRole("button", { name: "删除选中" }));
+
+    await waitFor(() => {
+      expect(deleteWebDavBackup).toHaveBeenCalledWith(
+        expect.objectContaining({ baseUrl: "https://example.com/dav", remoteDir: "skillshub" }),
+        "skillshub-backup.zip"
+      );
+      expect(toast.success).toHaveBeenCalledWith("远端备份已删除");
+    });
+    expect(listWebDavBackups).toHaveBeenCalledTimes(2);
   });
 
   it("imports the selected WebDAV backup", async () => {
@@ -530,10 +595,10 @@ describe("SettingsView", () => {
     fireEvent.change(screen.getByLabelText("远端目录"), {
       target: { value: "skillshub" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "刷新远端备份" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看远端" }));
     await screen.findByText("skillshub-backup.zip");
     fireEvent.click(screen.getByRole("radio", { name: /skillshub-backup\.zip/ }));
-    fireEvent.click(screen.getByRole("button", { name: "导入选中的 WebDAV 备份" }));
+    fireEvent.click(screen.getByRole("button", { name: "导入选中" }));
 
     await waitFor(() => {
       expect(downloadWebDavBackup).toHaveBeenCalledWith(
@@ -754,6 +819,14 @@ describe("SettingsView", () => {
     expect(screen.queryByText("QClaw")).toBeNull();
   });
 
+  it("shows builtin and detected platform counts in group headers", () => {
+    setupMocks({ agents: [mockBuiltinAgent, mockMissingBuiltinAgent, mockCustomAgent] });
+    renderSettingsView();
+
+    expect(screen.getByText("内置 2")).toBeTruthy();
+    expect(screen.getByText("已检测 1")).toBeTruthy();
+  });
+
   it("expands software platform groups on demand", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
@@ -880,7 +953,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.14.0")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.15.0")).toBeTruthy();
   });
 
   it("shows the database path in the about section", () => {

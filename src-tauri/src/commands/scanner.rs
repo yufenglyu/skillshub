@@ -5,6 +5,7 @@ use chrono::Utc;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tauri::State;
 
+use crate::commands::linker;
 use crate::db::{self, AgentSkillObservation, DbPool, Skill, SkillInstallation};
 use crate::AppState;
 
@@ -554,6 +555,13 @@ fn claude_observation_row_id(agent_id: &str, dir_path: &str) -> String {
     format!("{agent_id}::{dir_path}")
 }
 
+fn paths_resolve_to_same_entry(left: &Path, right: &Path) -> bool {
+    matches!(
+        (std::fs::canonicalize(left), std::fs::canonicalize(right)),
+        (Ok(left), Ok(right)) if left == right
+    )
+}
+
 // ─── Tauri Command ────────────────────────────────────────────────────────────
 
 /// Core scanning logic, separated from the Tauri command layer so it can be
@@ -561,6 +569,11 @@ fn claude_observation_row_id(agent_id: &str, dir_path: &str) -> String {
 pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
     let agents = db::get_all_agents(pool).await?;
     let custom_dirs = db::get_scan_directories(pool).await?;
+
+    // Central Skills are the shared source for local platforms. A full scan is
+    // the point where newly detected platform directories become known, so keep
+    // existing Central Skills synchronized before counting platform skills.
+    let _ = linker::sync_all_central_skills_to_detected_platforms(pool).await;
 
     let mut total_skills: usize = 0;
     let mut skills_by_agent: HashMap<String, usize> = HashMap::new();
@@ -719,6 +732,24 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
     all_found_skill_ids.extend(db::get_managed_skill_ids(pool).await?);
     let found_ids_vec: Vec<String> = all_found_skill_ids.into_iter().collect();
     db::delete_skills_not_in_scope(pool, &found_ids_vec).await?;
+
+    if let Some(central_agent) = agents.iter().find(|agent| agent.category == "central") {
+        let central_root = Path::new(&central_agent.global_skills_dir);
+        let central_count = db::get_central_skills(pool).await?.len();
+        if central_count > 0 {
+            for agent in &agents {
+                if agent.category == "central" || !agent.is_enabled {
+                    continue;
+                }
+
+                let agent_root = Path::new(&agent.global_skills_dir);
+                if agent_root.exists() && paths_resolve_to_same_entry(agent_root, central_root) {
+                    let count = skills_by_agent.get(&agent.id).copied().unwrap_or_default();
+                    skills_by_agent.insert(agent.id.clone(), count.max(central_count));
+                }
+            }
+        }
+    }
 
     Ok(ScanResult {
         total_skills,
@@ -1268,6 +1299,87 @@ mod tests {
         assert_eq!(r.total_skills, 0);
         assert_eq!(r.agents_scanned, 1);
         assert_eq!(r.skills_by_agent.get("empty-agent").copied(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_scan_all_skills_impl_syncs_existing_central_skills_to_newly_detected_platforms() {
+        let tmp = TempDir::new().unwrap();
+        let pool = setup_test_db().await;
+        isolate_scan_test(&pool).await;
+
+        let central_dir = tmp.path().join("central");
+        let platform_parent = tmp.path().join("detected-agent");
+        let platform_dir = platform_parent.join("skills");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&platform_parent).unwrap();
+        let central_skill_dir = create_skill_dir(
+            &central_dir,
+            "shared-skill",
+            &valid_skill_md("Shared Skill", "desc"),
+        );
+
+        db::insert_custom_agent(
+            &pool,
+            &db::Agent {
+                id: "central".to_string(),
+                display_name: "Central Skills".to_string(),
+                category: "central".to_string(),
+                global_skills_dir: central_dir.to_string_lossy().into_owned(),
+                project_skills_dir: None,
+                icon_name: None,
+                is_detected: true,
+                is_builtin: false,
+                is_enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+        db::insert_custom_agent(
+            &pool,
+            &db::Agent {
+                id: "detected-agent".to_string(),
+                display_name: "Detected Agent".to_string(),
+                category: "coding".to_string(),
+                global_skills_dir: platform_dir.to_string_lossy().into_owned(),
+                project_skills_dir: None,
+                icon_name: None,
+                is_detected: false,
+                is_builtin: false,
+                is_enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "shared-skill".to_string(),
+                name: "Shared Skill".to_string(),
+                description: Some("desc".to_string()),
+                file_path: central_skill_dir
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(central_skill_dir.to_string_lossy().into_owned()),
+                is_central: true,
+                source: Some("native".to_string()),
+                content: None,
+                scanned_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let result = scan_all_skills_impl(&pool).await.unwrap();
+
+        assert!(
+            platform_dir.join("shared-skill").join("SKILL.md").exists(),
+            "full scan must synchronize existing Central Skills to newly detected platforms"
+        );
+        assert_eq!(
+            result.skills_by_agent.get("detected-agent").copied(),
+            Some(1)
+        );
     }
 
     #[tokio::test]
@@ -2298,7 +2410,13 @@ mod tests {
         .await
         .unwrap();
 
-        scan_all_skills_impl(&pool).await.unwrap();
+        let result = scan_all_skills_impl(&pool).await.unwrap();
+
+        assert_eq!(
+            result.skills_by_agent.get("antigravity").copied(),
+            Some(1),
+            "platforms sharing the Central Skills directory must be counted as populated"
+        );
 
         let observations = db::get_agent_skill_observations(&pool, "antigravity")
             .await

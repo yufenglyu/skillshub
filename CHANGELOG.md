@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.15.0 - 2026-07-23
+
+Release focused on central-platform synchronization, WebDAV backup controls, and final interface consistency before publishing.
+
+### Features
+
+- Add WebDAV connection testing and selected remote backup deletion from Settings.
+- Automatically synchronize managed Central Skills to newly detected local platforms when Central Skills already contains skills.
+- Show Settings platform group counts as both built-in platform totals and detected local platform counts.
+
+### Improvements
+
+- Rework WebDAV backup actions into a single right-aligned action row with shorter labels and complete icons.
+- Align Settings action buttons consistently to the right across backup, token, AI provider, and update sections.
+- Unify selected-state styling for AI provider and language controls with the sidebar accent color, including dark theme.
+- Update English and Chinese documentation and screenshots for the current Settings, platform, backup, import, and skill-card interfaces.
+
+### Fixes
+
+- Keep sidebar platform entries in sync with all detected platform directories that should receive Central Skills.
+- Avoid mismatched counts between detected Settings platforms and visible sidebar platforms after central synchronization.
+- Improve WebDAV backup error handling around remote list, upload, import, test, and delete operations.
+
 ## 0.14.0 - 2026-07-23
 
 Release focused on the Resource Library workflow, reliable source updates, settings cleanup, and a more consistent interface.

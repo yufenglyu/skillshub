@@ -227,6 +227,11 @@ pub async fn list_webdav_backups(config: WebDavConfig) -> Result<Vec<WebDavBacku
 }
 
 #[tauri::command]
+pub async fn test_webdav_connection(config: WebDavConfig) -> Result<(), String> {
+    test_webdav_connection_impl(config).await
+}
+
+#[tauri::command]
 pub async fn upload_webdav_backup(
     state: State<'_, AppState>,
     config: WebDavConfig,
@@ -243,6 +248,11 @@ pub async fn download_webdav_backup(
     remote_path: String,
 ) -> Result<Vec<u8>, String> {
     download_webdav_backup_impl(config, &remote_path).await
+}
+
+#[tauri::command]
+pub async fn delete_webdav_backup(config: WebDavConfig, remote_path: String) -> Result<(), String> {
+    delete_webdav_backup_impl(config, &remote_path).await
 }
 
 fn normalize_webdav_base_url(value: &str) -> Result<String, String> {
@@ -392,6 +402,22 @@ async fn download_webdav_backup_impl(
     .await
 }
 
+async fn delete_webdav_backup_impl(config: WebDavConfig, remote_path: &str) -> Result<(), String> {
+    let url = build_webdav_url(&config, remote_path)?;
+    let client = webdav_client()?;
+    let response = apply_webdav_auth(client.delete(&url), &config)
+        .send()
+        .await
+        .map_err(|e| format!("WebDAV delete failed: {}", sanitize_webdav_error(e)))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "WebDAV delete failed with status {}",
+            response.status()
+        ));
+    }
+    Ok(())
+}
+
 async fn list_webdav_backups_impl(config: WebDavConfig) -> Result<Vec<WebDavBackupFile>, String> {
     let url = build_webdav_directory_url(&config)?;
     let method = Method::from_bytes(b"PROPFIND").map_err(|e| e.to_string())?;
@@ -408,6 +434,23 @@ async fn list_webdav_backups_impl(config: WebDavConfig) -> Result<Vec<WebDavBack
     }
     let body = read_webdav_body(response, WEBDAV_MAX_LIST_BYTES, "WebDAV list failed").await?;
     parse_webdav_backup_files(&body)
+}
+
+async fn test_webdav_connection_impl(config: WebDavConfig) -> Result<(), String> {
+    let url = build_webdav_directory_url(&config)?;
+    let method = Method::from_bytes(b"PROPFIND").map_err(|e| e.to_string())?;
+    let client = webdav_client()?;
+    let response = apply_webdav_auth(client.request(method, &url).header("Depth", "0"), &config)
+        .send()
+        .await
+        .map_err(|e| format!("WebDAV test failed: {}", sanitize_webdav_error(e)))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "WebDAV test failed with status {}",
+            response.status()
+        ));
+    }
+    Ok(())
 }
 
 fn webdav_client() -> Result<Client, String> {
@@ -3866,6 +3909,38 @@ mod tests {
             .await
             .expect_err("oversized upload accepted");
         assert!(error.contains("size limit"));
+    }
+
+    #[tokio::test]
+    async fn webdav_delete_rejects_unsafe_remote_path_before_network_request() {
+        let config = WebDavConfig {
+            base_url: "https://example.com/dav".to_string(),
+            username: None,
+            password: None,
+            remote_dir: "skillshub".to_string(),
+        };
+
+        let error = delete_webdav_backup_impl(config, "../escape.zip")
+            .await
+            .expect_err("unsafe delete path accepted");
+
+        assert!(error.contains("unsafe traversal"));
+    }
+
+    #[tokio::test]
+    async fn webdav_test_connection_validates_config_before_network_request() {
+        let config = WebDavConfig {
+            base_url: "".to_string(),
+            username: None,
+            password: None,
+            remote_dir: "skillshub".to_string(),
+        };
+
+        let error = test_webdav_connection_impl(config)
+            .await
+            .expect_err("empty WebDAV URL accepted");
+
+        assert!(error.contains("URL cannot be empty"));
     }
 
     #[tokio::test]

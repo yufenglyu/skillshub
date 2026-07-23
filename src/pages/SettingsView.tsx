@@ -1,5 +1,5 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp } from "lucide-react";
+import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.14.0";
+const APP_VERSION = "0.15.0";
 const DB_PATH_FALLBACK = "~/.skillshub/db.sqlite";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
@@ -74,7 +74,7 @@ function webDavErrorDetail(t: (key: string) => string, error: unknown): string {
   if (/URL cannot be empty|URL is invalid|URL must use|URL must not include|remote path|path segments/i.test(message)) {
     return t("settings.webdavErrorConfig");
   }
-  if (/^WebDAV (list|upload|download) failed:/i.test(message)) {
+  if (/^WebDAV (list|test|upload|download|delete) failed:/i.test(message)) {
     return t("settings.webdavErrorRemote");
   }
   return t("settings.webdavErrorUnknown");
@@ -231,7 +231,10 @@ function SoftwarePlatformGroup({
   onRemovePlatform,
   removingAgent,
 }: SoftwarePlatformGroupProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
+  const builtinCount = platforms.filter((agent) => agent.is_builtin).length;
+  const detectedCount = platforms.filter((agent) => agent.is_detected).length;
 
   return (
     <div className="rounded-lg border border-border">
@@ -254,7 +257,15 @@ function SoftwarePlatformGroup({
           <Cpu className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="truncate">{title}</span>
         </div>
-        <span className="shrink-0 text-xs text-muted-foreground">{platforms.length}</span>
+        <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+          <span>
+            {t("settings.platformBuiltinCount", { count: builtinCount })}
+          </span>
+          <span aria-hidden="true" className="text-muted-foreground/50">·</span>
+          <span>
+            {t("settings.platformDetectedCount", { count: detectedCount })}
+          </span>
+        </span>
       </button>
       {isExpanded ? (
         platforms.length > 0 ? (
@@ -446,8 +457,10 @@ export function SettingsView() {
   const exportAppBackup = useSettingsStore((s) => s.exportAppBackup);
   const importAppBackup = useSettingsStore((s) => s.importAppBackup);
   const listWebDavBackups = useSettingsStore((s) => s.listWebDavBackups);
+  const testWebDavConnection = useSettingsStore((s) => s.testWebDavConnection);
   const uploadWebDavBackup = useSettingsStore((s) => s.uploadWebDavBackup);
   const downloadWebDavBackup = useSettingsStore((s) => s.downloadWebDavBackup);
+  const deleteWebDavBackup = useSettingsStore((s) => s.deleteWebDavBackup);
   const webDavConfig = useSettingsStore((s) => s.webDavConfig);
   const isSavingWebDavConfig = useSettingsStore((s) => s.isSavingWebDavConfig);
   const loadWebDavConfig = useSettingsStore((s) => s.loadWebDavConfig);
@@ -582,10 +595,12 @@ export function SettingsView() {
   const [webDavFiles, setWebDavFiles] = useState<WebDavBackupFile[]>([]);
   const [selectedWebDavPath, setSelectedWebDavPath] = useState("");
   const [isRefreshingWebDav, setIsRefreshingWebDav] = useState(false);
+  const [isTestingWebDav, setIsTestingWebDav] = useState(false);
   const [isUploadingWebDav, setIsUploadingWebDav] = useState(false);
   const [isImportingWebDav, setIsImportingWebDav] = useState(false);
+  const [isDeletingWebDav, setIsDeletingWebDav] = useState(false);
   const backupInputRef = useRef<HTMLInputElement | null>(null);
-  const isBackupBusy = isExportingBackup || isImportingBackup || isRefreshingWebDav || isUploadingWebDav || isImportingWebDav || isSavingWebDavConfig;
+  const isBackupBusy = isExportingBackup || isImportingBackup || isRefreshingWebDav || isTestingWebDav || isUploadingWebDav || isImportingWebDav || isDeletingWebDav || isSavingWebDavConfig;
 
   // ── Load on mount ──────────────────────────────────────────────────────────
 
@@ -931,6 +946,22 @@ export function SettingsView() {
     }
   }
 
+  async function handleTestWebDavConnection() {
+    if (!webDavBaseUrl.trim() || !webDavRemoteDir.trim()) {
+      toast.error(t("settings.webdavMissingConfig"));
+      return;
+    }
+    setIsTestingWebDav(true);
+    try {
+      await testWebDavConnection(currentWebDavConfig());
+      toast.success(t("settings.webdavTestSucceeded"));
+    } catch (err) {
+      toast.error(t("settings.webdavTestError", { error: webDavErrorDetail(t, err) }));
+    } finally {
+      setIsTestingWebDav(false);
+    }
+  }
+
   async function handleUploadWebDavBackup() {
     if (!webDavBaseUrl.trim() || !webDavRemoteDir.trim()) {
       toast.error(t("settings.webdavMissingConfig"));
@@ -953,6 +984,25 @@ export function SettingsView() {
       toast.error(t("settings.webdavUploadRefreshError", { error: webDavErrorDetail(t, err) }));
     } finally {
       setIsUploadingWebDav(false);
+    }
+  }
+
+  async function handleDeleteSelectedWebDavBackup() {
+    if (!selectedWebDavPath) {
+      toast.error(t("settings.webdavMissingSelection"));
+      return;
+    }
+    setIsDeletingWebDav(true);
+    try {
+      await deleteWebDavBackup(currentWebDavConfig(), selectedWebDavPath);
+      const files = await listWebDavBackups(currentWebDavConfig());
+      setWebDavFiles(files);
+      setSelectedWebDavPath(files[0]?.remotePath ?? "");
+      toast.success(t("settings.webdavDeleted"));
+    } catch (err) {
+      toast.error(t("settings.webdavDeleteError", { error: webDavErrorDetail(t, err) }));
+    } finally {
+      setIsDeletingWebDav(false);
     }
   }
 
@@ -1022,12 +1072,13 @@ export function SettingsView() {
                     placeholder={DB_PATH_FALLBACK.replace("db.sqlite", "library")}
                   />
                   <Button
+                    variant="outline"
                     className="shrink-0 sm:min-w-20"
                     onClick={handleSaveResourcePath}
                     disabled={isSavingResourcePath || !isResourcePathDirty || !resourcePathInput.trim()}
                     aria-label={t("settings.saveResourcePath")}
                   >
-                    {isSavingResourcePath ? <Loader2 className="size-4 animate-spin" /> : null}
+                    {isSavingResourcePath ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                     <span>{t("common.save")}</span>
                   </Button>
                 </div>
@@ -1074,12 +1125,13 @@ export function SettingsView() {
                     placeholder={DB_PATH_FALLBACK.replace(".skillshub/db.sqlite", ".skillshub/central-skills")}
                   />
                   <Button
+                    variant="outline"
                     className="shrink-0 sm:min-w-20"
                     onClick={handleSaveCentralPath}
                     disabled={isSavingCentralPath || !isCentralPathDirty || !centralPathInput.trim()}
                     aria-label={t("settings.saveCentralPath")}
                   >
-                    {isSavingCentralPath ? <Loader2 className="size-4 animate-spin" /> : null}
+                    {isSavingCentralPath ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                     <span>{t("common.save")}</span>
                   </Button>
                 </div>
@@ -1135,7 +1187,7 @@ export function SettingsView() {
                       <HintIcon text={`${t("settings.backupLocalDesc")}\n\n${t("settings.backupHint")}`} />
                     </div>
                   </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                     <Button variant="outline" onClick={handleExportBackup} disabled={isBackupBusy}>
                       {isExportingBackup ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                       <span>{t("settings.exportBackup")}</span>
@@ -1190,13 +1242,21 @@ export function SettingsView() {
                       <Input id="webdav-password" type="password" value={webDavPassword} onChange={(event) => setWebDavPassword(event.target.value)} autoComplete="off" />
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleTestWebDavConnection}
+                      disabled={isBackupBusy || !webDavBaseUrl.trim() || !webDavRemoteDir.trim()}
+                    >
+                      {isTestingWebDav ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                      <span>{t("settings.webdavTestConnection")}</span>
+                    </Button>
                     <Button
                       variant="outline"
                       onClick={handleSaveWebDavConfig}
                       disabled={isBackupBusy || !isWebDavConfigDirty || !webDavBaseUrl.trim() || !webDavRemoteDir.trim()}
                     >
-                      {isSavingWebDavConfig ? <Loader2 className="size-4 animate-spin" /> : null}
+                      {isSavingWebDavConfig ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                       <span>{t("settings.webdavSaveConfig")}</span>
                     </Button>
                     {webDavConfigMessage ? (
@@ -1215,16 +1275,6 @@ export function SettingsView() {
                     <div className="text-xs font-medium text-muted-foreground">
                       {t("settings.webdavRemoteBackupsTitle")}
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button variant="outline" onClick={handleRefreshWebDavBackups} disabled={isBackupBusy}>
-                        {isRefreshingWebDav ? <Loader2 className="size-4 animate-spin" /> : null}
-                        <span>{t("settings.webdavRefresh")}</span>
-                      </Button>
-                      <Button variant="outline" onClick={handleUploadWebDavBackup} disabled={isBackupBusy}>
-                        {isUploadingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                        <span>{t("settings.webdavUpload")}</span>
-                      </Button>
-                    </div>
                   </div>
                   <div className="rounded-lg border border-border/70">
                     {webDavFiles.length === 0 ? (
@@ -1239,10 +1289,24 @@ export function SettingsView() {
                       ))
                     )}
                   </div>
-                  <Button onClick={handleImportSelectedWebDavBackup} disabled={isBackupBusy || !selectedWebDavPath}>
-                    {isImportingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-                    <span>{t("settings.webdavImportSelected")}</span>
-                  </Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button variant="outline" onClick={handleUploadWebDavBackup} disabled={isBackupBusy}>
+                      {isUploadingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+                      <span>{t("settings.webdavUpload")}</span>
+                    </Button>
+                    <Button variant="outline" onClick={handleRefreshWebDavBackups} disabled={isBackupBusy}>
+                      {isRefreshingWebDav ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                      <span>{t("settings.webdavRefresh")}</span>
+                    </Button>
+                    <Button variant="outline" onClick={handleDeleteSelectedWebDavBackup} disabled={isBackupBusy || !selectedWebDavPath}>
+                      {isDeletingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                      <span>{t("settings.webdavDeleteSelected")}</span>
+                    </Button>
+                    <Button variant="outline" onClick={handleImportSelectedWebDavBackup} disabled={isBackupBusy || !selectedWebDavPath}>
+                      {isImportingWebDav ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                      <span>{t("settings.webdavImportSelected")}</span>
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1289,12 +1353,13 @@ export function SettingsView() {
                 </p>
               ) : null}
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <Button
+                  variant="outline"
                   onClick={handleSaveGitHubPat}
                   disabled={isLoadingGitHubPat || isSavingGitHubPat || !isGitHubPatDirty}
                 >
-                  {isSavingGitHubPat ? <Loader2 className="size-4 animate-spin" /> : null}
+                  {isSavingGitHubPat ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                   <span>{t("common.save")}</span>
                 </Button>
                 <Button
@@ -1302,6 +1367,7 @@ export function SettingsView() {
                   onClick={handleClearGitHubPat}
                   disabled={isLoadingGitHubPat || isSavingGitHubPat || !githubPat}
                 >
+                  <Trash2 className="size-4" />
                   <span>{t("settings.githubPatClear")}</span>
                 </Button>
                 {isLoadingGitHubPat ? (
@@ -1333,7 +1399,16 @@ export function SettingsView() {
                 <label className="text-xs font-medium text-muted-foreground mb-2 block">{lang === "zh" ? "提供商" : "Provider"}</label>
                 <div className="flex flex-wrap gap-1.5">
                   {AI_PROVIDERS.map((p) => (
-                    <button key={p.id} onClick={() => handleProviderChange(p.id)} className={`px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer border ${aiProvider === p.id ? "bg-primary/15 border-primary text-foreground font-medium" : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:bg-hover-bg/10"}`}>
+                    <button
+                      key={p.id}
+                      onClick={() => handleProviderChange(p.id)}
+                      className={cn(
+                        "rounded-md border px-3 py-1.5 text-xs transition-colors cursor-pointer",
+                        aiProvider === p.id
+                          ? "border-transparent bg-hover-bg text-white font-medium shadow-sm dark:bg-hover-bg dark:text-white"
+                          : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                      )}
+                    >
                       {lang === "zh" ? p.name.zh : p.name.en}
                     </button>
                   ))}
@@ -1344,7 +1419,16 @@ export function SettingsView() {
                   <label className="text-xs font-medium text-muted-foreground mb-2 block">{lang === "zh" ? "区域" : "Region"}</label>
                   <div className="flex gap-1.5">
                     {currentProvider.regions.map((r) => (
-                      <button key={r} onClick={() => setAiRegion(r)} className={`px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer border ${aiRegion === r ? "bg-primary/15 border-primary text-foreground font-medium" : "border-border bg-background text-muted-foreground hover:border-primary/40"}`}>
+                      <button
+                        key={r}
+                        onClick={() => setAiRegion(r)}
+                        className={cn(
+                          "rounded-md border px-3 py-1.5 text-xs transition-colors cursor-pointer",
+                          aiRegion === r
+                            ? "border-transparent bg-hover-bg text-white font-medium shadow-sm dark:bg-hover-bg dark:text-white"
+                            : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                        )}
+                      >
                         {lang === "zh" ? REGION_LABELS[r].zh : REGION_LABELS[r].en}
                       </button>
                     ))}
@@ -1365,7 +1449,7 @@ export function SettingsView() {
                   <Input placeholder="https://..." value={aiCustomUrl} onChange={(e) => setAiCustomUrl(e.target.value)} />
                 </div>
               )}
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
                 {resolvedUrl && (
                   <div className="text-xs text-muted-foreground bg-muted/30 rounded-md px-3 py-2 font-mono truncate flex-1 min-w-0">{resolvedUrl}</div>
                 )}
@@ -1501,26 +1585,31 @@ export function SettingsView() {
               {/* ── Language Switcher ──────────────────────────────────────── */}
               <div className="flex items-center gap-3">
                 <Globe className="size-4 text-muted-foreground shrink-0" />
-                <div className="flex-1">
-                  <div className="text-xs font-medium text-muted-foreground mb-1.5">{t("settings.language")}</div>
-                  <div className="flex gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-muted-foreground">{t("settings.language")}</div>
+                  <div className="text-sm font-medium">
+                    {i18n.language === "zh" ? t("settings.chinese") : t("settings.english")}
+                  </div>
+                </div>
+                <div className="flex shrink-0 justify-end gap-2">
                     <Button
-                      variant={i18n.language === "zh" ? "default" : "outline"}
+                      variant="outline"
                       size="sm"
                       onClick={() => i18n.changeLanguage("zh")}
                       aria-pressed={i18n.language === "zh"}
+                      className={cn(i18n.language === "zh" && "border-transparent bg-hover-bg text-white shadow-sm hover:bg-hover-bg hover:text-white dark:bg-hover-bg dark:text-white dark:hover:bg-hover-bg dark:hover:text-white")}
                     >
                       {t("settings.chinese")}
                     </Button>
                     <Button
-                      variant={i18n.language === "en" ? "default" : "outline"}
+                      variant="outline"
                       size="sm"
                       onClick={() => i18n.changeLanguage("en")}
                       aria-pressed={i18n.language === "en"}
+                      className={cn(i18n.language === "en" && "border-transparent bg-hover-bg text-white shadow-sm hover:bg-hover-bg hover:text-white dark:bg-hover-bg dark:text-white dark:hover:bg-hover-bg dark:hover:text-white")}
                     >
                       {t("settings.english")}
                     </Button>
-                  </div>
                 </div>
               </div>
             </div>

@@ -378,6 +378,20 @@ describe("settingsStore", () => {
     expect(invoke).toHaveBeenCalledWith("list_webdav_backups", { config });
   });
 
+  it("testWebDavConnection calls test_webdav_connection with session config", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+    const config = {
+      baseUrl: "https://example.com/dav",
+      username: "user",
+      password: "secret",
+      remoteDir: "skillshub",
+    };
+
+    await useSettingsStore.getState().testWebDavConnection(config);
+
+    expect(invoke).toHaveBeenCalledWith("test_webdav_connection", { config });
+  });
+
   it("uploadWebDavBackup calls upload_webdav_backup with config and options", async () => {
     const file = {
       name: "skillshub-backup.zip",
@@ -422,6 +436,25 @@ describe("settingsStore", () => {
       remotePath: "skillshub-backup.zip",
     });
     expect(backup).toEqual(new Uint8Array([80, 75, 3, 4]));
+  });
+
+  it("deleteWebDavBackup calls delete_webdav_backup with selected remote path", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+    const config = {
+      baseUrl: "https://example.com/dav",
+      username: "user",
+      password: "secret",
+      remoteDir: "skillshub",
+    };
+
+    await useSettingsStore
+      .getState()
+      .deleteWebDavBackup(config, "skillshub-backup.zip");
+
+    expect(invoke).toHaveBeenCalledWith("delete_webdav_backup", {
+      config,
+      remotePath: "skillshub-backup.zip",
+    });
   });
 
   it("loadWebDavConfig loads persisted WebDAV connection settings", async () => {

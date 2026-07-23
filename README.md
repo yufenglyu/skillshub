@@ -30,14 +30,14 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 - Resource Library folder view grouped by source-style paths such as `owner/repo`, matching common local layouts like `author/project/skill`.
 - Skill cards show created and updated dates separately with labels that match the current UI language.
 - Direct installation from the Resource Library to selected platforms without forcing the skill into Central Skills.
-- One-click promotion from the Resource Library to Central Skills when a skill should become part of the shared central library.
+- One-click promotion from the Resource Library to Central Skills, with automatic synchronization to every detected local platform when Central Skills already contains managed skills.
 - Central Skills management with folder view, safe deletion previews, platform install status, and batch uninstall from selected platforms.
 - Full skill detail page with Markdown preview, raw source view, grouped notes, tags, source information, time information, storage paths, installation status, and collections.
 - Editable source metadata fields for manually maintained records, including source type, repository, author, source path, and source URL.
-- Software platform management in Settings, including editable built-in platforms, custom platforms, Lobster/Coding grouping, two-column compact layout, and visual distinction for detected local skills directories.
-- Local ZIP backup and WebDAV backup/import. Backup files exclude API keys, tokens, and password-like values.
+- Software platform management in Settings, including editable built-in platforms, custom platforms, Lobster/Coding grouping, two-column compact layout, built-in/detected group counts, and visual distinction for detected local skills directories.
+- Local ZIP backup and WebDAV backup/import, including connection testing, remote backup listing, upload, selected import, and selected delete. Backup files exclude API keys, tokens, and password-like values.
 - Update checking from the About section.
-- Bilingual UI, system/light/dark theme mode from the lower-left sidebar, and a simplified top area without a global search box.
+- Bilingual UI, system/light/dark theme mode from the lower-left sidebar, unified selected-state colors across sidebar/provider/language controls, and a simplified top area without a global search box.
 
 ## Screenshots
 
@@ -77,7 +77,7 @@ SkillsHub uses three different storage concepts:
 | Central Skills | Shared compatibility directory for intentionally promoted skills | `~/.agents/skills` |
 | Platform directory | Tool-specific install target created as a symlink or copy | Depends on platform |
 
-Installing a skill directly from the Resource Library writes only to the selected platform. Promoting a skill to Central Skills writes to the central directory and can synchronize it to detected platforms.
+Installing a skill directly from the Resource Library writes only to the selected platform. Promoting a skill to Central Skills writes to the central directory. When Central Skills already contains managed skills, newly detected local platforms are automatically included in central synchronization and shown in the sidebar.
 
 Changing the Resource Library path or Central Skills path does not automatically rewrite existing platform symlinks or copies. Reinstall affected skills if you intentionally move those directories.
 
@@ -91,7 +91,7 @@ Built-in platform definitions can be edited or removed from Settings. They are s
 | Lobster | OpenClaw, AutoClaw, EasyClaw, QClaw, WorkBuddy, and related Lobster-style platforms |
 | Custom | Any local platform with a stable skills directory |
 
-In the sidebar, built-in platforms are shown only when their configured skills directory exists locally, unless you explicitly choose to show all platforms.
+In the sidebar, built-in platforms are shown only when their configured skills directory exists locally, unless you explicitly choose to show all platforms. Settings group headers show both the total built-in platform count and the number detected on the current machine.
 
 ## Importing Skills
 
@@ -104,7 +104,7 @@ GitHub Personal Access Tokens can be configured in Settings for authenticated Gi
 
 ## Backup And Migration
 
-SkillsHub can export and import complete local backup files. WebDAV backup support adds a remote backup list, upload, and selected-remote-restore workflow.
+SkillsHub can export and import complete local backup files. WebDAV backup support adds connection testing, remote backup listing, upload, selected-remote restore, and selected-remote delete workflows.
 
 Backups include skills, source metadata, collections, custom platform settings, regular app settings, and platform installation state. API keys, tokens, and passwords are intentionally excluded and must be re-entered after restore.
 
@@ -141,15 +141,15 @@ The Vite development server uses port `24200`.
 
 ## Release
 
-GitHub Actions publishes desktop packages when a version tag such as `v0.14.0` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
+GitHub Actions publishes desktop packages when a version tag such as `v0.15.0` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
 Local packaging scripts are still available for host-specific builds:
 
 | Platform | Command |
 |----------|---------|
-| Windows | `pnpm package:release:windows -- -Version 0.14.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.14.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.14.0` |
+| Windows | `pnpm package:release:windows -- -Version 0.15.0` |
+| macOS | `pnpm package:release:macos -- -Version 0.15.0` |
+| Linux | `pnpm package:release:linux -- -Version 0.15.0` |
 
 Use `-VersionOnly` when you only need to update version metadata before committing a release.
 

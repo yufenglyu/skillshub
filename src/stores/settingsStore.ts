@@ -53,8 +53,10 @@ interface SettingsState {
   exportAppBackup: (options?: BackupOptions) => Promise<Uint8Array>;
   importAppBackup: (backup: Uint8Array) => Promise<void>;
   listWebDavBackups: (config: WebDavConfig) => Promise<WebDavBackupFile[]>;
+  testWebDavConnection: (config: WebDavConfig) => Promise<void>;
   uploadWebDavBackup: (config: WebDavConfig, options?: BackupOptions) => Promise<WebDavBackupFile>;
   downloadWebDavBackup: (config: WebDavConfig, remotePath: string) => Promise<Uint8Array>;
+  deleteWebDavBackup: (config: WebDavConfig, remotePath: string) => Promise<void>;
   checkAppUpdate: () => Promise<AppUpdateInfo>;
 
   clearError: () => void;
@@ -316,6 +318,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     return await invoke<WebDavBackupFile[]>("list_webdav_backups", { config });
   },
 
+  testWebDavConnection: async (config) => {
+    await invoke<void>("test_webdav_connection", { config });
+  },
+
   uploadWebDavBackup: async (config, options) => {
     return await invoke<WebDavBackupFile>("upload_webdav_backup", {
       config,
@@ -329,6 +335,13 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       remotePath,
     });
     return toBackupBytes(backup);
+  },
+
+  deleteWebDavBackup: async (config, remotePath) => {
+    await invoke<void>("delete_webdav_backup", {
+      config,
+      remotePath,
+    });
   },
 
   checkAppUpdate: async () => {

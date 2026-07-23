@@ -323,7 +323,8 @@ async fn sync_central_skill_to_platforms(
             continue;
         }
 
-        if let Err(error) = install_skill_to_agent_auto_impl(pool, skill_id, &agent.id).await {
+        if let Err(error) = install_central_skill_to_agent_for_sync(pool, skill_id, &agent.id).await
+        {
             failures.push(format!("{}: {}", agent.display_name, error));
         }
     }
@@ -333,6 +334,32 @@ async fn sync_central_skill_to_platforms(
     } else {
         Err(format!(
             "Skill was added to Central Skills, but platform synchronization failed: {}",
+            failures.join("; ")
+        ))
+    }
+}
+
+pub(crate) async fn sync_all_central_skills_to_detected_platforms(
+    pool: &DbPool,
+) -> Result<(), String> {
+    let central_root = db::get_agent_by_id(pool, "central")
+        .await?
+        .ok_or_else(|| "Central Skills agent not found".to_string())?
+        .global_skills_dir;
+    let central_root = PathBuf::from(central_root);
+    let mut failures = Vec::new();
+
+    for skill in db::get_central_skills(pool).await? {
+        if let Err(error) = sync_central_skill_to_platforms(pool, &skill.id, &central_root).await {
+            failures.push(format!("{}: {}", skill.name, error));
+        }
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Central Skills synchronization failed: {}",
             failures.join("; ")
         ))
     }
@@ -729,6 +756,21 @@ pub async fn install_skill_to_agent_auto_impl(
         Ok(result) => Ok(result),
         Err(error) if should_fallback_to_copy(&error) => {
             install_skill_to_agent_copy_impl(pool, skill_id, agent_id).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn install_central_skill_to_agent_for_sync(
+    pool: &DbPool,
+    skill_id: &str,
+    agent_id: &str,
+) -> Result<InstallResult, String> {
+    match install_skill_to_agent_from_source_impl(pool, skill_id, agent_id, None, false).await {
+        Ok(result) => Ok(result),
+        Err(error) if should_fallback_to_copy(&error) => {
+            install_skill_to_agent_copy_from_source_impl(pool, skill_id, agent_id, None, false)
+                .await
         }
         Err(error) => Err(error),
     }

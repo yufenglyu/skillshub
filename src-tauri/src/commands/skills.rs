@@ -1341,7 +1341,75 @@ pub async fn get_skills_by_agent_impl(
     pool: &DbPool,
     agent_id: &str,
 ) -> Result<Vec<SkillForAgent>, String> {
-    db::get_skills_for_agent(pool, agent_id).await
+    let installed = db::get_skills_for_agent(pool, agent_id).await?;
+    if !installed.is_empty() {
+        return Ok(installed);
+    }
+
+    let Some(agent) = db::get_agent_by_id(pool, agent_id).await? else {
+        return Ok(installed);
+    };
+    let Some(central_agent) = db::get_agent_by_id(pool, "central").await? else {
+        return Ok(installed);
+    };
+
+    if agent.category == "central"
+        || !Path::new(&agent.global_skills_dir).exists()
+        || !paths_resolve_to_same_entry(
+            Path::new(&agent.global_skills_dir),
+            Path::new(&central_agent.global_skills_dir),
+        )
+    {
+        return Ok(installed);
+    }
+
+    let mut shared_skills = Vec::new();
+    for skill in db::get_central_skills(pool).await? {
+        let dir_path = skill
+            .canonical_path
+            .clone()
+            .or_else(|| {
+                Path::new(&skill.file_path)
+                    .parent()
+                    .map(|path| path.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| skill.file_path.clone());
+        let (created_at, _) = skill_filesystem_timestamps(&skill);
+        let source_metadata = db::get_skill_source(pool, &skill.id).await?;
+
+        shared_skills.push(SkillForAgent {
+            id: skill.id.clone(),
+            row_id: skill.id,
+            name: skill.name,
+            description: skill.description,
+            file_path: skill.file_path,
+            dir_path,
+            link_type: "native".to_string(),
+            symlink_target: None,
+            is_central: skill.is_central,
+            source: skill.source,
+            source_kind: Some("shared-central".to_string()),
+            source_root: Some(central_agent.global_skills_dir.clone()),
+            is_read_only: false,
+            conflict_group: None,
+            conflict_count: 0,
+            source_url: source_metadata
+                .as_ref()
+                .and_then(|source| source.source_url.clone()),
+            source_author: source_metadata
+                .as_ref()
+                .and_then(|source| source.source_author.clone()),
+            source_repo: source_metadata
+                .as_ref()
+                .and_then(|source| source.source_repo.clone()),
+            source_path: source_metadata
+                .as_ref()
+                .and_then(|source| source.source_path.clone()),
+            created_at: Some(created_at),
+        });
+    }
+
+    Ok(shared_skills)
 }
 
 /// Tauri command: return all skills installed for a given agent, including
@@ -4459,6 +4527,47 @@ mod tests {
         assert!(
             skills.is_empty(),
             "no skills for an agent with no installations"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_skills_by_agent_impl_returns_central_skills_for_shared_central_root() {
+        let tmp = TempDir::new().unwrap();
+        let pool = setup_test_db().await;
+        let central_root = tmp.path().join(".agents").join("skills");
+        let skill_dir = central_root.join("shared-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "# Shared Skill\n").unwrap();
+
+        sqlx::query(
+            "UPDATE agents SET global_skills_dir = ? WHERE id IN ('central', 'antigravity')",
+        )
+        .bind(central_root.to_string_lossy().to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let skill = make_skill_with_path(
+            "shared-skill",
+            "Shared Skill",
+            &skill_dir.join("SKILL.md"),
+            &skill_dir,
+            true,
+        );
+        db::upsert_skill(&pool, &skill).await.unwrap();
+
+        let skills = get_skills_by_agent_impl(&pool, "antigravity")
+            .await
+            .unwrap();
+
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].id, "shared-skill");
+        assert_eq!(skills[0].link_type, "native");
+        assert_eq!(skills[0].source_kind.as_deref(), Some("shared-central"));
+        assert_eq!(
+            skills[0].dir_path,
+            skill_dir.to_string_lossy(),
+            "shared Central Skills must use the real central skill directory"
         );
     }
 

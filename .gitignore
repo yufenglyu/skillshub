@@ -61,6 +61,7 @@ docs/
 tmp/
 /tmp/
 .tmp-chrome-profile/
+.tmp-chrome-*/
 reference/
 .factory/
 .worktrees/
