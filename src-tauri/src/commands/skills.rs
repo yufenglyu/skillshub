@@ -342,6 +342,34 @@ fn source_label_from_metadata(source: &db::SkillSource) -> Option<String> {
         .map(|repo| source_label_from_parts(&source.source_type, Some(repo)))
 }
 
+fn is_github_repository_homepage_url(url: &str, repo: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    parsed.scheme() == "https"
+        && parsed.host_str() == Some("github.com")
+        && parsed
+            .path()
+            .trim_matches('/')
+            .eq_ignore_ascii_case(repo.trim_matches('/'))
+}
+
+fn scrub_non_updatable_inferred_source_url(source: &mut db::SkillSource) {
+    if source.source_type != "github" {
+        return;
+    }
+    let Some(url) = source.source_url.as_deref() else {
+        return;
+    };
+    let Some(repo) = source.source_repo.as_deref() else {
+        return;
+    };
+    if is_github_repository_homepage_url(url, repo) {
+        source.source_url = None;
+        source.updated_at = Utc::now().to_rfc3339();
+    }
+}
+
 fn infer_resource_github_source(
     resource_root: &Path,
     skill_dir: &Path,
@@ -368,7 +396,7 @@ fn infer_resource_github_source(
     Some(db::SkillSource {
         skill_id: skill_id.to_string(),
         source_type: "github".to_string(),
-        source_url: Some(format!("https://github.com/{owner}/{repo}")),
+        source_url: None,
         source_author: Some(owner.to_string()),
         source_repo: Some(format!("{owner}/{repo}")),
         source_path: Some(format!("{}/SKILL.md", parts[2..].join("/"))),
@@ -1719,6 +1747,12 @@ async fn sync_resource_library_skills(pool: &DbPool, resource_root: &Path) -> Re
                 db::upsert_skill_source(pool, &inferred).await?;
                 source_metadata = Some(inferred);
             }
+        } else if let Some(source) = source_metadata.as_mut() {
+            let before = source.source_url.clone();
+            scrub_non_updatable_inferred_source_url(source);
+            if source.source_url != before {
+                db::upsert_skill_source(pool, source).await?;
+            }
         }
         let inferred_source = source_metadata
             .as_ref()
@@ -2672,10 +2706,7 @@ mod tests {
         assert_eq!(skill.source_author.as_deref(), Some("author"));
         assert_eq!(skill.source_repo.as_deref(), Some("author/repo"));
         assert_eq!(skill.source_path.as_deref(), Some("manual-skill/SKILL.md"));
-        assert_eq!(
-            skill.source_url.as_deref(),
-            Some("https://github.com/author/repo")
-        );
+        assert_eq!(skill.source_url.as_deref(), None);
         assert_eq!(
             skill.canonical_path.as_deref(),
             Some(skill_dir.to_string_lossy().as_ref())
@@ -2908,7 +2939,7 @@ mod tests {
             &db::SkillSource {
                 skill_id: "source-skill".to_string(),
                 source_type: "github".to_string(),
-                source_url: Some("https://github.com/owner/repo".to_string()),
+                source_url: None,
                 source_author: Some("owner".to_string()),
                 source_repo: Some("owner/repo".to_string()),
                 source_path: Some("skills/source-skill/SKILL.md".to_string()),
@@ -2930,6 +2961,67 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(saved.source.as_deref(), Some("github:owner/repo"));
+    }
+
+    #[tokio::test]
+    async fn test_resource_scan_clears_repository_homepage_update_url() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("resource-library");
+        let skill_dir = resource_root
+            .join("owner")
+            .join("repo")
+            .join("source-skill");
+        let skill_md_path = skill_dir.join("SKILL.md");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(&skill_md_path, "---\nname: Source Skill\n---\n").unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .unwrap();
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "source-skill".to_string(),
+                name: "Source Skill".to_string(),
+                description: None,
+                file_path: skill_md_path.to_string_lossy().into_owned(),
+                canonical_path: Some(skill_dir.to_string_lossy().into_owned()),
+                is_central: false,
+                source: Some("resource-library".to_string()),
+                content: None,
+                scanned_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+        db::upsert_skill_source(
+            &pool,
+            &db::SkillSource {
+                skill_id: "source-skill".to_string(),
+                source_type: "github".to_string(),
+                source_url: Some("https://github.com/owner/repo".to_string()),
+                source_author: Some("owner".to_string()),
+                source_repo: Some("owner/repo".to_string()),
+                source_path: Some("source-skill/SKILL.md".to_string()),
+                updated_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let skills = get_resource_library_skills_impl(&pool).await.unwrap();
+
+        let skill = skills
+            .iter()
+            .find(|skill| skill.id == "source-skill")
+            .expect("resource skill should be returned");
+        assert_eq!(skill.source.as_deref(), Some("github:owner/repo"));
+        assert_eq!(skill.source_url.as_deref(), None);
+        let source = db::get_skill_source(&pool, "source-skill")
+            .await
+            .unwrap()
+            .expect("source metadata should remain");
+        assert_eq!(source.source_url.as_deref(), None);
     }
 
     #[tokio::test]

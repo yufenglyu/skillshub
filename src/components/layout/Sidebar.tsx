@@ -76,10 +76,10 @@ function NavItem({
         aria-label={ariaLabel ?? label}
         aria-current={isActive ? "page" : undefined}
         className={cn(
-          "flex items-center w-full rounded-md transition-colors cursor-pointer",
+          "flex items-center w-full rounded-md font-medium transition-colors cursor-pointer",
           !isActive && "hover:bg-primary/15 hover:text-primary",
           isActive && "bg-hover-bg text-white",
-          expanded ? "gap-2.5 px-2.5 py-1.5 text-sm" : "justify-center py-2 px-1.5"
+          expanded ? "gap-2.5 px-2.5 py-1.5 text-sm" : "justify-center py-2 px-1.5 text-sm"
         )}
       >
         <span className="shrink-0">{icon}</span>
@@ -88,7 +88,7 @@ function NavItem({
             <span className="truncate flex-1 text-left">{label}</span>
             {count !== undefined && count > 0 && (
               <span className={cn(
-                "text-[10px] font-mono tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
+                "text-xs font-medium tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
                 isActive
                   ? "bg-white/20 text-white"
                   : "bg-muted/60 text-muted-foreground"
@@ -198,7 +198,7 @@ export function Sidebar() {
         )}
       >
         {expanded && (
-          <span className="text-sm font-bold tracking-tight text-sidebar-primary">
+          <span className="text-sm font-semibold text-sidebar-primary">
             {t("app.name")}
           </span>
         )}
@@ -305,7 +305,7 @@ export function Sidebar() {
             {populatedObsidianVaults.length > 0 && (
               <>
                 {expanded ? (
-                  <div className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider px-2.5 pt-2 pb-1">
+                  <div className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground/75">
                     {t("sidebar.categoryObsidian")}
                   </div>
                 ) : (
@@ -338,7 +338,7 @@ export function Sidebar() {
             {lobsterAgents.length > 0 && (
               <>
                 {expanded ? (
-                  <div className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider px-2.5 pt-2 pb-1">
+                  <div className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground/75">
                     {t("sidebar.categoryLobster")}
                   </div>
                 ) : (
@@ -362,7 +362,7 @@ export function Sidebar() {
             {codingAgents.length > 0 && (
               <>
                 {expanded ? (
-                  <div className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider px-2.5 pt-2 pb-1">
+                  <div className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground/75">
                     {t("sidebar.categoryCoding")}
                   </div>
                 ) : (
@@ -393,8 +393,8 @@ export function Sidebar() {
           title={themeLabel}
           aria-label={themeLabel}
           className={cn(
-            "flex w-full items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary",
-            expanded ? "gap-2.5 px-2.5 py-1.5 text-sm" : "justify-center px-1.5 py-2"
+            "flex w-full items-center rounded-md font-medium text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary",
+            expanded ? "gap-2.5 px-2.5 py-1.5 text-sm" : "justify-center px-1.5 py-2 text-sm"
           )}
         >
           <ThemeIcon className="size-4 shrink-0" />

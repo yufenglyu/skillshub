@@ -63,4 +63,20 @@ describe("resourceLibraryStore platform installs", () => {
       method: "auto",
     });
   });
+
+  it("uses resource-specific source update commands", async () => {
+    vi.mocked(invoke)
+      .mockResolvedValueOnce(["resource-skill"])
+      .mockResolvedValueOnce([resourceSkill])
+      .mockResolvedValueOnce("resource-skill")
+      .mockResolvedValueOnce([resourceSkill]);
+
+    await useResourceLibraryStore.getState().updateSourceBackedSkills();
+    await useResourceLibraryStore.getState().updateSourceBackedSkill("resource-skill");
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "update_source_backed_resource_skills");
+    expect(invoke).toHaveBeenNthCalledWith(3, "update_source_backed_resource_skill", {
+      skillId: "resource-skill",
+    });
+  });
 });

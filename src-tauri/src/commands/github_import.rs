@@ -1076,7 +1076,7 @@ fn is_safe_repo_relative_path(path: &str) -> bool {
             .all(|component| matches!(component, Component::Normal(_)))
 }
 
-async fn fetch_raw_text(
+pub(crate) async fn fetch_raw_text(
     client: &reqwest::Client,
     url: &str,
     auth_token: Option<&str>,

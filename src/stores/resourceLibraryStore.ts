@@ -160,7 +160,7 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
     }
 
     try {
-      const updated = await invoke<string[]>("update_source_backed_central_skills");
+      const updated = await invoke<string[]>("update_source_backed_resource_skills");
       const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
       set({ skills: skills ?? [], isUpdatingSources: false });
       return updated ?? [];
@@ -178,7 +178,7 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
     }
 
     try {
-      const updated = await invoke<string>("update_source_backed_central_skill", { skillId });
+      const updated = await invoke<string>("update_source_backed_resource_skill", { skillId });
       const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
       set({ skills: skills ?? [], isUpdatingSources: false });
       return updated;

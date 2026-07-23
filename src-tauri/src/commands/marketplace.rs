@@ -1,3 +1,4 @@
+use chrono::Utc;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -511,6 +512,81 @@ fn parse_marketplace_skill_frontmatter(content: &str) -> Option<MarketplaceSkill
     serde_yaml::from_str(&after_open[..close_pos]).ok()
 }
 
+fn validate_update_skill_markdown(skill_id: &str, content: &str) -> Result<(), String> {
+    parse_marketplace_skill_frontmatter(content)
+        .map(|_| ())
+        .ok_or_else(|| {
+            format!(
+                "Refusing to update '{}': downloaded content is not a valid SKILL.md file",
+                skill_id
+            )
+        })
+}
+
+fn is_updatable_skill_source_url(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    matches!(parsed.scheme(), "http" | "https") && parsed.path().ends_with("/SKILL.md")
+}
+
+fn source_path_to_skill_md_path(source_path: &str) -> Option<String> {
+    let trimmed = source_path.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed == "." {
+        return Some("SKILL.md".to_string());
+    }
+    if trimmed.ends_with("/SKILL.md") || trimmed == "SKILL.md" {
+        Some(trimmed.to_string())
+    } else {
+        Some(format!("{trimmed}/SKILL.md"))
+    }
+}
+
+fn github_raw_update_urls(source: &db::SkillSource) -> Vec<String> {
+    let mut urls = Vec::new();
+    if let Some(url) = source
+        .source_url
+        .as_deref()
+        .filter(|url| is_updatable_skill_source_url(url))
+    {
+        urls.push(url.to_string());
+    }
+    if source.source_type != "github" {
+        return urls;
+    }
+    let Some(repo) = source.source_repo.as_deref() else {
+        return urls;
+    };
+    let Some(source_path) = source.source_path.as_deref() else {
+        return urls;
+    };
+    let Some(skill_md_path) = source_path_to_skill_md_path(source_path) else {
+        return urls;
+    };
+    let skill_md_paths = if skill_md_path == "SKILL.md" || skill_md_path.starts_with("skills/") {
+        vec![skill_md_path]
+    } else {
+        vec![skill_md_path.clone(), format!("skills/{skill_md_path}")]
+    };
+    for branch in ["main", "master"] {
+        for skill_md_path in &skill_md_paths {
+            let candidate = format!(
+                "https://raw.githubusercontent.com/{}/{}/{}",
+                repo.trim_matches('/'),
+                branch,
+                skill_md_path
+            );
+            if !urls.iter().any(|url| url == &candidate) {
+                urls.push(candidate);
+            }
+        }
+    }
+    urls
+}
+
 fn github_source_from_url(url: &str) -> (Option<String>, Option<String>, Option<String>) {
     let Some(marker_index) = url.find("githubusercontent.com/") else {
         return (None, None, None);
@@ -533,6 +609,21 @@ fn github_source_from_url(url: &str) -> (Option<String>, Option<String>, Option<
         None
     };
     (Some(author), Some(repo), source_path)
+}
+
+async fn fetch_update_skill_markdown(
+    client: &reqwest::Client,
+    urls: &[String],
+    auth: Option<&str>,
+) -> Result<(String, String), String> {
+    let mut last_error = None;
+    for url in urls {
+        match github_import::fetch_raw_text(client, url, auth).await {
+            Ok(content) => return Ok((url.clone(), content)),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "No update URL is available".to_string()))
 }
 
 fn sanitize_local_skill_id(name: &str) -> Result<String, String> {
@@ -852,39 +943,51 @@ pub async fn install_remote_skill_from_url(
 pub async fn update_source_backed_central_skills(
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    let sources = db::get_all_skill_sources(&state.db).await?;
+    update_source_backed_skills_impl(&state.db, true).await
+}
+
+#[tauri::command]
+pub async fn update_source_backed_resource_skills(
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    update_source_backed_skills_impl(&state.db, false).await
+}
+
+async fn update_source_backed_skills_impl(
+    pool: &db::DbPool,
+    is_central: bool,
+) -> Result<Vec<String>, String> {
+    let sources = db::get_all_skill_sources(pool).await?;
+    let auth = github_import::github_direct_auth_from_settings(pool).await?;
     let client = reqwest::Client::builder()
         .user_agent("SkillsHub/0.10.7")
         .build()
         .map_err(|e| e.to_string())?;
     let mut updated = Vec::new();
 
-    for source in sources {
-        let Some(url) = source.source_url.as_deref() else {
+    for mut source in sources {
+        let urls = github_raw_update_urls(&source);
+        if urls.is_empty() {
+            continue;
+        }
+        let Some(skill) = db::get_skill_by_id(pool, &source.skill_id).await? else {
             continue;
         };
-        let Some(skill) = db::get_skill_by_id(&state.db, &source.skill_id).await? else {
+        if skill.is_central != is_central {
             continue;
-        };
-        let resp = client
-            .get(url)
-            .send()
+        }
+        let (used_url, content) = fetch_update_skill_markdown(&client, &urls, auth.as_deref())
             .await
             .map_err(|e| format!("Failed to update {}: {}", skill.id, e))?;
-        if !resp.status().is_success() {
-            return Err(format!(
-                "Failed to update {}: HTTP {}",
-                skill.id,
-                resp.status()
-            ));
-        }
-        let content = resp
-            .text()
-            .await
-            .map_err(|e| format!("Failed to read update for {}: {}", skill.id, e))?;
+        validate_update_skill_markdown(&skill.id, &content)?;
         let skill_md_path = PathBuf::from(&skill.file_path);
         std::fs::write(&skill_md_path, content)
             .map_err(|e| format!("Failed to write update for {}: {}", skill.id, e))?;
+        if source.source_url.as_deref() != Some(used_url.as_str()) {
+            source.source_url = Some(used_url);
+            source.updated_at = Utc::now().to_rfc3339();
+            db::upsert_skill_source(pool, &source).await?;
+        }
         updated.push(skill.id);
     }
 
@@ -896,39 +999,58 @@ pub async fn update_source_backed_central_skill(
     state: State<'_, AppState>,
     skill_id: String,
 ) -> Result<String, String> {
-    let source = db::get_skill_source(&state.db, &skill_id)
+    update_source_backed_skill_impl(&state.db, &skill_id, true).await
+}
+
+#[tauri::command]
+pub async fn update_source_backed_resource_skill(
+    state: State<'_, AppState>,
+    skill_id: String,
+) -> Result<String, String> {
+    update_source_backed_skill_impl(&state.db, &skill_id, false).await
+}
+
+async fn update_source_backed_skill_impl(
+    pool: &db::DbPool,
+    skill_id: &str,
+    is_central: bool,
+) -> Result<String, String> {
+    let mut source = db::get_skill_source(pool, skill_id)
         .await?
         .ok_or_else(|| format!("Skill '{}' has no recorded source", skill_id))?;
-    let url = source
-        .source_url
-        .as_deref()
-        .ok_or_else(|| format!("Skill '{}' has no update URL", skill_id))?;
-    let skill = db::get_skill_by_id(&state.db, &skill_id)
+    let urls = github_raw_update_urls(&source);
+    if urls.is_empty() {
+        return Err(format!(
+            "Skill '{}' source is not an updatable SKILL.md file",
+            skill_id
+        ));
+    }
+    let skill = db::get_skill_by_id(pool, skill_id)
         .await?
         .ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
+    if skill.is_central != is_central {
+        return Err(format!(
+            "Skill '{}' is not in the requested update scope",
+            skill_id
+        ));
+    }
+    let auth = github_import::github_direct_auth_from_settings(pool).await?;
     let client = reqwest::Client::builder()
         .user_agent("SkillsHub/0.10.7")
         .build()
         .map_err(|e| e.to_string())?;
-    let resp = client
-        .get(url)
-        .send()
+    let (used_url, content) = fetch_update_skill_markdown(&client, &urls, auth.as_deref())
         .await
         .map_err(|e| format!("Failed to update {}: {}", skill.id, e))?;
-    if !resp.status().is_success() {
-        return Err(format!(
-            "Failed to update {}: HTTP {}",
-            skill.id,
-            resp.status()
-        ));
-    }
-    let content = resp
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read update for {}: {}", skill.id, e))?;
+    validate_update_skill_markdown(&skill.id, &content)?;
     let skill_md_path = PathBuf::from(&skill.file_path);
     std::fs::write(&skill_md_path, content)
         .map_err(|e| format!("Failed to write update for {}: {}", skill.id, e))?;
+    if source.source_url.as_deref() != Some(used_url.as_str()) {
+        source.source_url = Some(used_url);
+        source.updated_at = Utc::now().to_rfc3339();
+        db::upsert_skill_source(pool, &source).await?;
+    }
 
     Ok(skill.id)
 }
@@ -1749,10 +1871,12 @@ mod tests {
     use super::{
         add_registry_impl, cache_skill_explanation, classify_reqwest_error,
         detect_explanation_api_protocol, format_reqwest_error, get_fallback_endpoint,
-        install_marketplace_skill_content_impl, load_cached_skill_explanation,
+        github_raw_update_urls, install_marketplace_skill_content_impl,
+        is_updatable_skill_source_url, load_cached_skill_explanation,
         marketplace_skills_from_candidates, registry_has_cached_skills,
-        search_marketplace_skills_impl, sync_registry_impl, ExplanationApiProtocol,
-        ExplanationErrorKind, RegistryCacheMetadata, RegistrySyncStatus, SyncRegistryOptions,
+        search_marketplace_skills_impl, sync_registry_impl, validate_update_skill_markdown,
+        ExplanationApiProtocol, ExplanationErrorKind, RegistryCacheMetadata, RegistrySyncStatus,
+        SyncRegistryOptions,
     };
     use crate::commands::github_import::RemoteSkillCandidate;
     use crate::db;
@@ -1840,6 +1964,31 @@ mod tests {
             detect_explanation_api_protocol("https://example.com/custom/generate"),
             ExplanationApiProtocol::Unknown
         );
+    }
+
+    #[test]
+    fn source_update_rejects_non_skill_markdown() {
+        let err =
+            validate_update_skill_markdown("resource-skill", "\n\n<!DOCTYPE html><html></html>")
+                .expect_err("HTML pages must never be accepted as skill updates");
+
+        assert!(err.contains("not a valid SKILL.md"));
+    }
+
+    #[test]
+    fn source_update_url_filter_skips_repository_homepages() {
+        assert!(is_updatable_skill_source_url(
+            "https://raw.githubusercontent.com/example/skills/main/demo/SKILL.md"
+        ));
+        assert!(is_updatable_skill_source_url(
+            "https://example.com/demo/SKILL.md"
+        ));
+        assert!(!is_updatable_skill_source_url(
+            "https://github.com/example/skills"
+        ));
+        assert!(!is_updatable_skill_source_url(
+            "https://example.com/demo/README.md"
+        ));
     }
 
     /// A live reqwest error (connect-refused on localhost:1) must be
@@ -2367,6 +2516,29 @@ mod tests {
         assert_eq!(
             source.source_url.as_deref(),
             Some("https://raw.githubusercontent.com/example/skills/main/brand-guidelines/SKILL.md")
+        );
+    }
+
+    #[test]
+    fn github_raw_update_urls_recovers_missing_source_url_from_repo_and_path() {
+        let source = db::SkillSource {
+            skill_id: "brand-guidelines".to_string(),
+            source_type: "github".to_string(),
+            source_url: None,
+            source_author: Some("example".to_string()),
+            source_repo: Some("example/skills".to_string()),
+            source_path: Some("brand-guidelines/SKILL.md".to_string()),
+            updated_at: "2026-04-16T12:00:00Z".to_string(),
+        };
+
+        assert_eq!(
+            github_raw_update_urls(&source),
+            vec![
+                "https://raw.githubusercontent.com/example/skills/main/brand-guidelines/SKILL.md",
+                "https://raw.githubusercontent.com/example/skills/main/skills/brand-guidelines/SKILL.md",
+                "https://raw.githubusercontent.com/example/skills/master/brand-guidelines/SKILL.md",
+                "https://raw.githubusercontent.com/example/skills/master/skills/brand-guidelines/SKILL.md",
+            ]
         );
     }
 

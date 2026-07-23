@@ -215,7 +215,6 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
   const featuredCodingAgentIds = new Set(featuredCodingAgents.map((agent) => agent.id));
   const hiddenCodingCount = codingAgents.filter((agent) => !featuredCodingAgentIds.has(agent.id)).length;
   const sourceLabel = sourceRepo ?? sourceAuthor;
-  const dateLabel = formatDateLabel(createdAt ?? updatedAt ?? null);
 
   // ── Platform variant: clickable card style ──
   if (onClick && !hasActions && !hasCheckbox && !hasPlatformIcons) {
@@ -451,15 +450,14 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
               </span>
             )}
 
-            {dateLabel && (
-              <span
-                className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                title={createdAt ?? updatedAt ?? undefined}
-              >
-                <Calendar className="size-3 shrink-0" />
-                <span>{dateLabel}</span>
-              </span>
-            )}
+            <DateBadge
+              label={t("detail.createdAt", { defaultValue: "Created" })}
+              value={createdAt}
+            />
+            <DateBadge
+              label={t("detail.updatedAt", { defaultValue: "Updated" })}
+              value={updatedAt}
+            />
 
             {/* Tags */}
             {tags && tags.length > 0 && (
@@ -562,6 +560,22 @@ function formatDateLabel(value: string | null): string | null {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value.slice(0, 10);
   return date.toISOString().slice(0, 10);
+}
+
+function DateBadge({ label, value }: { label: string; value?: string | null }) {
+  const dateLabel = formatDateLabel(value ?? null);
+  if (!dateLabel) return null;
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+      title={`${label}: ${value ?? dateLabel}`}
+    >
+      <Calendar className="size-3 shrink-0" />
+      <span className="text-muted-foreground/80">{label}</span>
+      <span>{dateLabel}</span>
+    </span>
+  );
 }
 
 // ─── Source Indicator (internal) ──────────────────────────────────────────────

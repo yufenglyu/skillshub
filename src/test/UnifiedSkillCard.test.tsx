@@ -140,6 +140,22 @@ describe("UnifiedSkillCard source badges", () => {
 
     expect(screen.getByLabelText(/只读: .*不是当前平台的可删除安装/)).toBeInTheDocument();
   });
+
+  it("shows created and updated dates separately", () => {
+    render(
+      <UnifiedSkillCard
+        name="dated-skill"
+        description="Dated skill"
+        createdAt="2026-07-14T12:25:07Z"
+        updatedAt="2026-07-20T16:48:36Z"
+      />
+    );
+
+    expect(screen.getByText(/创建时间|Created/)).toBeInTheDocument();
+    expect(screen.getByText("2026-07-14")).toBeInTheDocument();
+    expect(screen.getByText(/更新时间|Updated/)).toBeInTheDocument();
+    expect(screen.getByText("2026-07-20")).toBeInTheDocument();
+  });
 });
 
 describe("UnifiedSkillCard action buttons", () => {

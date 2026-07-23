@@ -26,7 +26,9 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 - A single **Import Skills** menu that supports GitHub repository import and skills.sh skill link import.
 - GitHub repository preview before import, with conflict handling for rename, overwrite, or skip.
 - Source metadata tracking for imported skills, plus one-click source updates when a skill can be traced back to its origin.
+- Resource Library source updates can recover missing GitHub raw URLs from saved repository/path metadata before updating local files.
 - Resource Library folder view grouped by source-style paths such as `owner/repo`, matching common local layouts like `author/project/skill`.
+- Skill cards show created and updated dates separately with labels that match the current UI language.
 - Direct installation from the Resource Library to selected platforms without forcing the skill into Central Skills.
 - One-click promotion from the Resource Library to Central Skills when a skill should become part of the shared central library.
 - Central Skills management with folder view, safe deletion previews, platform install status, and batch uninstall from selected platforms.
@@ -139,15 +141,15 @@ The Vite development server uses port `24200`.
 
 ## Release
 
-GitHub Actions publishes desktop packages when a version tag such as `v0.13.0` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
+GitHub Actions publishes desktop packages when a version tag such as `v0.14.0` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
 Local packaging scripts are still available for host-specific builds:
 
 | Platform | Command |
 |----------|---------|
-| Windows | `pnpm package:release:windows -- -Version 0.13.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.13.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.13.0` |
+| Windows | `pnpm package:release:windows -- -Version 0.14.0` |
+| macOS | `pnpm package:release:macos -- -Version 0.14.0` |
+| Linux | `pnpm package:release:linux -- -Version 0.14.0` |
 
 Use `-VersionOnly` when you only need to update version metadata before committing a release.
 

@@ -26,7 +26,9 @@ SkillsHub 把技能的长期保存和平台安装拆开：
 - 资源库顶部提供统一的 **导入技能** 菜单，合并“从 GitHub 导入”和“从 skills.sh 导入”。
 - GitHub 仓库导入支持先预览，再选择导入，并处理重命名、覆盖或跳过冲突。
 - 导入技能会记录来源信息；可追踪来源的技能支持从来源更新。
+- 技能资源库的来源更新会先从已保存的 GitHub 仓库和路径信息恢复缺失的 raw URL，再更新本地文件。
 - 技能资源库目录视图按 `owner/repo` 这类来源路径分组，更贴近 `作者/项目/技能` 的本地结构。
+- 技能卡片会分别显示创建日期和更新日期，并根据当前界面语言显示对应标签。
 - 资源库技能可以直接安装到指定平台，不强制加入中央技能库。
 - 资源库技能也可以一键加入中央技能库，用于共享兼容和统一分发。
 - 中央技能库支持目录视图、安全删除预览、平台安装状态和批量从平台卸载。
@@ -139,15 +141,15 @@ Vite 开发服务器默认使用 `24200` 端口。
 
 ## 发布
 
-推送 `v0.13.0` 这样的版本 tag 后，GitHub Actions 会构建并发布桌面安装包。发布工作流会从 `CHANGELOG.md` 读取对应版本的 release notes，因此每次发布都必须有匹配的更新日志条目。
+推送 `v0.14.0` 这样的版本 tag 后，GitHub Actions 会构建并发布桌面安装包。发布工作流会从 `CHANGELOG.md` 读取对应版本的 release notes，因此每次发布都必须有匹配的更新日志条目。
 
 本地仍可使用分平台脚本打包：
 
 | 平台 | 命令 |
 |------|------|
-| Windows | `pnpm package:release:windows -- -Version 0.13.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.13.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.13.0` |
+| Windows | `pnpm package:release:windows -- -Version 0.14.0` |
+| macOS | `pnpm package:release:macos -- -Version 0.14.0` |
+| Linux | `pnpm package:release:linux -- -Version 0.14.0` |
 
 只需要更新版本元数据时使用 `-VersionOnly`。
 

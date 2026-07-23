@@ -79,6 +79,17 @@ function getSkillSortTimestamp(
   );
 }
 
+function githubRepoFromSourceLabel(source?: string | null): string | null {
+  const prefix = "github:";
+  if (!source?.startsWith(prefix)) return null;
+  const repo = source.slice(prefix.length).trim();
+  return repo.includes("/") ? repo : null;
+}
+
+function resourceSkillSourceRepo(skill: SkillWithLinks): string | null {
+  return skill.source_repo ?? githubRepoFromSourceLabel(skill.source) ?? null;
+}
+
 function parseSkillsShImportTarget(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -794,45 +805,50 @@ export function ResourceLibraryView() {
                   </div>
                 )}
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  {sortedSkills.map((skill) => (
-                    <UnifiedSkillCard
-                      key={skill.id}
-                      name={skill.name}
-                      description={skill.description}
-                      publisher={skill.source_repo ?? skill.source_author ?? undefined}
-                      sourceAuthor={skill.source_author}
-                      sourceRepo={skill.source_repo}
-                      sourceUrl={skill.source_url}
-                      createdAt={skill.created_at}
-                      updatedAt={skill.updated_at}
-                      tags={(skill.tags ?? []).map((tag) => ({ key: tag, label: tag }))}
-                      onDetail={() => handleOpenDrawer(skill.id)}
-                      onInstallTo={() => handleInstallClick(skill)}
-                      onInstallToCentral={
-                        skill.is_central ? undefined : () => void handleAddToCentral(skill)
-                      }
-                      installToCentralLabel={t("resource.addToCentralLabel", { name: skill.name })}
-                      onDeleteFromCentral={() => handleDeleteClick(skill)}
-                      deleteFromCentralLabel={t("resource.deleteLabel", { name: skill.name })}
-                      deleteFromCentralRequiresDialog={
-                        skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0
-                      }
-                      onUpdateFromSource={
-                        skill.source_url ? () => void handleUpdateSingleSource(skill) : undefined
-                      }
-                      updateFromSourceLabel={t("central.updateSourceLabel", { name: skill.name })}
-                      isLoading={updatingSkillId === skill.id || deletingSkillId === skill.id}
-                      detailButtonRef={(node) => setDetailButtonRef(skill.id, node)}
-                      platformIcons={{
-                        agents,
-                        linkedAgents: skill.linked_agents,
-                        readOnlyAgents: skill.read_only_agents ?? [],
-                        skillId: skill.id,
-                        onToggle: handleTogglePlatform,
-                        togglingAgentId,
-                      }}
-                    />
-                  ))}
+                  {sortedSkills.map((skill) => {
+                    const normalizedSourceRepo = resourceSkillSourceRepo(skill);
+                    return (
+                      <UnifiedSkillCard
+                        key={skill.id}
+                        name={skill.name}
+                        description={skill.description}
+                        publisher={normalizedSourceRepo ?? skill.source_author ?? undefined}
+                        sourceAuthor={skill.source_author}
+                        sourceRepo={normalizedSourceRepo}
+                        sourceUrl={skill.source_url}
+                        createdAt={skill.created_at}
+                        updatedAt={skill.updated_at}
+                        tags={(skill.tags ?? []).map((tag) => ({ key: tag, label: tag }))}
+                        onDetail={() => handleOpenDrawer(skill.id)}
+                        onInstallTo={() => handleInstallClick(skill)}
+                        onInstallToCentral={
+                          skill.is_central ? undefined : () => void handleAddToCentral(skill)
+                        }
+                        installToCentralLabel={t("resource.addToCentralLabel", { name: skill.name })}
+                        onDeleteFromCentral={() => handleDeleteClick(skill)}
+                        deleteFromCentralLabel={t("resource.deleteLabel", { name: skill.name })}
+                        deleteFromCentralRequiresDialog={
+                          skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0
+                        }
+                        onUpdateFromSource={
+                          skill.source_url || (normalizedSourceRepo && skill.source_path)
+                            ? () => void handleUpdateSingleSource(skill)
+                            : undefined
+                        }
+                        updateFromSourceLabel={t("central.updateSourceLabel", { name: skill.name })}
+                        isLoading={updatingSkillId === skill.id || deletingSkillId === skill.id}
+                        detailButtonRef={(node) => setDetailButtonRef(skill.id, node)}
+                        platformIcons={{
+                          agents,
+                          linkedAgents: skill.linked_agents,
+                          readOnlyAgents: skill.read_only_agents ?? [],
+                          skillId: skill.id,
+                          onToggle: handleTogglePlatform,
+                          togglingAgentId,
+                        }}
+                      />
+                    );
+                  })}
                 </div>
               </section>
             ) : null}

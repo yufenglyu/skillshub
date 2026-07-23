@@ -152,6 +152,8 @@ pub fn run() {
             // Source updates and AI explanations
             commands::marketplace::update_source_backed_central_skills,
             commands::marketplace::update_source_backed_central_skill,
+            commands::marketplace::update_source_backed_resource_skills,
+            commands::marketplace::update_source_backed_resource_skill,
             commands::marketplace::explain_skill,
             commands::marketplace::get_skill_explanation,
             commands::marketplace::explain_skill_stream,

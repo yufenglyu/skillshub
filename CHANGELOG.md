@@ -2,9 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-## 0.13.0 - 2026-07-22
+## 0.14.0 - 2026-07-23
 
-Release focused on the Resource Library workflow, settings cleanup, and a leaner navigation model.
+Release focused on the Resource Library workflow, reliable source updates, settings cleanup, and a more consistent interface.
 
 ### Features
 
@@ -17,6 +17,8 @@ Release focused on the Resource Library workflow, settings cleanup, and a leaner
 
 - Remove the dedicated Skill Marketplace page and related frontend market browsing UI.
 - Rework the Resource Library directory view around `author/project` grouping instead of author-only cards.
+- Show both created and updated dates on skill cards, with localized labels in Chinese and English.
+- Show per-skill source-update actions whenever a skill has recoverable GitHub source metadata, even if the direct source URL was missing.
 - Improve the skill detail sidebar with clearer grouped sections for notes, tags, source information, time information, storage paths, install status, and collections.
 - Compact Settings by hiding explanatory copy behind hint icons, aligning directory save buttons with their inputs, and reorganizing backup/WebDAV controls.
 - Group software platforms by Lobster and Coding categories while keeping each group in a responsive two-column layout.
@@ -28,8 +30,16 @@ Release focused on the Resource Library workflow, settings cleanup, and a leaner
 ### Fixes
 
 - Keep GitHub import functionality after removing the Skill Marketplace UI.
+- Fix Resource Library "Update from sources" so it updates resource-library skills instead of clearing the visible resource list.
+- Recover missing source URLs from stored GitHub repository and path metadata before updating source-backed skills.
+- Validate downloaded source-update content before overwriting local `SKILL.md` files.
+- Prevent imported GitHub skills from losing update capability when source metadata is partially missing.
 - Preserve modified built-in platform definitions across app restarts.
 - Reduce duplicated and ungrouped metadata in the skill detail sidebar.
+
+## 0.13.0 - 2026-07-22
+
+Release focused on internal release preparation and packaging metadata.
 
 ## 0.12.0 - 2026-07-20
 

@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.13.0";
+const APP_VERSION = "0.14.0";
 const DB_PATH_FALLBACK = "~/.skillshub/db.sqlite";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
@@ -167,7 +167,7 @@ function SoftwarePlatformRow({ agent, onEdit, onRemove, isRemoving }: SoftwarePl
       />
       <div className="flex-1 min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <div className="truncate text-xs font-medium">
+          <div className="truncate text-sm font-medium">
             {agent.display_name}
           </div>
           <span className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
@@ -188,7 +188,7 @@ function SoftwarePlatformRow({ agent, onEdit, onRemove, isRemoving }: SoftwarePl
             </span>
           )}
         </div>
-        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+        <div className="mt-0.5 truncate text-xs text-muted-foreground">
           {formatPathForDisplay(agent.global_skills_dir)}
         </div>
       </div>
@@ -986,7 +986,7 @@ export function SettingsView() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="border-b border-border px-6 py-4">
-        <h1 className="text-xl font-semibold">{t("settings.title")}</h1>
+        <h1 className="text-lg font-semibold">{t("settings.title")}</h1>
       </div>
 
       {/* Content */}
@@ -1008,7 +1008,7 @@ export function SettingsView() {
           <CardContent>
             <div className="space-y-3">
               <div>
-                <label htmlFor="skill-resource-library-dir" className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <label htmlFor="skill-resource-library-dir" className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                   <span>{t("settings.resourcePathLabel")}</span>
                   <HintIcon text={t("settings.resourcePathHint")} className="size-4" />
                 </label>
@@ -1060,7 +1060,7 @@ export function SettingsView() {
           <CardContent>
             <div className="space-y-3">
               <div>
-                <label htmlFor="central-skills-dir" className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <label htmlFor="central-skills-dir" className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                   <span>{t("settings.centralPathLabel")}</span>
                   <HintIcon text={t("settings.centralPathHint")} className="size-4" />
                 </label>
@@ -1169,24 +1169,24 @@ export function SettingsView() {
                 </div>
 
                 <div className="mt-4 space-y-3">
-                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <div className="text-xs font-medium text-muted-foreground">
                     {t("settings.webdavConnectionTitle")}
                   </div>
                   <div className="grid gap-3 md:grid-cols-2">
                     <div>
-                      <label htmlFor="webdav-url" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavUrlLabel")}</label>
+                      <label htmlFor="webdav-url" className="mb-1 block text-xs font-medium text-muted-foreground">{t("settings.webdavUrlLabel")}</label>
                       <Input id="webdav-url" value={webDavBaseUrl} onChange={(event) => setWebDavBaseUrl(event.target.value)} placeholder={t("settings.webdavUrlPlaceholder")} />
                     </div>
                     <div>
-                      <label htmlFor="webdav-remote-dir" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavRemoteDirLabel")}</label>
+                      <label htmlFor="webdav-remote-dir" className="mb-1 block text-xs font-medium text-muted-foreground">{t("settings.webdavRemoteDirLabel")}</label>
                       <Input id="webdav-remote-dir" value={webDavRemoteDir} onChange={(event) => setWebDavRemoteDir(event.target.value)} placeholder={t("settings.webdavRemoteDirPlaceholder")} />
                     </div>
                     <div>
-                      <label htmlFor="webdav-username" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavUsernameLabel")}</label>
+                      <label htmlFor="webdav-username" className="mb-1 block text-xs font-medium text-muted-foreground">{t("settings.webdavUsernameLabel")}</label>
                       <Input id="webdav-username" value={webDavUsername} onChange={(event) => setWebDavUsername(event.target.value)} autoComplete="off" />
                     </div>
                     <div>
-                      <label htmlFor="webdav-password" className="mb-1 block text-xs text-muted-foreground">{t("settings.webdavPasswordLabel")}</label>
+                      <label htmlFor="webdav-password" className="mb-1 block text-xs font-medium text-muted-foreground">{t("settings.webdavPasswordLabel")}</label>
                       <Input id="webdav-password" type="password" value={webDavPassword} onChange={(event) => setWebDavPassword(event.target.value)} autoComplete="off" />
                     </div>
                   </div>
@@ -1212,7 +1212,7 @@ export function SettingsView() {
 
                 <div className="mt-5 space-y-3 border-t border-border/60 pt-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    <div className="text-xs font-medium text-muted-foreground">
                       {t("settings.webdavRemoteBackupsTitle")}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -1267,7 +1267,7 @@ export function SettingsView() {
           <CardContent>
             <div className="space-y-4">
               <div>
-                <label htmlFor="github-pat" className="mb-1 block text-xs text-muted-foreground">
+                <label htmlFor="github-pat" className="mb-1 block text-xs font-medium text-muted-foreground">
                   {t("settings.githubPatLabel")}
                 </label>
                 <Input
@@ -1330,7 +1330,7 @@ export function SettingsView() {
           <CardContent>
             <div className="space-y-4">
               <div>
-                <label className="text-xs text-muted-foreground mb-2 block">{lang === "zh" ? "提供商" : "Provider"}</label>
+                <label className="text-xs font-medium text-muted-foreground mb-2 block">{lang === "zh" ? "提供商" : "Provider"}</label>
                 <div className="flex flex-wrap gap-1.5">
                   {AI_PROVIDERS.map((p) => (
                     <button key={p.id} onClick={() => handleProviderChange(p.id)} className={`px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer border ${aiProvider === p.id ? "bg-primary/15 border-primary text-foreground font-medium" : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:bg-hover-bg/10"}`}>
@@ -1341,7 +1341,7 @@ export function SettingsView() {
               </div>
               {currentProvider && currentProvider.regions.length > 1 && (
                 <div>
-                  <label className="text-xs text-muted-foreground mb-2 block">{lang === "zh" ? "区域" : "Region"}</label>
+                  <label className="text-xs font-medium text-muted-foreground mb-2 block">{lang === "zh" ? "区域" : "Region"}</label>
                   <div className="flex gap-1.5">
                     {currentProvider.regions.map((r) => (
                       <button key={r} onClick={() => setAiRegion(r)} className={`px-3 py-1.5 rounded-md text-xs transition-colors cursor-pointer border ${aiRegion === r ? "bg-primary/15 border-primary text-foreground font-medium" : "border-border bg-background text-muted-foreground hover:border-primary/40"}`}>
@@ -1352,16 +1352,16 @@ export function SettingsView() {
                 </div>
               )}
               <div>
-                <label className="text-xs text-muted-foreground mb-1 block">API Key</label>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">API Key</label>
                 <Input type="password" placeholder="sk-..." value={aiApiKey} onChange={(e) => setAiApiKey(e.target.value)} />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground mb-1 block">{lang === "zh" ? "模型" : "Model"}</label>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">{lang === "zh" ? "模型" : "Model"}</label>
                 <Input placeholder={lang === "zh" ? "模型名称" : "Model name"} value={aiModel} onChange={(e) => setAiModel(e.target.value)} />
               </div>
               {aiProvider === "custom" && (
                 <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">API URL</label>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">API URL</label>
                   <Input placeholder="https://..." value={aiCustomUrl} onChange={(e) => setAiCustomUrl(e.target.value)} />
                 </div>
               )}
@@ -1502,7 +1502,7 @@ export function SettingsView() {
               <div className="flex items-center gap-3">
                 <Globe className="size-4 text-muted-foreground shrink-0" />
                 <div className="flex-1">
-                  <div className="text-xs text-muted-foreground mb-1.5">{t("settings.language")}</div>
+                  <div className="text-xs font-medium text-muted-foreground mb-1.5">{t("settings.language")}</div>
                   <div className="flex gap-2">
                     <Button
                       variant={i18n.language === "zh" ? "default" : "outline"}

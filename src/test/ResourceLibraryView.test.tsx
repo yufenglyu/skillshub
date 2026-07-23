@@ -207,6 +207,55 @@ describe("ResourceLibraryView delete", () => {
     expect(importButton.querySelector("svg")).not.toBeNull();
   });
 
+  it("shows per-skill source update for GitHub metadata without a stored URL", () => {
+    resourceSkills = [
+      {
+        ...defaultSkills[0],
+        source_repo: "example/skills",
+        source_path: "resource-demo/SKILL.md",
+        source_url: null,
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: /从来源更新 resource-demo|Update resource-demo from source/i,
+      })
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to the github source label when source metadata is partial", () => {
+    resourceSkills = [
+      {
+        ...defaultSkills[0],
+        source: "github:example/skills",
+        source_repo: null,
+        source_author: null,
+        source_path: "resource-demo/SKILL.md",
+        source_url: null,
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    expect(screen.getAllByText("example/skills").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", {
+        name: /从来源更新 resource-demo|Update resource-demo from source/i,
+      })
+    ).toBeInTheDocument();
+  });
+
   it("opens a source menu for GitHub and skills.sh imports", () => {
     render(
       <MemoryRouter>
