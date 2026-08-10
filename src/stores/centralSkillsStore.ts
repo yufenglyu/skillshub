@@ -10,8 +10,10 @@ import {
   DeleteCentralSkillBundleOptions,
   DeleteCentralSkillBundleResult,
   DeleteCentralSkillResult,
+  ScanDirectory,
   SkillWithLinks,
 } from "@/types";
+import { mergeProjectAgents } from "@/lib/projectTargets";
 
 export const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
@@ -39,6 +41,17 @@ export const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
     is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "project:1",
+    display_name: "Example Project",
+    category: "project",
+    global_skills_dir: "~/Projects/example/.agents/skills",
+    project_skills_dir: ".agents/skills",
+    icon_name: "folder",
+    is_detected: true,
+    is_builtin: false,
     is_enabled: true,
   },
 ];
@@ -143,11 +156,16 @@ export const useCentralSkillsStore = create<CentralSkillsState>((set, get) => ({
       return;
     }
     try {
-      const [skills, agents] = await Promise.all([
+      const [skills, agents, scanDirectories] = await Promise.all([
         invoke<SkillWithLinks[]>("get_central_skills"),
         invoke<AgentWithStatus[]>("get_agents"),
+        invoke<ScanDirectory[]>("get_scan_directories"),
       ]);
-      set({ skills: skills ?? [], agents: agents ?? [], isLoading: false });
+      set({
+        skills: skills ?? [],
+        agents: mergeProjectAgents(agents ?? [], scanDirectories ?? []),
+        isLoading: false,
+      });
     } catch (err) {
       set({ error: String(err), isLoading: false });
     }

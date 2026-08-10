@@ -1864,6 +1864,19 @@ pub async fn delete_skill_installation(
         .map_err(|e| e.to_string())
 }
 
+/// Delete installation records for a target agent without touching files.
+pub async fn delete_skill_installations_by_agent(
+    pool: &DbPool,
+    agent_id: &str,
+) -> Result<(), String> {
+    sqlx::query("DELETE FROM skill_installations WHERE agent_id = ?")
+        .bind(agent_id)
+        .execute(pool)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Reconcile installation records for an agent after a scan.
 ///
 /// Unmanaged scanner rows follow the current scan result. Managed rows are
@@ -2417,6 +2430,18 @@ pub async fn get_scan_directories(pool: &DbPool) -> Result<Vec<ScanDirectory>, S
     .map_err(|e| e.to_string())
 }
 
+/// Retrieve a scan directory by its numeric ID.
+pub async fn get_scan_directory_by_id(
+    pool: &DbPool,
+    id: i64,
+) -> Result<Option<ScanDirectory>, String> {
+    sqlx::query_as::<_, ScanDirectory>("SELECT * FROM scan_directories WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Add a new scan directory entry (non-builtin by default).
 pub async fn add_scan_directory(
     pool: &DbPool,
@@ -2444,7 +2469,7 @@ pub async fn add_scan_directory(
 
 /// Remove a scan directory. Returns an error if the directory is builtin.
 pub async fn remove_scan_directory(pool: &DbPool, path: &str) -> Result<(), String> {
-    let row = sqlx::query("SELECT is_builtin FROM scan_directories WHERE path = ?")
+    let row = sqlx::query("SELECT id, is_builtin FROM scan_directories WHERE path = ?")
         .bind(path)
         .fetch_optional(pool)
         .await
@@ -2453,10 +2478,13 @@ pub async fn remove_scan_directory(pool: &DbPool, path: &str) -> Result<(), Stri
     match row {
         None => Err(format!("Scan directory '{}' not found", path)),
         Some(r) => {
+            let id: i64 = r.try_get("id").map_err(|e| e.to_string())?;
             let is_builtin: bool = r.try_get("is_builtin").map_err(|e| e.to_string())?;
             if is_builtin {
                 return Err(format!("Cannot remove built-in scan directory '{}'", path));
             }
+            let project_agent_id = format!("project:{id}");
+            delete_skill_installations_by_agent(pool, &project_agent_id).await?;
             sqlx::query("DELETE FROM scan_directories WHERE path = ?")
                 .bind(path)
                 .execute(pool)

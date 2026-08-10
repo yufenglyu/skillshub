@@ -6,7 +6,7 @@ import { usePlatformStore } from "../stores/platformStore";
 import { useResourceLibraryStore } from "../stores/resourceLibraryStore";
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
 import { useThemeStore } from "../stores/themeStore";
-import type { DiscoveredProject, DiscoveredSkill, ObsidianVault } from "../types";
+import type { AgentWithStatus, DiscoveredProject, DiscoveredSkill, ObsidianVault } from "../types";
 import {
   OBSIDIAN_CROSS_AREA_FIXTURE,
   obsidianCrossAreaProjects,
@@ -47,7 +47,7 @@ import { useCollectionStore } from "../stores/collectionStore";
 import { useDiscoverStore } from "../stores/discoverStore";
 import { useObsidianStore } from "../stores/obsidianStore";
 
-const mockAgents = [
+const mockAgents: AgentWithStatus[] = [
   {
     id: "claude-code",
     display_name: "Claude Code",
@@ -546,11 +546,33 @@ describe("Sidebar", () => {
     expect(colButton.className).toContain("bg-hover-bg");
   });
 
-  // ── Discover ─────────────────────────────────────────────────────────────
+  // ── Project directories ─────────────────────────────────────────────────
 
-  it("renders Discover entry in sidebar", () => {
-    renderSidebar();
-    expect(screen.getByRole("button", { name: "项目技能库" })).toBeInTheDocument();
+  it("renders project directories below software platforms", () => {
+    renderSidebar("/central", {
+      platformState: {
+        ...defaultStoreState,
+        agents: [
+          ...defaultStoreState.agents,
+          {
+            id: "project:7",
+            display_name: "Demo Project",
+            category: "project",
+            global_skills_dir: "D:\\Projects\\Demo\\.agents\\skills",
+            project_skills_dir: ".agents/skills",
+            is_detected: true,
+            is_builtin: false,
+            is_enabled: true,
+          },
+        ],
+        skillsByAgent: {
+          ...defaultStoreState.skillsByAgent,
+          "project:7": 2,
+        },
+      },
+    });
+    expect(screen.getByText("项目目录")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Demo Project/ })).toBeInTheDocument();
   });
 
   it("renders show all platforms toggle", () => {
@@ -828,16 +850,16 @@ describe("Sidebar", () => {
       ],
     });
 
-    const discoverButton = screen.getByRole("button", { name: "项目技能库" });
     const platformHeading = screen.getByText("软件平台");
     const obsidianHeading = screen.getByText("Obsidian");
     const lobsterHeading = screen.getByText("龙虾类");
     const codingHeading = screen.getByText("编程类");
+    const projectHeading = screen.getByText("项目目录");
 
-    expect(discoverButton.compareDocumentPosition(platformHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(platformHeading.compareDocumentPosition(obsidianHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(obsidianHeading.compareDocumentPosition(lobsterHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(lobsterHeading.compareDocumentPosition(codingHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(codingHeading.compareDocumentPosition(projectHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   // ── Collapse Toggle ───────────────────────────────────────────────────────

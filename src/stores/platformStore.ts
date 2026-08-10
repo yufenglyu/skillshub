@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invoke, isTauriRuntime } from "@/lib/tauri";
-import { AgentWithStatus, ScanResult } from "@/types";
+import { AgentWithStatus, ScanDirectory, ScanResult } from "@/types";
+import { mergeProjectAgents } from "@/lib/projectTargets";
 
 const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
@@ -30,6 +31,17 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
     is_builtin: true,
     is_enabled: true,
   },
+  {
+    id: "project:1",
+    display_name: "Example Project",
+    category: "project",
+    global_skills_dir: "~/Projects/example/.agents/skills",
+    project_skills_dir: ".agents/skills",
+    icon_name: "folder",
+    is_detected: true,
+    is_builtin: false,
+    is_enabled: true,
+  },
 ];
 
 const BROWSER_FIXTURE_COUNTS: ScanResult = {
@@ -39,6 +51,7 @@ const BROWSER_FIXTURE_COUNTS: ScanResult = {
     "claude-code": 1,
     cursor: 1,
     central: 1,
+    "project:1": 1,
   },
 };
 
@@ -84,12 +97,13 @@ export const usePlatformStore = create<PlatformState>((set) => ({
       return;
     }
     try {
-      const [agents, scanResult] = await Promise.all([
+      const [agents, scanDirectories, scanResult] = await Promise.all([
         invoke<AgentWithStatus[]>("get_agents"),
+        invoke<ScanDirectory[]>("get_scan_directories"),
         invoke<ScanResult>("scan_all_skills"),
       ]);
       set((state) => ({
-        agents,
+        agents: mergeProjectAgents(agents, scanDirectories),
         skillsByAgent: scanResult.skills_by_agent,
         isLoading: false,
         scanGeneration: (state.scanGeneration ?? 0) + 1,
@@ -115,12 +129,13 @@ export const usePlatformStore = create<PlatformState>((set) => ({
       return;
     }
     try {
-      const [agents, scanResult] = await Promise.all([
+      const [agents, scanDirectories, scanResult] = await Promise.all([
         invoke<AgentWithStatus[]>("get_agents"),
+        invoke<ScanDirectory[]>("get_scan_directories"),
         invoke<ScanResult>("scan_all_skills"),
       ]);
       set((state) => ({
-        agents,
+        agents: mergeProjectAgents(agents, scanDirectories),
         skillsByAgent: scanResult.skills_by_agent,
         isLoading: false,
         scanGeneration: (state.scanGeneration ?? 0) + 1,
@@ -143,12 +158,13 @@ export const usePlatformStore = create<PlatformState>((set) => ({
       return;
     }
     try {
-      const [agents, scanResult] = await Promise.all([
+      const [agents, scanDirectories, scanResult] = await Promise.all([
         invoke<AgentWithStatus[]>("get_agents"),
+        invoke<ScanDirectory[]>("get_scan_directories"),
         invoke<ScanResult>("scan_all_skills"),
       ]);
       set((state) => ({
-        agents,
+        agents: mergeProjectAgents(agents, scanDirectories),
         skillsByAgent: scanResult.skills_by_agent,
         isRefreshing: false,
         isLoading: state.isLoading,

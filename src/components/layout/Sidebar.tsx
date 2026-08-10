@@ -5,27 +5,28 @@ import {
   Database,
   Blocks,
   Layers,
-  Radar,
   Eye,
   EyeOff,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Monitor,
   Moon,
   Settings,
   Sun,
+  FolderOpen,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useCollectionStore } from "@/stores/collectionStore";
-import { useDiscoverStore } from "@/stores/discoverStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useObsidianStore } from "@/stores/obsidianStore";
 import { useThemeStore } from "@/stores/themeStore";
 import { cn } from "@/lib/utils";
 import { isEnabledInstallTargetAgent } from "@/lib/agents";
+import { isProjectAgentId } from "@/lib/projectTargets";
 
 const OBSIDIAN_PLATFORM_ID = "obsidian";
 
@@ -113,6 +114,10 @@ function NavItem({
 
 export function Sidebar() {
   const SHOW_ALL_PLATFORMS_KEY = "skills-manage:show-all-platforms";
+  const SOFTWARE_COLLAPSED_KEY = "skills-manage:sidebar-software-platforms-collapsed";
+  const LOBSTER_COLLAPSED_KEY = "skills-manage:sidebar-lobster-collapsed";
+  const CODING_COLLAPSED_KEY = "skills-manage:sidebar-coding-collapsed";
+  const PROJECTS_COLLAPSED_KEY = "skills-manage:sidebar-project-directories-collapsed";
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { t } = useTranslation();
@@ -121,8 +126,6 @@ export function Sidebar() {
   const collections = useCollectionStore((s) => s.collections);
   const loadCollections = useCollectionStore((s) => s.loadCollections);
 
-  const totalDiscovered = useDiscoverStore((s) => s.totalSkillsFound);
-  const loadDiscoveredSkills = useDiscoverStore((s) => s.loadDiscoveredSkills);
   const resourceSkillsCount = useResourceLibraryStore((s) => s.skills.length);
   const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
   const centralSkillsCount = useCentralSkillsStore((s) => s.skills.length);
@@ -140,14 +143,29 @@ export function Sidebar() {
       return false;
     }
   });
+  const [softwareCollapsed, setSoftwareCollapsed] = usePersistentBoolean(
+    SOFTWARE_COLLAPSED_KEY,
+    false
+  );
+  const [lobsterCollapsed, setLobsterCollapsed] = usePersistentBoolean(
+    LOBSTER_COLLAPSED_KEY,
+    false
+  );
+  const [codingCollapsed, setCodingCollapsed] = usePersistentBoolean(
+    CODING_COLLAPSED_KEY,
+    false
+  );
+  const [projectsCollapsed, setProjectsCollapsed] = usePersistentBoolean(
+    PROJECTS_COLLAPSED_KEY,
+    false
+  );
 
   useEffect(() => {
     loadCollections();
-    loadDiscoveredSkills();
     loadResourceLibrary();
     loadCentralSkills();
     loadObsidianVaults();
-  }, [loadCentralSkills, loadCollections, loadDiscoveredSkills, loadObsidianVaults, loadResourceLibrary]);
+  }, [loadCentralSkills, loadCollections, loadObsidianVaults, loadResourceLibrary]);
 
   function toggleShowAllPlatforms() {
     setShowAllPlatforms((previous) => {
@@ -164,7 +182,14 @@ export function Sidebar() {
   const platformAgents = agents.filter(
     (a) =>
       isEnabledInstallTargetAgent(a) &&
+      !isProjectAgentId(a.id) &&
       a.is_detected &&
+      (showAllPlatforms || (skillsByAgent[a.id] ?? 0) > 0)
+  );
+  const projectAgents = agents.filter(
+    (a) =>
+      isEnabledInstallTargetAgent(a) &&
+      isProjectAgentId(a.id) &&
       (showAllPlatforms || (skillsByAgent[a.id] ?? 0) > 0)
   );
   const lobsterAgents = platformAgents.filter((a) => a.category === "lobster");
@@ -241,16 +266,6 @@ export function Sidebar() {
           count={centralSkillsCount}
         />
 
-        {/* Discover */}
-        <NavItem
-          label={t("sidebar.discovered")}
-          isActive={pathname.startsWith("/discover")}
-          onClick={() => navigate("/discover")}
-          icon={<Radar className="size-4" />}
-          expanded={expanded}
-          count={totalDiscovered}
-        />
-
         {/* Collections */}
         <NavItem
           label={t("sidebar.collections")}
@@ -264,18 +279,28 @@ export function Sidebar() {
         {/* Divider */}
         <div className="border-t border-sidebar-border/70 my-2" />
 
-        {/* Platform icons */}
+        {/* Software platforms */}
         {expanded ? (
           <div
             data-testid="software-platform-heading"
-            className="flex items-center justify-between gap-2 px-2.5 py-1.5"
+            className="flex items-center justify-between gap-1 px-1 py-1"
           >
-            <div className="flex min-w-0 items-center gap-2.5 text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => setSoftwareCollapsed(!softwareCollapsed)}
+              aria-expanded={!softwareCollapsed}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+            >
+              {softwareCollapsed ? (
+                <ChevronRight className="size-3.5 shrink-0" />
+              ) : (
+                <ChevronDown className="size-3.5 shrink-0" />
+              )}
               <Blocks className="size-4 shrink-0" />
-              <span className="truncate text-sm font-medium">
+              <span className="truncate text-left text-sm font-medium">
                 {t("sidebar.softwarePlatforms")}
               </span>
-            </div>
+            </button>
             {!isLoading && (
               <button
                 onClick={toggleShowAllPlatforms}
@@ -301,8 +326,7 @@ export function Sidebar() {
           </div>
         ) : (
           <>
-            {/* Obsidian vaults */}
-            {populatedObsidianVaults.length > 0 && (
+            {!softwareCollapsed && populatedObsidianVaults.length > 0 && (
               <>
                 {expanded ? (
                   <div className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground/75">
@@ -334,22 +358,23 @@ export function Sidebar() {
               </>
             )}
 
-            {/* Lobster agents */}
-            {lobsterAgents.length > 0 && (
+            {!softwareCollapsed && lobsterAgents.length > 0 && (
               <>
                 {expanded ? (
-                  <div className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground/75">
-                    {t("sidebar.categoryLobster")}
-                  </div>
+                  <SidebarGroupHeader
+                    label={t("sidebar.categoryLobster")}
+                    expanded={!lobsterCollapsed}
+                    onToggle={() => setLobsterCollapsed(!lobsterCollapsed)}
+                  />
                 ) : (
                   <div className="border-t border-sidebar-border/40 my-1.5" />
                 )}
-                {lobsterAgents.map((agent) => (
+                {!lobsterCollapsed && lobsterAgents.map((agent) => (
                   <NavItem
                     key={agent.id}
                     label={agent.display_name}
-                    isActive={pathname === `/platform/${agent.id}`}
-                    onClick={() => navigate(`/platform/${agent.id}`)}
+                    isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
+                    onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
                     icon={<PlatformIcon agentId={agent.id} className="size-4" />}
                     expanded={expanded}
                     count={skillsByAgent[agent.id]}
@@ -358,22 +383,23 @@ export function Sidebar() {
               </>
             )}
 
-            {/* Coding agents */}
-            {codingAgents.length > 0 && (
+            {!softwareCollapsed && codingAgents.length > 0 && (
               <>
                 {expanded ? (
-                  <div className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground/75">
-                    {t("sidebar.categoryCoding")}
-                  </div>
+                  <SidebarGroupHeader
+                    label={t("sidebar.categoryCoding")}
+                    expanded={!codingCollapsed}
+                    onToggle={() => setCodingCollapsed(!codingCollapsed)}
+                  />
                 ) : (
                   <div className="border-t border-sidebar-border/40 my-1.5" />
                 )}
-                {codingAgents.map((agent) => (
+                {!codingCollapsed && codingAgents.map((agent) => (
                   <NavItem
                     key={agent.id}
                     label={agent.display_name}
-                    isActive={pathname === `/platform/${agent.id}`}
-                    onClick={() => navigate(`/platform/${agent.id}`)}
+                    isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
+                    onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
                     icon={<PlatformIcon agentId={agent.id} className="size-4" />}
                     expanded={expanded}
                     count={skillsByAgent[agent.id]}
@@ -381,6 +407,43 @@ export function Sidebar() {
                 ))}
               </>
             )}
+
+            {expanded ? (
+              <div
+                data-testid="project-directories-heading"
+                className="mt-2 flex items-center justify-between gap-1 px-1 py-1"
+              >
+                <button
+                  type="button"
+                  onClick={() => setProjectsCollapsed(!projectsCollapsed)}
+                  aria-expanded={!projectsCollapsed}
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                >
+                  {projectsCollapsed ? (
+                    <ChevronRight className="size-3.5 shrink-0" />
+                  ) : (
+                    <ChevronDown className="size-3.5 shrink-0" />
+                  )}
+                  <FolderOpen className="size-4 shrink-0" />
+                  <span className="truncate text-left text-sm font-medium">
+                    {t("sidebar.projectDirectories")}
+                  </span>
+                </button>
+              </div>
+            ) : (
+              <div className="border-t border-sidebar-border/40 my-1.5" />
+            )}
+            {!projectsCollapsed && projectAgents.map((agent) => (
+              <NavItem
+                key={agent.id}
+                label={agent.display_name}
+                isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
+                onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
+                icon={<FolderOpen className="size-4" />}
+                expanded={expanded}
+                count={skillsByAgent[agent.id]}
+              />
+            ))}
           </>
         )}
 
@@ -414,5 +477,53 @@ export function Sidebar() {
       </div>
 
     </nav>
+  );
+}
+
+function usePersistentBoolean(key: string, defaultValue: boolean) {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem(key);
+      return stored === null ? defaultValue : stored === "true";
+    } catch {
+      return defaultValue;
+    }
+  });
+
+  function update(next: boolean) {
+    setValue(next);
+    try {
+      window.localStorage.setItem(key, String(next));
+    } catch {
+      // Ignore storage failures and keep the in-memory preference.
+    }
+  }
+
+  return [value, update] as const;
+}
+
+function SidebarGroupHeader({
+  label,
+  expanded,
+  onToggle,
+}: {
+  label: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      className="flex w-full items-center gap-1.5 rounded-md px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground/75 transition-colors hover:bg-primary/10 hover:text-primary"
+    >
+      {expanded ? (
+        <ChevronDown className="size-3 shrink-0" />
+      ) : (
+        <ChevronRight className="size-3 shrink-0" />
+      )}
+      <span className="truncate">{label}</span>
+    </button>
   );
 }

@@ -695,18 +695,31 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
         skills_by_agent.insert(agent.id.clone(), managed_count as usize);
     }
 
-    // ── Custom scan directories ───────────────────────────────────────────────
-    // Skills found in user-added directories are added to the `skills` table
-    // but are not attributed to a specific agent installation record.
-    for scan_dir in custom_dirs.iter().filter(|d| d.is_active) {
-        let dir = Path::new(&scan_dir.path);
-        if !dir.exists() {
+    // ── Project directory targets ─────────────────────────────────────────────
+    // User-added directories behave like install targets. A project directory
+    // manages skills under `<project>/.agents/skills`, which lets Central Skills
+    // synchronize into projects without scanning unrelated project files.
+    let mut project_targets_scanned = 0usize;
+    for scan_dir in custom_dirs.iter().filter(|d| !d.is_builtin) {
+        let target_id = linker::project_agent_id(scan_dir.id);
+        if !scan_dir.is_active {
+            db::delete_skill_installations_by_agent(pool, &target_id).await?;
+            skills_by_agent.insert(target_id, 0);
             continue;
         }
 
-        let scanned = scan_skill_root(dir, false, ScanDirectoryOptions::nested());
+        let Some(target) = linker::project_target_for_scan_directory(scan_dir).await? else {
+            db::delete_skill_installations_by_agent(pool, &target_id).await?;
+            skills_by_agent.insert(target_id, 0);
+            continue;
+        };
+        project_targets_scanned += 1;
+
+        let mut found_install_ids = Vec::new();
+        let scanned = scan_skill_root(&target.skills_dir, false, ScanDirectoryOptions::nested());
         for skill in &scanned {
             all_found_skill_ids.insert(skill.id.clone());
+            found_install_ids.push(skill.id.clone());
             let now = Utc::now().to_rfc3339();
             let db_skill = Skill {
                 id: skill.id.clone(),
@@ -717,11 +730,25 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
                 is_central: false,
                 source: Some(skill.link_type.clone()),
                 content: None,
-                scanned_at: now,
+                scanned_at: now.clone(),
             };
             db::upsert_skill(pool, &db_skill).await?;
+
+            let installation = SkillInstallation {
+                skill_id: skill.id.clone(),
+                agent_id: target.id.clone(),
+                installed_path: skill.dir_path.clone(),
+                link_type: skill.link_type.clone(),
+                symlink_target: skill.symlink_target.clone(),
+                created_at: now,
+            };
+            db::upsert_scanned_skill_installation(pool, &installation).await?;
         }
-        total_skills += scanned.len();
+
+        db::delete_stale_skill_installations(pool, &target.id, &found_install_ids).await?;
+        let scanned_count = scanned.len();
+        total_skills += scanned_count;
+        skills_by_agent.insert(target.id, scanned_count);
     }
 
     // ── Global reconciliation ─────────────────────────────────────────────────
@@ -753,7 +780,7 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
 
     Ok(ScanResult {
         total_skills,
-        agents_scanned: agents.len(),
+        agents_scanned: agents.len() + project_targets_scanned,
         skills_by_agent,
     })
 }
@@ -1810,27 +1837,48 @@ mod tests {
 
         let tmp = TempDir::new().unwrap();
         let pool = setup_test_db().await;
+        isolate_scan_test(&pool).await;
+        let project_dir = tmp.path().join("project");
+        let project_skills_dir = project_dir.join(linker::PROJECT_SKILLS_SUBDIR);
+        fs::create_dir_all(&project_skills_dir).unwrap();
 
-        // Add a custom scan directory
-        db::add_scan_directory(&pool, tmp.path().to_str().unwrap(), Some("Test Dir"))
+        // Add a project directory. Skills are managed under .agents/skills.
+        let scan_dir = db::add_scan_directory(&pool, project_dir.to_str().unwrap(), Some("Test Dir"))
             .await
             .unwrap();
 
         create_skill_dir(
-            tmp.path(),
+            &project_skills_dir,
             "custom-dir-skill",
             &valid_skill_md("Custom Dir Skill", "From custom dir"),
         );
 
         let result = scan_all_skills_impl(&pool).await.unwrap();
-        // Skill should be in total count (custom dirs contribute to total)
-        assert!(result.total_skills > 0);
+        let project_agent_id = linker::project_agent_id(scan_dir.id);
+        assert_eq!(result.total_skills, 1);
+        assert_eq!(
+            result.skills_by_agent.get(&project_agent_id).copied(),
+            Some(1),
+            "project directories should report managed skill counts under their virtual agent id"
+        );
 
         // Skill should be in the DB
         let skill = db::get_skill_by_id(&pool, "custom-dir-skill")
             .await
             .unwrap();
         assert!(skill.is_some());
+
+        let observed_count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)
+             FROM skill_installations
+             WHERE skill_id = ? AND agent_id = ? AND is_managed = 0",
+        )
+        .bind("custom-dir-skill")
+        .bind(&project_agent_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(observed_count, 1);
     }
 
     #[tokio::test]

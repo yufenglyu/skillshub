@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { AgentWithStatus, ScanResult } from "../types";
+import { AgentWithStatus, ScanDirectory, ScanResult } from "../types";
 
 // Mock Tauri core before importing the store
 vi.mock("@tauri-apps/api/core", () => ({
@@ -41,6 +41,17 @@ const mockScanResult: ScanResult = {
   },
 };
 
+const mockScanDirectories: ScanDirectory[] = [
+  {
+    id: 1,
+    path: "D:\\Projects\\Demo",
+    label: "Demo",
+    is_active: true,
+    is_builtin: false,
+    added_at: "2026-07-20T00:00:00Z",
+  },
+];
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("platformStore", () => {
@@ -79,6 +90,7 @@ describe("platformStore", () => {
       .mockReturnValueOnce(
         new Promise<AgentWithStatus[]>((r) => (resolveAgents = r))
       )
+      .mockResolvedValueOnce(mockScanDirectories)
       .mockReturnValueOnce(new Promise<ScanResult>((r) => (resolveScan = r)));
 
     const initPromise = usePlatformStore.getState().initialize();
@@ -94,12 +106,21 @@ describe("platformStore", () => {
   it("populates agents and skillsByAgent after initialize", async () => {
     vi.mocked(invoke)
       .mockResolvedValueOnce(mockAgents)
+      .mockResolvedValueOnce(mockScanDirectories)
       .mockResolvedValueOnce(mockScanResult);
 
     await usePlatformStore.getState().initialize();
 
     const state = usePlatformStore.getState();
-    expect(state.agents).toEqual(mockAgents);
+    expect(state.agents).toEqual([
+      ...mockAgents,
+      expect.objectContaining({
+        id: "project:1",
+        display_name: "Demo",
+        category: "project",
+        global_skills_dir: "D:\\Projects\\Demo\\.agents\\skills",
+      }),
+    ]);
     expect(state.skillsByAgent).toEqual(mockScanResult.skills_by_agent);
     expect(state.isLoading).toBe(false);
     expect(state.scanGeneration).toBe(1);
@@ -109,13 +130,15 @@ describe("platformStore", () => {
   it("calls get_agents and scan_all_skills during initialize", async () => {
     vi.mocked(invoke)
       .mockResolvedValueOnce(mockAgents)
+      .mockResolvedValueOnce(mockScanDirectories)
       .mockResolvedValueOnce(mockScanResult);
 
     await usePlatformStore.getState().initialize();
 
     expect(invoke).toHaveBeenCalledWith("get_agents");
+    expect(invoke).toHaveBeenCalledWith("get_scan_directories");
     expect(invoke).toHaveBeenCalledWith("scan_all_skills");
-    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenCalledTimes(3);
   });
 
   it("sets error and clears isLoading when initialize fails", async () => {
@@ -150,6 +173,7 @@ describe("platformStore", () => {
 
     vi.mocked(invoke)
       .mockResolvedValueOnce(mockAgents)
+      .mockResolvedValueOnce(mockScanDirectories)
       .mockResolvedValueOnce(updatedScanResult);
 
     await usePlatformStore.getState().rescan();
@@ -189,6 +213,7 @@ describe("platformStore", () => {
 
     vi.mocked(invoke)
       .mockResolvedValueOnce(mockAgents)
+      .mockResolvedValueOnce(mockScanDirectories)
       .mockResolvedValueOnce(updatedScanResult);
 
     const refreshPromise = usePlatformStore.getState().refreshCounts();

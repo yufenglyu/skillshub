@@ -16,7 +16,7 @@ SkillsHub keeps skill storage and platform installation separate:
 - **Central Skills** is the compatibility library, usually `~/.agents/skills/`, for skills you intentionally promote into the shared central directory.
 - **Software Platforms** are the concrete tool-specific skills folders, such as Claude Code, Codex CLI, Cursor, Gemini CLI, OpenClaw, and similar tools.
 - **Collections** let you group central skills and install them as reusable sets.
-- **Discovered Skills** scans configured project directories for skills that are not yet managed by SkillsHub.
+- **Project Directories** are project-level install targets. SkillsHub manages skills under each configured project's `.agents/skills` folder, so Resource Library and Central Skills can be installed into projects the same way they are installed into software platforms.
 
 Application data is stored in `~/.skillshub/db.sqlite`. On first launch after upgrading from older releases, SkillsHub can migrate an existing `~/.skillsmanage/db.sqlite` database when the new database does not exist yet.
 
@@ -29,12 +29,14 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 - Resource Library source updates can recover missing GitHub raw URLs from saved repository/path metadata before updating local files.
 - Resource Library folder view grouped by source-style paths such as `owner/repo`, matching common local layouts like `author/project/skill`.
 - Skill cards show created and updated dates separately with labels that match the current UI language.
-- Direct installation from the Resource Library to selected platforms without forcing the skill into Central Skills.
-- One-click promotion from the Resource Library to Central Skills, with automatic synchronization to every detected local platform when Central Skills already contains managed skills.
+- Direct installation from the Resource Library to selected software platforms or project directories without forcing the skill into Central Skills.
+- One-click promotion from the Resource Library to Central Skills, with automatic synchronization to every detected local platform and configured project directory when Central Skills already contains managed skills.
 - Central Skills management with folder view, safe deletion previews, platform install status, and batch uninstall from selected platforms.
 - Full skill detail page with Markdown preview, raw source view, grouped notes, tags, source information, time information, storage paths, installation status, and collections.
 - Editable source metadata fields for manually maintained records, including source type, repository, author, source path, and source URL.
 - Software platform management in Settings, including editable built-in platforms, custom platforms, Lobster/Coding grouping, two-column compact layout, built-in/detected group counts, and visual distinction for detected local skills directories.
+- Project directory management in Settings, now ordered below Software Platforms and treated as project-scoped install targets using `.agents/skills`.
+- Collapsible sidebar sections for Software Platforms, Lobster platforms, Coding platforms, and Project Directories.
 - Local ZIP backup and WebDAV backup/import, including connection testing, remote backup listing, upload, selected import, and selected delete. Backup files exclude API keys, tokens, and password-like values.
 - Update checking from the About section.
 - Bilingual UI, system/light/dark theme mode from the lower-left sidebar, unified selected-state colors across sidebar/provider/language controls, and a simplified top area without a global search box.
@@ -63,23 +65,24 @@ English screenshots are generated from the English UI. Chinese screenshots are k
 
 ![Platform skills](images/en/05.png)
 
-### Discovered Skills
+### Project Directories
 
-![Discovered skills](images/en/06.png)
+![Project directories](images/en/06.png)
 
 ## Skill Storage Model
 
-SkillsHub uses three different storage concepts:
+SkillsHub uses four different storage concepts:
 
 | Area | Purpose | Typical Path |
 |------|---------|--------------|
 | Skill Resource Library | Long-term local storage for imported or manually created skills | `~/.skillshub/library` |
 | Central Skills | Shared compatibility directory for intentionally promoted skills | `~/.agents/skills` |
 | Platform directory | Tool-specific install target created as a symlink or copy | Depends on platform |
+| Project directory | Project-scoped install target managed below the configured project root | `<project>/.agents/skills` |
 
-Installing a skill directly from the Resource Library writes only to the selected platform. Promoting a skill to Central Skills writes to the central directory. When Central Skills already contains managed skills, newly detected local platforms are automatically included in central synchronization and shown in the sidebar.
+Installing a skill directly from the Resource Library writes only to the selected software platforms or project directories. Promoting a skill to Central Skills writes to the central directory. When Central Skills already contains managed skills, newly detected local platforms and configured project directories are automatically included in central synchronization and shown in the sidebar.
 
-Changing the Resource Library path or Central Skills path does not automatically rewrite existing platform symlinks or copies. Reinstall affected skills if you intentionally move those directories.
+Changing the Resource Library path, Central Skills path, platform directory, or project directory does not automatically rewrite existing symlinks or copies. Reinstall affected skills if you intentionally move those directories.
 
 ## Supported Platforms
 
@@ -91,7 +94,7 @@ Built-in platform definitions can be edited or removed from Settings. They are s
 | Lobster | OpenClaw, AutoClaw, EasyClaw, QClaw, WorkBuddy, and related Lobster-style platforms |
 | Custom | Any local platform with a stable skills directory |
 
-In the sidebar, built-in platforms are shown only when their configured skills directory exists locally, unless you explicitly choose to show all platforms. Settings group headers show both the total built-in platform count and the number detected on the current machine.
+In the sidebar, built-in platforms are shown only when their configured skills directory exists locally, unless you explicitly choose to show all platforms. Software platform groups and project directory lists can be collapsed independently. Settings group headers show both the total built-in platform count and the number detected on the current machine.
 
 ## Importing Skills
 
@@ -141,15 +144,15 @@ The Vite development server uses port `24200`.
 
 ## Release
 
-GitHub Actions publishes desktop packages when a version tag such as `v0.15.0` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
+GitHub Actions publishes desktop packages when a version tag such as `v0.16.0` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
 Local packaging scripts are still available for host-specific builds:
 
 | Platform | Command |
 |----------|---------|
-| Windows | `pnpm package:release:windows -- -Version 0.15.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.15.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.15.0` |
+| Windows | `pnpm package:release:windows -- -Version 0.16.0` |
+| macOS | `pnpm package:release:macos -- -Version 0.16.0` |
+| Linux | `pnpm package:release:linux -- -Version 0.16.0` |
 
 Use `-VersionOnly` when you only need to update version metadata before committing a release.
 

@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.15.0";
+const APP_VERSION = "0.16.0";
 const DB_PATH_FALLBACK = "~/.skillshub/db.sqlite";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
@@ -340,48 +340,6 @@ function SoftwarePlatformsCard({
         <div className="space-y-5">
           <div>
             <div
-              data-testid="settings-project-directories-header"
-              className="mb-2 flex items-center justify-between gap-3"
-            >
-              <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                <FolderOpen className="size-4 text-muted-foreground" />
-                <span>{t("settings.projectDirectories")}</span>
-              </div>
-              <Button variant="outline" size="sm" onClick={onAddDirectory} aria-label={t("settings.addDirAriaLabel")}>
-                <Plus className="size-3.5" />
-                <span>{t("settings.addDirectory")}</span>
-              </Button>
-            </div>
-            {scanDirError && <p className="text-xs text-destructive mb-3" role="alert">{scanDirError}</p>}
-            {isLoadingScanDirs ? (
-              <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm justify-center">
-                <Loader2 className="size-4 animate-spin" />
-                <span>{t("settings.loading")}</span>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {customDirs.length > 0 && (
-                  <div className="rounded-lg border border-border overflow-hidden">
-                    {customDirs.map((dir) => (
-                      <ScanDirectoryRow
-                        key={dir.id}
-                        dir={dir}
-                        onRemove={() => onRemoveDirectory(dir.path)}
-                        onToggle={(active) => onToggleDirectory(dir.path, active)}
-                        isRemoving={removingDir === dir.path}
-                      />
-                    ))}
-                  </div>
-                )}
-                {customDirs.length === 0 && (
-                  <p className="text-xs text-muted-foreground text-center py-2">{t("settings.noDirs")}</p>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <div
               data-testid="settings-software-platforms-header"
               className="mb-2 flex items-center justify-between gap-3"
             >
@@ -425,6 +383,48 @@ function SoftwarePlatformsCard({
                   onRemovePlatform={onRemovePlatform}
                   removingAgent={removingAgent}
                 />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div
+              data-testid="settings-project-directories-header"
+              className="mb-2 flex items-center justify-between gap-3"
+            >
+              <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                <FolderOpen className="size-4 text-muted-foreground" />
+                <span>{t("settings.projectDirectories")}</span>
+              </div>
+              <Button variant="outline" size="sm" onClick={onAddDirectory} aria-label={t("settings.addDirAriaLabel")}>
+                <Plus className="size-3.5" />
+                <span>{t("settings.addDirectory")}</span>
+              </Button>
+            </div>
+            {scanDirError && <p className="text-xs text-destructive mb-3" role="alert">{scanDirError}</p>}
+            {isLoadingScanDirs ? (
+              <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm justify-center">
+                <Loader2 className="size-4 animate-spin" />
+                <span>{t("settings.loading")}</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {customDirs.length > 0 && (
+                  <div className="rounded-lg border border-border overflow-hidden">
+                    {customDirs.map((dir) => (
+                      <ScanDirectoryRow
+                        key={dir.id}
+                        dir={dir}
+                        onRemove={() => onRemoveDirectory(dir.path)}
+                        onToggle={(active) => onToggleDirectory(dir.path, active)}
+                        isRemoving={removingDir === dir.path}
+                      />
+                    ))}
+                  </div>
+                )}
+                {customDirs.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-2">{t("settings.noDirs")}</p>
+                )}
               </div>
             )}
           </div>

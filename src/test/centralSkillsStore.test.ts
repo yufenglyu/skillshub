@@ -4,6 +4,7 @@ import {
   CentralSkillBundle,
   CentralSkillBundleDetail,
   CentralSkillBundleDeletePreview,
+  ScanDirectory,
   SkillWithLinks,
 } from "../types";
 import * as tauriBridge from "@/lib/tauri";
@@ -68,6 +69,17 @@ const mockAgents: AgentWithStatus[] = [
     is_detected: true,
     is_builtin: true,
     is_enabled: true,
+  },
+];
+
+const mockScanDirectories: ScanDirectory[] = [
+  {
+    id: 7,
+    path: "D:\\Projects\\App",
+    label: "App",
+    is_active: true,
+    is_builtin: false,
+    added_at: "2026-07-20T00:00:00Z",
   },
 ];
 
@@ -176,24 +188,34 @@ describe("centralSkillsStore", () => {
   it("calls get_central_skills and get_agents on loadCentralSkills", async () => {
     vi.mocked(invoke)
       .mockResolvedValueOnce(mockSkills) // get_central_skills
-      .mockResolvedValueOnce(mockAgents); // get_agents
+      .mockResolvedValueOnce(mockAgents) // get_agents
+      .mockResolvedValueOnce(mockScanDirectories); // get_scan_directories
 
     await useCentralSkillsStore.getState().loadCentralSkills();
 
     expect(invoke).toHaveBeenCalledWith("get_central_skills");
     expect(invoke).toHaveBeenCalledWith("get_agents");
+    expect(invoke).toHaveBeenCalledWith("get_scan_directories");
   });
 
   it("populates skills and agents after successful loadCentralSkills", async () => {
     vi.mocked(invoke)
       .mockResolvedValueOnce(mockSkills)
-      .mockResolvedValueOnce(mockAgents);
+      .mockResolvedValueOnce(mockAgents)
+      .mockResolvedValueOnce(mockScanDirectories);
 
     await useCentralSkillsStore.getState().loadCentralSkills();
 
     const state = useCentralSkillsStore.getState();
     expect(state.skills).toEqual(mockSkills);
-    expect(state.agents).toEqual(mockAgents);
+    expect(state.agents).toEqual([
+      ...mockAgents,
+      expect.objectContaining({
+        id: "project:7",
+        display_name: "App",
+        category: "project",
+      }),
+    ]);
     expect(state.isLoading).toBe(false);
     expect(state.error).toBeNull();
   });

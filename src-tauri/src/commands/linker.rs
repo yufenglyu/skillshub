@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use super::agents::is_agent_detected;
-use crate::db::{self, DbPool, SkillInstallation};
+use crate::db::{self, DbPool, ScanDirectory, SkillInstallation};
 use crate::path_utils::remove_symlink_path;
 use crate::AppState;
 
@@ -34,6 +34,79 @@ pub struct FailedInstall {
 pub struct AddResourceSkillToCentralResult {
     pub skill_id: String,
     pub central_path: String,
+}
+
+pub(crate) const PROJECT_AGENT_PREFIX: &str = "project:";
+pub(crate) const PROJECT_SKILLS_SUBDIR: &str = ".agents/skills";
+
+#[derive(Debug, Clone)]
+pub(crate) struct InstallTarget {
+    pub(crate) id: String,
+    pub(crate) display_name: String,
+    pub(crate) skills_dir: PathBuf,
+    pub(crate) supports_universal_availability: bool,
+}
+
+pub(crate) fn project_agent_id(scan_directory_id: i64) -> String {
+    format!("{PROJECT_AGENT_PREFIX}{scan_directory_id}")
+}
+
+pub(crate) fn parse_project_agent_id(agent_id: &str) -> Option<i64> {
+    agent_id
+        .strip_prefix(PROJECT_AGENT_PREFIX)
+        .and_then(|id| id.parse::<i64>().ok())
+}
+
+pub(crate) fn project_skills_dir_for_scan_directory(scan_dir: &ScanDirectory) -> PathBuf {
+    PathBuf::from(&scan_dir.path).join(PROJECT_SKILLS_SUBDIR)
+}
+
+pub(crate) async fn project_target_for_scan_directory(
+    scan_dir: &ScanDirectory,
+) -> Result<Option<InstallTarget>, String> {
+    if scan_dir.is_builtin || !scan_dir.is_active {
+        return Ok(None);
+    }
+
+    let project_root = PathBuf::from(&scan_dir.path);
+    if !project_root.exists() {
+        return Ok(None);
+    }
+
+    Ok(Some(InstallTarget {
+        id: project_agent_id(scan_dir.id),
+        display_name: scan_dir
+            .label
+            .clone()
+            .unwrap_or_else(|| scan_dir.path.clone()),
+        skills_dir: project_skills_dir_for_scan_directory(scan_dir),
+        supports_universal_availability: false,
+    }))
+}
+
+async fn install_target_for_agent_id(
+    pool: &DbPool,
+    agent_id: &str,
+) -> Result<InstallTarget, String> {
+    if let Some(scan_directory_id) = parse_project_agent_id(agent_id) {
+        let scan_dir = db::get_scan_directory_by_id(pool, scan_directory_id)
+            .await?
+            .ok_or_else(|| format!("Project directory target '{}' not found", agent_id))?;
+        return project_target_for_scan_directory(&scan_dir)
+            .await?
+            .ok_or_else(|| format!("Project directory target '{}' is not active or does not exist", agent_id));
+    }
+
+    let agent = db::get_agent_by_id(pool, agent_id)
+        .await?
+        .ok_or_else(|| format!("Agent '{}' not found", agent_id))?;
+
+    Ok(InstallTarget {
+        id: agent.id,
+        display_name: agent.display_name,
+        skills_dir: PathBuf::from(agent.global_skills_dir),
+        supports_universal_availability: true,
+    })
 }
 
 // ─── Path Utilities ───────────────────────────────────────────────────────────
@@ -329,6 +402,22 @@ async fn sync_central_skill_to_platforms(
         }
     }
 
+    for scan_dir in db::get_scan_directories(pool).await? {
+        let Some(target) = project_target_for_scan_directory(&scan_dir).await? else {
+            continue;
+        };
+
+        if resolved_path(&target.skills_dir) == resolved_path(central_root) {
+            continue;
+        }
+
+        if let Err(error) =
+            install_central_skill_to_agent_for_sync(pool, skill_id, &target.id).await
+        {
+            failures.push(format!("{}: {}", target.display_name, error));
+        }
+    }
+
     if failures.is_empty() {
         Ok(())
     } else {
@@ -546,10 +635,9 @@ async fn install_skill_to_agent_from_source_impl(
         return Err("Cannot install a skill to the central agent itself".to_string());
     }
 
-    // 1. Look up the target agent.
-    let agent = db::get_agent_by_id(pool, agent_id)
-        .await?
-        .ok_or_else(|| format!("Agent '{}' not found", agent_id))?;
+    // 1. Look up the install target. This can be a software platform or a
+    // project directory exposed as `project:<scan_directory_id>`.
+    let target = install_target_for_agent_id(pool, agent_id).await?;
 
     // 2. Look up the central agent to determine the canonical root.
     let central = db::get_agent_by_id(pool, "central")
@@ -567,14 +655,14 @@ async fn install_skill_to_agent_from_source_impl(
             None => install_source_dir_for_skill(pool, skill_id, &central_root).await?,
         }
     };
-    let agent_dir = PathBuf::from(&agent.global_skills_dir);
+    let agent_dir = target.skills_dir.clone();
     validate_platform_install_target(agent_id, &canonical_dir, &agent_dir, &central_root)?;
 
-    if allow_universal_availability {
+    if allow_universal_availability && target.supports_universal_availability {
         if let Some(result) = universal_available_install_result(
             pool,
             skill_id,
-            agent_id,
+            &target.id,
             &canonical_dir,
             &central_root,
         )
@@ -595,7 +683,7 @@ async fn install_skill_to_agent_from_source_impl(
             .map_err(|e| format!("Failed to create agent skills directory: {}", e))?;
     }
 
-    if let Some(existing) = existing_installation_for_agent(pool, skill_id, agent_id).await? {
+    if let Some(existing) = existing_installation_for_agent(pool, skill_id, &target.id).await? {
         cleanup_replaced_installation_path(&existing, &symlink_path)?;
     }
 
@@ -631,7 +719,7 @@ async fn install_skill_to_agent_from_source_impl(
     // 9. Persist the installation record.
     let installation = SkillInstallation {
         skill_id: skill_id.to_string(),
-        agent_id: agent_id.to_string(),
+        agent_id: target.id.clone(),
         installed_path: symlink_path.to_string_lossy().into_owned(),
         link_type: "symlink".to_string(),
         symlink_target: Some(canonical_dir.to_string_lossy().into_owned()),
@@ -803,10 +891,9 @@ async fn install_skill_to_agent_copy_from_source_impl(
         return Err("Cannot install a skill to the central agent itself".to_string());
     }
 
-    // 1. Look up the target agent.
-    let agent = db::get_agent_by_id(pool, agent_id)
-        .await?
-        .ok_or_else(|| format!("Agent '{}' not found", agent_id))?;
+    // 1. Look up the install target. This can be a software platform or a
+    // project directory exposed as `project:<scan_directory_id>`.
+    let target = install_target_for_agent_id(pool, agent_id).await?;
 
     // 2. Look up the central agent to determine the canonical root.
     let central = db::get_agent_by_id(pool, "central")
@@ -824,14 +911,14 @@ async fn install_skill_to_agent_copy_from_source_impl(
             None => install_source_dir_for_skill(pool, skill_id, &central_root).await?,
         }
     };
-    let agent_dir = PathBuf::from(&agent.global_skills_dir);
+    let agent_dir = target.skills_dir.clone();
     validate_platform_install_target(agent_id, &canonical_dir, &agent_dir, &central_root)?;
 
-    if allow_universal_availability {
+    if allow_universal_availability && target.supports_universal_availability {
         if let Some(result) = universal_available_install_result(
             pool,
             skill_id,
-            agent_id,
+            &target.id,
             &canonical_dir,
             &central_root,
         )
@@ -852,7 +939,7 @@ async fn install_skill_to_agent_copy_from_source_impl(
             .map_err(|e| format!("Failed to create agent skills directory: {}", e))?;
     }
 
-    if let Some(existing) = existing_installation_for_agent(pool, skill_id, agent_id).await? {
+    if let Some(existing) = existing_installation_for_agent(pool, skill_id, &target.id).await? {
         cleanup_replaced_installation_path(&existing, &target_path)?;
     }
 
@@ -884,7 +971,7 @@ async fn install_skill_to_agent_copy_from_source_impl(
     // 8. Persist the installation record.
     let installation = SkillInstallation {
         skill_id: skill_id.to_string(),
-        agent_id: agent_id.to_string(),
+        agent_id: target.id.clone(),
         installed_path: target_path.to_string_lossy().into_owned(),
         link_type: "copy".to_string(),
         symlink_target: None,
@@ -918,23 +1005,26 @@ pub async fn uninstall_skill_from_agent_impl(
     skill_id: &str,
     agent_id: &str,
 ) -> Result<(), String> {
-    // 1. Look up the agent.
-    db::get_agent_by_id(pool, agent_id)
-        .await?
-        .ok_or_else(|| format!("Agent '{}' not found", agent_id))?;
+    // 1. Look up the target to reject stale or unknown IDs before touching
+    // filesystem paths.
+    let target = install_target_for_agent_id(pool, agent_id).await?;
 
     // 2. Look up the installation record to determine where and how it was installed.
     let installations = db::get_skill_installations(pool, skill_id).await?;
     let record = match installations
         .iter()
-        .find(|record| record.agent_id == agent_id)
+        .find(|record| record.agent_id == target.id)
     {
         Some(record) => record,
-        None if db::agent_supports_universal_agents_skills(agent_id) => return Ok(()),
+        None if target.supports_universal_availability
+            && db::agent_supports_universal_agents_skills(&target.id) =>
+        {
+            return Ok(())
+        }
         None => {
             return Err(format!(
                 "No managed installation found for skill '{}' on agent '{}'",
-                skill_id, agent_id
+                skill_id, target.id
             ))
         }
     };
@@ -972,7 +1062,7 @@ pub async fn uninstall_skill_from_agent_impl(
     }
 
     // 4. Remove the installation record from the database.
-    db::delete_skill_installation(pool, skill_id, agent_id).await?;
+    db::delete_skill_installation(pool, skill_id, &target.id).await?;
 
     Ok(())
 }
@@ -2479,6 +2569,55 @@ mod tests {
             "adding a resource skill to Central Skills must synchronize it to detected enabled platforms"
         );
         assert!(fs::symlink_metadata(platform_skill).unwrap().is_symlink());
+    }
+
+    #[tokio::test]
+    async fn test_add_resource_skill_to_central_syncs_to_active_project_directories() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let resource_dir = tmp.path().join("resource-library");
+        let agent_dir = tmp.path().join("claude").join("skills");
+        let project_dir = tmp.path().join("project");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&resource_dir).unwrap();
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::create_dir_all(&project_dir).unwrap();
+
+        let pool = setup_db(&central_dir, &agent_dir).await;
+        sqlx::query("UPDATE agents SET is_enabled = 0 WHERE id != 'central'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+        let scan_dir = db::add_scan_directory(
+            &pool,
+            &project_dir.to_string_lossy(),
+            Some("Project"),
+        )
+        .await
+        .unwrap();
+        create_resource_skill(&pool, &resource_dir, "project-shared").await;
+
+        add_resource_skill_to_central_impl(&pool, "project-shared")
+            .await
+            .unwrap();
+
+        let project_skill = project_dir
+            .join(PROJECT_SKILLS_SUBDIR)
+            .join("project-shared");
+        assert!(
+            project_skill.join("SKILL.md").exists(),
+            "adding a resource skill to Central Skills must synchronize it to active project directories"
+        );
+
+        let installs = db::get_skill_installations(&pool, "project-shared")
+            .await
+            .unwrap();
+        assert!(installs
+            .iter()
+            .any(|install| install.agent_id == project_agent_id(scan_dir.id)));
     }
 
     #[tokio::test]

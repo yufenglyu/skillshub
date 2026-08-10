@@ -9,9 +9,11 @@ import {
   DeleteCentralSkillBundleResult,
   DeleteResourceSkillOptions,
   DeleteResourceSkillResult,
+  ScanDirectory,
   SkillWithLinks,
 } from "@/types";
 import { BROWSER_FIXTURE_AGENTS } from "@/stores/centralSkillsStore";
+import { mergeProjectAgents } from "@/lib/projectTargets";
 
 const BROWSER_RESOURCE_SKILLS: SkillWithLinks[] = [
   {
@@ -89,14 +91,15 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
     }
 
     try {
-      const [skills, agents, resourceLibraryDir] = await Promise.all([
+      const [skills, agents, scanDirectories, resourceLibraryDir] = await Promise.all([
         invoke<SkillWithLinks[]>("get_resource_library_skills"),
         invoke<AgentWithStatus[]>("get_agents"),
+        invoke<ScanDirectory[]>("get_scan_directories"),
         invoke<string>("get_skill_resource_library_dir"),
       ]);
       set({
         skills: skills ?? [],
-        agents: agents ?? [],
+        agents: mergeProjectAgents(agents ?? [], scanDirectories ?? []),
         resourceLibraryDir: resourceLibraryDir ?? "",
         isLoading: false,
       });

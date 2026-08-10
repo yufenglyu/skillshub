@@ -22,6 +22,7 @@ import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { formatPathForDisplay } from "@/lib/path";
 import { getRelativePathUnderRoot, splitSkillsByTopLevel } from "@/lib/skillFolders";
 import { cn } from "@/lib/utils";
+import { isProjectAgentId } from "@/lib/projectTargets";
 import { ScannedSkill, SkillWithLinks } from "@/types";
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
@@ -42,7 +43,15 @@ type ClaudeSourceFilter = "all" | "user" | "plugin";
 // ─── PlatformView ─────────────────────────────────────────────────────────────
 
 export function PlatformView() {
-  const { agentId } = useParams<{ agentId: string }>();
+  const { agentId: encodedAgentId } = useParams<{ agentId: string }>();
+  const agentId = useMemo(() => {
+    if (!encodedAgentId) return undefined;
+    try {
+      return decodeURIComponent(encodedAgentId);
+    } catch {
+      return encodedAgentId;
+    }
+  }, [encodedAgentId]);
   const { t, i18n } = useTranslation();
   const agents = usePlatformStore((state) => state.agents);
   const scanGeneration = usePlatformStore((state) => state.scanGeneration ?? 0);
@@ -81,6 +90,7 @@ export function PlatformView() {
 
   const agent = agents.find((a) => a.id === agentId);
   const isClaudePage = agent?.id === "claude-code";
+  const isProjectDirectoryPage = agent ? isProjectAgentId(agent.id) : false;
 
   // Load skills for this agent when the route changes or a fresh scan completes.
   useEffect(() => {
@@ -414,7 +424,11 @@ export function PlatformView() {
       {/* Header */}
       <div className="border-b border-border px-6 py-4">
         <div className="flex items-center gap-2.5">
-          <PlatformIcon agentId={agent.id} className="size-6 text-primary/70" size={24} />
+          {isProjectDirectoryPage ? (
+            <FolderOpen className="size-6 text-primary/70" />
+          ) : (
+            <PlatformIcon agentId={agent.id} className="size-6 text-primary/70" size={24} />
+          )}
           <h1 className="text-xl font-semibold">{agent.display_name}</h1>
         </div>
         <p className="text-sm text-muted-foreground mt-0.5">

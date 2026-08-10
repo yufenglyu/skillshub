@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.16.0 - 2026-08-10
+
+Release focused on making project directories first-class install targets and keeping the sidebar/settings model aligned.
+
+### Features
+
+- Treat configured Project Directories as install targets that manage skills under `<project>/.agents/skills`.
+- Allow Resource Library and Central Skills installs to target project directories alongside software platforms.
+- Automatically synchronize managed Central Skills to active project directories when Central Skills already contains skills.
+- Add collapsible sidebar sections for Software Platforms, Lobster platforms, Coding platforms, and Project Directories.
+
+### Improvements
+
+- Rename the old project-skill sidebar concept to Project Directories and place it below Software Platforms.
+- Reorder Settings so Software Platforms appear above Project Directories.
+- Keep Resource Library, Central Skills, and platform stores aware of project directory targets in browser and Tauri modes.
+- Update English and Chinese documentation and screenshots for the new sidebar and project-directory install model.
+
+### Fixes
+
+- Clean up project-directory virtual installation rows when a configured project directory is disabled, missing, or removed.
+- Count scanned project-directory skills under their virtual project target id.
+- Keep project directory route handling safe for encoded virtual target ids such as `project:<id>`.
+
 ## 0.15.0 - 2026-07-23
 
 Release focused on central-platform synchronization, WebDAV backup controls, and final interface consistency before publishing.
