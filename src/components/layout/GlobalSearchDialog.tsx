@@ -323,6 +323,7 @@ export function GlobalSearchDialog({
           placeholder={t("globalSearch.placeholder")}
           value={query}
           onValueChange={setQuery}
+          clearLabel={t("common.clearSearch")}
         />
         <CommandList>
           <CommandEmpty>{t("globalSearch.noResults")}</CommandEmpty>

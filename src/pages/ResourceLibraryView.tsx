@@ -8,20 +8,24 @@ import {
   Download,
   FolderOpen,
   Globe2,
+  Loader2,
+  PackagePlus,
   Plus,
   RefreshCw,
-  Search,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { InstallDialog } from "@/components/central/InstallDialog";
+import { InstallTargetList } from "@/components/central/InstallTargetList";
 import { GitHubRepoImportWizard } from "@/components/github-import/GitHubRepoImportWizard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import { SkillFolderCard } from "@/components/skill/SkillFolderCard";
 import { SkillListModeToggle } from "@/components/skill/SkillListModeToggle";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { Button } from "@/components/ui/button";
+import { SearchInput } from "@/components/ui/search-input";
 import {
   Dialog,
   DialogContent,
@@ -155,6 +159,7 @@ export function ResourceLibraryView() {
   const refreshCounts = usePlatformStore((state) => state.refreshCounts);
   const loadCentralSkills = useCentralSkillsStore((state) => state.loadCentralSkills);
   const getSkillsByAgent = useSkillStore((state) => state.getSkillsByAgent);
+  const uninstallSkillFromAgent = useSkillStore((state) => state.uninstallSkillFromAgent);
   const skillsByAgent = useSkillStore((state) => state.skillsByAgent);
   const githubImport = useGitHubImportStore((state) => state.githubImport);
   const previewGitHubRepoImport = useGitHubImportStore(
@@ -188,6 +193,15 @@ export function ResourceLibraryView() {
   const [folderDeletePreview, setFolderDeletePreview] =
     useState<CentralSkillBundleDeletePreview | null>(null);
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
+  const [folderInstallTargetIds, setFolderInstallTargetIds] = useState<Set<string>>(new Set());
+  const [folderUninstallTargetIds, setFolderUninstallTargetIds] = useState<Set<string>>(new Set());
+  const [folderInstallMethod, setFolderInstallMethod] = useState<"symlink" | "copy">("symlink");
+  const [folderActionGroupKey, setFolderActionGroupKey] = useState<string | null>(null);
+  const [folderActionMode, setFolderActionMode] = useState<"install" | "uninstall" | null>(null);
+  const [pendingFolderAction, setPendingFolderAction] = useState<
+    "central" | "install" | "uninstall" | null
+  >(null);
+  const [pendingFolderActionKey, setPendingFolderActionKey] = useState<string | null>(null);
   const [githubRepoUrl, setGitHubRepoUrl] = useState("");
   const [importUrlError, setImportUrlError] = useState<string | null>(null);
   const importMenuRef = useRef<HTMLDivElement | null>(null);
@@ -236,6 +250,13 @@ export function ResourceLibraryView() {
       setActiveFolderKey(null);
     }
   }, [activeFolderKey, folderGroupsByPath, viewMode]);
+
+  useEffect(() => {
+    setFolderInstallTargetIds(new Set());
+    setFolderUninstallTargetIds(new Set());
+    setFolderInstallMethod("symlink");
+    setPendingFolderAction(null);
+  }, [activeFolderKey]);
 
   const availableTags = useMemo(() => {
     const tags = new Map<string, string>();
@@ -302,6 +323,22 @@ export function ResourceLibraryView() {
   const availableInstallAgents = useMemo(
     () => agents.filter(isInstallTargetAgent),
     [agents]
+  );
+  const folderActionGroup = folderActionGroupKey
+    ? folderGroupsByPath.get(folderActionGroupKey) ?? null
+    : null;
+  const folderActionLinkedAgentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const skill of folderActionGroup?.skills ?? []) {
+      for (const agentId of skill.linked_agents) {
+        ids.add(agentId);
+      }
+    }
+    return ids;
+  }, [folderActionGroup?.skills]);
+  const folderActionUninstallAgents = useMemo(
+    () => availableInstallAgents.filter((agent) => folderActionLinkedAgentIds.has(agent.id)),
+    [folderActionLinkedAgentIds, availableInstallAgents]
   );
   const installableImportedSkills = useMemo(() => {
     if (!githubImport.importResult) return [];
@@ -400,6 +437,132 @@ export function ResourceLibraryView() {
       toast.error(t("resource.addToCentralError", { name: skill.name, error: String(err) }));
     } finally {
       setUpdatingSkillId(null);
+    }
+  }
+
+  function closeFolderActionDialog() {
+    setFolderActionMode(null);
+    setFolderActionGroupKey(null);
+    setFolderInstallTargetIds(new Set());
+    setFolderUninstallTargetIds(new Set());
+    setFolderInstallMethod("symlink");
+  }
+
+  function handleFolderInstallTargetChange(agentId: string, checked: boolean) {
+    setFolderInstallTargetIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(agentId);
+      } else {
+        next.delete(agentId);
+      }
+      return next;
+    });
+  }
+
+  function handleFolderUninstallTargetChange(agentId: string, checked: boolean) {
+    setFolderUninstallTargetIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(agentId);
+      } else {
+        next.delete(agentId);
+      }
+      return next;
+    });
+  }
+
+  function handleOpenInstallFolder(group: SkillFolderGroup<SkillWithLinks>) {
+    setFolderActionGroupKey(group.relativePath);
+    setFolderActionMode("install");
+    setFolderInstallTargetIds(new Set());
+    setFolderInstallMethod("symlink");
+  }
+
+  function handleOpenUninstallFolder(group: SkillFolderGroup<SkillWithLinks>) {
+    setFolderActionGroupKey(group.relativePath);
+    setFolderActionMode("uninstall");
+    setFolderUninstallTargetIds(new Set());
+  }
+
+  async function handleAddFolderToCentral(group: SkillFolderGroup<SkillWithLinks>) {
+    if (pendingFolderAction) return;
+    setPendingFolderAction("central");
+    setPendingFolderActionKey(group.relativePath);
+    try {
+      for (const skill of group.skills) {
+        if (!skill.is_central) {
+          await addToCentral(skill.id);
+        }
+      }
+      await Promise.all([loadResourceLibrary(), loadCentralSkills(), refreshCounts()]);
+      toast.success(t("skillFolder.addFolderToCentralSuccess", { count: group.skills.length }));
+    } catch (err) {
+      toast.error(t("resource.addToCentralError", { name: group.name, error: String(err) }));
+    } finally {
+      setPendingFolderAction(null);
+      setPendingFolderActionKey(null);
+    }
+  }
+
+  async function handleInstallFolderToTarget() {
+    const targetIds = Array.from(folderInstallTargetIds);
+    if (!folderActionGroup || targetIds.length === 0 || pendingFolderAction) return;
+    setPendingFolderAction("install");
+    setPendingFolderActionKey(folderActionGroup.relativePath);
+    try {
+      let failedCount = 0;
+      for (const skill of folderActionGroup.skills) {
+        const result = await installSkill(skill.id, targetIds, folderInstallMethod);
+        failedCount += result.failed.length;
+      }
+      await Promise.all([
+        loadResourceLibrary(),
+        refreshCounts(),
+        ...targetIds.map((agentId) => getSkillsByAgent(agentId)),
+      ]);
+      if (failedCount > 0) {
+        toast.error(t("skillFolder.installFolderPartialFail", { count: failedCount }));
+        return;
+      }
+      toast.success(t("skillFolder.installFolderSuccess", { count: folderActionGroup.skills.length }));
+      closeFolderActionDialog();
+    } catch (err) {
+      toast.error(t("central.installError", { error: String(err) }));
+    } finally {
+      setPendingFolderAction(null);
+      setPendingFolderActionKey(null);
+    }
+  }
+
+  async function handleUninstallFolderFromTarget() {
+    const targetIds = Array.from(folderUninstallTargetIds);
+    if (!folderActionGroup || targetIds.length === 0 || pendingFolderAction) return;
+    setPendingFolderAction("uninstall");
+    setPendingFolderActionKey(folderActionGroup.relativePath);
+    try {
+      let uninstallCount = 0;
+      for (const agentId of targetIds) {
+        const removableSkills = folderActionGroup.skills.filter((skill) =>
+          skill.linked_agents.includes(agentId)
+        );
+        uninstallCount += removableSkills.length;
+        for (const skill of removableSkills) {
+          await uninstallSkillFromAgent(skill.id, agentId);
+        }
+      }
+      await Promise.all([
+        loadResourceLibrary(),
+        refreshCounts(),
+        ...targetIds.map((agentId) => getSkillsByAgent(agentId)),
+      ]);
+      toast.success(t("skillFolder.uninstallFolderSuccess", { count: uninstallCount }));
+      closeFolderActionDialog();
+    } catch (err) {
+      toast.error(t("detail.uninstallError", { error: String(err) }));
+    } finally {
+      setPendingFolderAction(null);
+      setPendingFolderActionKey(null);
     }
   }
 
@@ -648,16 +811,13 @@ export function ResourceLibraryView() {
 
       <div className="border-b border-border px-6 py-3">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder={t("resource.searchPlaceholder")}
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              className="bg-muted/40 pl-8"
-              aria-label={t("resource.searchPlaceholder")}
-            />
-          </div>
+          <SearchInput
+            placeholder={t("resource.searchPlaceholder")}
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+            containerClassName="flex-1"
+            aria-label={t("resource.searchPlaceholder")}
+          />
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <ArrowUpDown className="size-3.5" />
@@ -784,6 +944,36 @@ export function ResourceLibraryView() {
                       readOnlyAgentCount={group.readOnlyAgentCount}
                       previewNames={group.skills.map((skill) => skill.name)}
                       onOpen={() => setActiveFolderKey(group.relativePath)}
+                      onAddToCentral={
+                        group.skills.some((skill) => !skill.is_central)
+                          ? () => void handleAddFolderToCentral(group)
+                          : undefined
+                      }
+                      addToCentralLabel={t("skillFolder.addFolderToCentralLabel", {
+                        name: group.name,
+                      })}
+                      isAddingToCentral={
+                        pendingFolderAction === "central" &&
+                        pendingFolderActionKey === group.relativePath
+                      }
+                      onInstall={
+                        availableInstallAgents.length > 0
+                          ? () => handleOpenInstallFolder(group)
+                          : undefined
+                      }
+                      installLabel={t("skillFolder.installFolderLabel", { name: group.name })}
+                      isInstalling={
+                        pendingFolderAction === "install" &&
+                        pendingFolderActionKey === group.relativePath
+                      }
+                      onUninstall={
+                        group.linkedAgentCount > 0 ? () => handleOpenUninstallFolder(group) : undefined
+                      }
+                      uninstallLabel={t("skillFolder.uninstallFolderLabel", { name: group.name })}
+                      isUninstalling={
+                        pendingFolderAction === "uninstall" &&
+                        pendingFolderActionKey === group.relativePath
+                      }
                       onDelete={() => void handleDeleteFolderClick(group)}
                       deleteLabel={t("resource.deleteFolderLabel", { name: group.name })}
                     />
@@ -798,10 +988,12 @@ export function ResourceLibraryView() {
               <section className="space-y-3">
                 {viewMode === "folders" && (
                   <div className="flex items-center gap-2">
-                    <Blocks className="size-4 text-primary" />
-                    <h2 className="text-sm font-semibold">
-                      {activeFolder ? activeFolder.name : t("skillFolder.topLevelSkills")}
-                    </h2>
+                    <div className="flex items-center gap-2">
+                      <Blocks className="size-4 text-primary" />
+                      <h2 className="text-sm font-semibold">
+                        {activeFolder ? activeFolder.name : t("skillFolder.topLevelSkills")}
+                      </h2>
+                    </div>
                   </div>
                 )}
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -985,6 +1177,127 @@ export function ResourceLibraryView() {
             </Button>
             <Button onClick={() => void handleCreateManualSkill()}>
               {t("resource.manualCreateSubmit")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={folderActionMode === "install"}
+        onOpenChange={(open) => {
+          if (!open && pendingFolderAction !== "install") {
+            closeFolderActionDialog();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {t("skillFolder.installFolderTitle", {
+                name: folderActionGroup?.name ?? "",
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {t("skillFolder.installFolderDesc", {
+                count: folderActionGroup?.skills.length ?? 0,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <InstallTargetList
+              agents={availableInstallAgents}
+              selectedAgentIds={folderInstallTargetIds}
+              onToggleAgent={handleFolderInstallTargetChange}
+              emptyMessage={t("installDialog.noPlatforms")}
+              ariaLabel={t("skillFolder.installTargetLabel")}
+            />
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("installDialog.installMethod")}
+              </label>
+              <select
+                value={folderInstallMethod}
+                onChange={(event) =>
+                  setFolderInstallMethod(event.target.value as "symlink" | "copy")
+                }
+                className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={t("installDialog.installMethod")}
+              >
+                <option value="symlink">{t("installDialog.symlink")}</option>
+                <option value="copy">{t("installDialog.copy")}</option>
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeFolderActionDialog}
+              disabled={pendingFolderAction === "install"}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={() => void handleInstallFolderToTarget()}
+              disabled={folderInstallTargetIds.size === 0 || pendingFolderAction !== null}
+            >
+              {pendingFolderAction === "install" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <PackagePlus className="size-4" />
+              )}
+              {t("skillFolder.installFolder")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={folderActionMode === "uninstall"}
+        onOpenChange={(open) => {
+          if (!open && pendingFolderAction !== "uninstall") {
+            closeFolderActionDialog();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {t("skillFolder.uninstallFolderTitle", {
+                name: folderActionGroup?.name ?? "",
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {t("skillFolder.uninstallFolderDesc", {
+                count: folderActionGroup?.skills.length ?? 0,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <InstallTargetList
+            agents={folderActionUninstallAgents}
+            selectedAgentIds={folderUninstallTargetIds}
+            onToggleAgent={handleFolderUninstallTargetChange}
+            emptyMessage={t("skillFolder.noUninstallTargets")}
+            ariaLabel={t("skillFolder.uninstallTargetLabel")}
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeFolderActionDialog}
+              disabled={pendingFolderAction === "uninstall"}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void handleUninstallFolderFromTarget()}
+              disabled={folderUninstallTargetIds.size === 0 || pendingFolderAction !== null}
+            >
+              {pendingFolderAction === "uninstall" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              {t("skillFolder.uninstallFolder")}
             </Button>
           </DialogFooter>
         </DialogContent>

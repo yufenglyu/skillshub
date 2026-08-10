@@ -15,6 +15,7 @@ import {
   Settings,
   Sun,
   FolderOpen,
+  FolderTree,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
@@ -283,7 +284,7 @@ export function Sidebar() {
         {expanded ? (
           <div
             data-testid="software-platform-heading"
-            className="flex items-center justify-between gap-1 px-1 py-1"
+            className="flex items-center justify-between gap-1 rounded-lg border border-sidebar-border/60 bg-background/35 px-1 py-1"
           >
             <button
               type="button"
@@ -411,7 +412,7 @@ export function Sidebar() {
             {expanded ? (
               <div
                 data-testid="project-directories-heading"
-                className="mt-2 flex items-center justify-between gap-1 px-1 py-1"
+                className="mt-3 flex items-center justify-between gap-1 rounded-lg border border-sidebar-border/70 bg-muted/35 px-1 py-1"
               >
                 <button
                   type="button"
@@ -424,7 +425,7 @@ export function Sidebar() {
                   ) : (
                     <ChevronDown className="size-3.5 shrink-0" />
                   )}
-                  <FolderOpen className="size-4 shrink-0" />
+                  <FolderTree className="size-4 shrink-0" />
                   <span className="truncate text-left text-sm font-medium">
                     {t("sidebar.projectDirectories")}
                   </span>
@@ -433,17 +434,21 @@ export function Sidebar() {
             ) : (
               <div className="border-t border-sidebar-border/40 my-1.5" />
             )}
-            {!projectsCollapsed && projectAgents.map((agent) => (
-              <NavItem
-                key={agent.id}
-                label={agent.display_name}
-                isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
-                onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
-                icon={<FolderOpen className="size-4" />}
-                expanded={expanded}
-                count={skillsByAgent[agent.id]}
-              />
-            ))}
+            {!projectsCollapsed && projectAgents.length > 0 && (
+              <div className={expanded ? "ml-3 border-l border-sidebar-border/70 pl-2" : ""}>
+                {projectAgents.map((agent) => (
+                  <NavItem
+                    key={agent.id}
+                    label={agent.display_name}
+                    isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
+                    onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
+                    icon={<FolderOpen className="size-4" />}
+                    expanded={expanded}
+                    count={skillsByAgent[agent.id]}
+                  />
+                ))}
+              </div>
+            )}
           </>
         )}
 

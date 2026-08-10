@@ -27,8 +27,8 @@ vi.mock("../stores/platformStore", () => ({
   usePlatformStore: vi.fn(),
 }));
 
-vi.mock("../stores/centralSkillsStore", () => ({
-  useCentralSkillsStore: vi.fn(),
+vi.mock("../stores/resourceLibraryStore", () => ({
+  useResourceLibraryStore: vi.fn(),
 }));
 
 vi.mock("../components/skill/SkillDetailDrawer", () => ({
@@ -60,7 +60,7 @@ vi.mock("../components/skill/SkillDetailDrawer", () => ({
 
 import { useCollectionStore } from "../stores/collectionStore";
 import { usePlatformStore } from "../stores/platformStore";
-import { useCentralSkillsStore } from "../stores/centralSkillsStore";
+import { useResourceLibraryStore } from "../stores/resourceLibraryStore";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -153,14 +153,14 @@ const mockDetailCol2: CollectionDetail = {
   ],
 };
 
-const mockCentralSkills: SkillWithLinks[] = [
+const mockResourceSkills: SkillWithLinks[] = [
   {
     id: "frontend-design",
     name: "frontend-design",
     description: "Build distinctive frontend UIs",
-    file_path: "~/.agents/skills/frontend-design/SKILL.md",
-    canonical_path: "~/.agents/skills/frontend-design",
-    is_central: true,
+    file_path: "~/.skillshub/library/frontend-design/SKILL.md",
+    canonical_path: "~/.skillshub/library/frontend-design",
+    is_central: false,
     scanned_at: "2026-04-09T00:00:00Z",
     linked_agents: [],
   },
@@ -177,12 +177,12 @@ const mockExportCollection = vi.fn();
 const mockImportCollection = vi.fn();
 const mockAddSkillToCollection = vi.fn();
 const mockRefreshCounts = vi.fn();
-const mockLoadCentralSkills = vi.fn();
-const mockInstallCentralSkill = vi.fn();
+const mockLoadResourceLibrary = vi.fn();
+const mockInstallResourceSkill = vi.fn();
 
 const mockUseCollectionStore = vi.mocked(useCollectionStore);
 const mockUsePlatformStore = vi.mocked(usePlatformStore);
-const mockUseCentralSkillsStore = vi.mocked(useCentralSkillsStore);
+const mockUseResourceLibraryStore = vi.mocked(useResourceLibraryStore);
 
 function buildCollectionStoreState(overrides: Record<string, unknown> = {}) {
   return {
@@ -219,17 +219,27 @@ function buildPlatformStoreState() {
   };
 }
 
-function buildCentralStoreState() {
+function buildResourceLibraryStoreState() {
   return {
-    skills: mockCentralSkills,
+    skills: mockResourceSkills,
     agents: mockAgents,
+    resourceLibraryDir: "~/.skillshub/library",
     isLoading: false,
     isInstalling: false,
+    isUpdatingSources: false,
     togglingAgentId: null,
+    deletingSkillId: null,
     error: null,
-    loadCentralSkills: mockLoadCentralSkills,
-    installSkill: mockInstallCentralSkill,
+    loadResourceLibrary: mockLoadResourceLibrary,
+    installSkill: mockInstallResourceSkill,
     togglePlatformLink: vi.fn(),
+    updateSourceBackedSkills: vi.fn(),
+    updateSourceBackedSkill: vi.fn(),
+    createManualSkill: vi.fn(),
+    previewDeleteResourceBundle: vi.fn(),
+    deleteResourceBundle: vi.fn(),
+    deleteResourceSkill: vi.fn(),
+    addToCentral: vi.fn(),
   };
 }
 
@@ -244,8 +254,8 @@ function applyStoreMocks(collectionOverrides: Record<string, unknown> = {}) {
     if (typeof selector === "function") return selector(state);
     return state;
   });
-  mockUseCentralSkillsStore.mockImplementation((selector: unknown) => {
-    const state = buildCentralStoreState();
+  mockUseResourceLibraryStore.mockImplementation((selector: unknown) => {
+    const state = buildResourceLibraryStoreState();
     if (typeof selector === "function") return selector(state);
     return state;
   });

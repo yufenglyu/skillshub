@@ -10,6 +10,8 @@ Release focused on making project directories first-class install targets and ke
 
 - Treat configured Project Directories as install targets that manage skills under `<project>/.agents/skills`.
 - Allow Resource Library and Central Skills installs to target project directories alongside software platforms.
+- Allow Resource Library folders to be installed into Central Skills, software platforms, or project directories as a single folder-level action.
+- Allow software platform and project directory folder views to uninstall installed folders.
 - Automatically synchronize managed Central Skills to active project directories when Central Skills already contains skills.
 - Add collapsible sidebar sections for Software Platforms, Lobster platforms, Coding platforms, and Project Directories.
 
@@ -18,6 +20,8 @@ Release focused on making project directories first-class install targets and ke
 - Rename the old project-skill sidebar concept to Project Directories and place it below Software Platforms.
 - Reorder Settings so Software Platforms appear above Project Directories.
 - Keep Resource Library, Central Skills, and platform stores aware of project directory targets in browser and Tauri modes.
+- Use Resource Library skills as the source for adding skills to Collections, and keep collection single-skill installs aligned with Resource Library installs.
+- Align single-skill and folder-card install icons so Central promotion and target installation have distinct visual meanings.
 - Update English and Chinese documentation and screenshots for the new sidebar and project-directory install model.
 
 ### Fixes

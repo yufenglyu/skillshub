@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { Search, XIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import type { AgentWithStatus, SkillWithLinks } from "@/types";
 import { isInstallTargetAgent } from "@/lib/agents";
@@ -127,15 +127,13 @@ export function PlatformInstallDrawer({
                 </DialogClose>
               </div>
               <div className="mt-4 flex items-center gap-2">
-                <div className="relative flex-1">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder={t("platformDrawer.searchPlaceholder")}
-                    className="h-9 bg-muted/40 pl-8"
-                  />
-                </div>
+                <SearchInput
+                  value={query}
+                  onValueChange={setQuery}
+                  placeholder={t("platformDrawer.searchPlaceholder")}
+                  containerClassName="flex-1"
+                  className="h-9"
+                />
                 {onOpenInstallDialog && (
                   <Button type="button" variant="outline" size="sm" onClick={onOpenInstallDialog}>
                     {t("platformDrawer.openFull")}

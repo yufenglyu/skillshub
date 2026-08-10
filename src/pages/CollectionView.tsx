@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { useCollectionStore } from "@/stores/collectionStore";
 import { usePlatformStore } from "@/stores/platformStore";
-import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
+import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { CollectionEditor } from "@/components/collection/CollectionEditor";
 import { SkillPickerDialog } from "@/components/collection/SkillPickerDialog";
 import { CollectionInstallDialog } from "@/components/collection/CollectionInstallDialog";
@@ -55,10 +55,10 @@ export function CollectionView() {
   const agents = usePlatformStore((s) => s.agents);
   const refreshCounts = usePlatformStore((s) => s.refreshCounts);
 
-  const centralSkills = useCentralSkillsStore((s) => s.skills);
-  const centralAgents = useCentralSkillsStore((s) => s.agents);
-  const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
-  const installCentralSkill = useCentralSkillsStore((s) => s.installSkill);
+  const resourceSkills = useResourceLibraryStore((s) => s.skills);
+  const resourceAgents = useResourceLibraryStore((s) => s.agents);
+  const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
+  const installResourceSkill = useResourceLibraryStore((s) => s.installSkill);
 
   const importCollection = useCollectionStore((s) => s.importCollection);
 
@@ -111,12 +111,12 @@ export function CollectionView() {
     }
   }, [collectionId, loadCollectionDetail]);
 
-  // Ensure central skills are loaded so we can resolve SkillWithLinks for InstallDialog.
+  // Ensure resource library skills are loaded so collection installs use the library source.
   useEffect(() => {
-    if (centralSkills.length === 0) {
-      loadCentralSkills();
+    if (resourceSkills.length === 0) {
+      loadResourceLibrary();
     }
-  }, [centralSkills.length, loadCentralSkills]);
+  }, [loadResourceLibrary, resourceSkills.length]);
 
   // Scroll restoration: once the collection detail for this route's
   // collectionId has finished hydrating, restore the previously recorded
@@ -151,7 +151,17 @@ export function CollectionView() {
   ]);
 
   function handleInstallSingleSkillClick(skillId: string) {
-    const target = centralSkills.find((s) => s.id === skillId);
+    const targetFromResource = resourceSkills.find((s) => s.id === skillId);
+    const targetFromCollection = currentDetail?.skills.find((s) => s.id === skillId);
+    const target: SkillWithLinks | null =
+      targetFromResource ??
+      (targetFromCollection
+        ? {
+            ...targetFromCollection,
+            linked_agents: [],
+            read_only_agents: [],
+          }
+        : null);
     if (!target) {
       toast.error(t("central.installError", { error: t("platform.notFound") }));
       return;
@@ -162,7 +172,7 @@ export function CollectionView() {
 
   async function handleInstallSingleSkill(skillId: string, agentIds: string[], method: string) {
     try {
-      const result = await installCentralSkill(skillId, agentIds, method);
+      const result = await installResourceSkill(skillId, agentIds, method);
       await refreshCounts();
       if (result.failed.length > 0) {
         const failedNames = result.failed.map((f) => f.agent_id).join(", ");
@@ -463,7 +473,7 @@ export function CollectionView() {
         open={isSingleInstallOpen}
         onOpenChange={setIsSingleInstallOpen}
         skill={installTargetSkill}
-        agents={centralAgents}
+        agents={resourceAgents}
         onInstall={handleInstallSingleSkill}
       />
     </div>

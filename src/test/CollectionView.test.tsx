@@ -9,7 +9,7 @@ import {
   type Location,
 } from "react-router-dom";
 import { CollectionView } from "../pages/CollectionView";
-import { CollectionDetail, AgentWithStatus } from "../types";
+import { CollectionDetail, AgentWithStatus, SkillWithLinks } from "../types";
 import {
   consumeScrollPosition,
   saveScrollPosition,
@@ -39,8 +39,13 @@ vi.mock("../stores/platformStore", () => ({
   usePlatformStore: vi.fn(),
 }));
 
+vi.mock("../stores/resourceLibraryStore", () => ({
+  useResourceLibraryStore: vi.fn(),
+}));
+
 import { useCollectionStore } from "../stores/collectionStore";
 import { usePlatformStore } from "../stores/platformStore";
+import { useResourceLibraryStore } from "../stores/resourceLibraryStore";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -100,12 +105,40 @@ const mockCollectionDetail: CollectionDetail = {
   ],
 };
 
+const mockResourceSkills: SkillWithLinks[] = [
+  {
+    id: "frontend-design",
+    name: "frontend-design",
+    description: "Build distinctive frontend UIs",
+    file_path: "~/.skillshub/library/frontend-design/SKILL.md",
+    canonical_path: "~/.skillshub/library/frontend-design",
+    is_central: false,
+    scanned_at: "2026-04-09T00:00:00Z",
+    linked_agents: [],
+    read_only_agents: [],
+  },
+  {
+    id: "code-reviewer",
+    name: "code-reviewer",
+    description: "Review code changes",
+    file_path: "~/.skillshub/library/code-reviewer/SKILL.md",
+    canonical_path: "~/.skillshub/library/code-reviewer",
+    is_central: false,
+    scanned_at: "2026-04-09T00:00:00Z",
+    linked_agents: [],
+    read_only_agents: [],
+  },
+];
+
 const mockLoadCollectionDetail = vi.fn();
 const mockRemoveSkillFromCollection = vi.fn();
 const mockDeleteCollection = vi.fn();
 const mockExportCollection = vi.fn();
+const mockLoadResourceLibrary = vi.fn();
+const mockInstallResourceSkill = vi.fn();
 const mockUseCollectionStore = vi.mocked(useCollectionStore);
 const mockUsePlatformStore = vi.mocked(usePlatformStore);
+const mockUseResourceLibraryStore = vi.mocked(useResourceLibraryStore);
 
 function buildCollectionStoreState(overrides = {}) {
   return {
@@ -143,12 +176,40 @@ function buildPlatformStoreState(overrides = {}) {
   };
 }
 
+function buildResourceLibraryStoreState(overrides = {}) {
+  return {
+    skills: mockResourceSkills,
+    agents: mockAgents,
+    resourceLibraryDir: "~/.skillshub/library",
+    isLoading: false,
+    isInstalling: false,
+    isUpdatingSources: false,
+    togglingAgentId: null,
+    deletingSkillId: null,
+    error: null,
+    loadResourceLibrary: mockLoadResourceLibrary,
+    installSkill: mockInstallResourceSkill,
+    togglePlatformLink: vi.fn(),
+    updateSourceBackedSkills: vi.fn(),
+    updateSourceBackedSkill: vi.fn(),
+    createManualSkill: vi.fn(),
+    previewDeleteResourceBundle: vi.fn(),
+    deleteResourceBundle: vi.fn(),
+    deleteResourceSkill: vi.fn(),
+    addToCentral: vi.fn(),
+    ...overrides,
+  };
+}
+
 function renderCollectionView(collectionId = "col-1", storeOverrides = {}) {
   mockUseCollectionStore.mockImplementation((selector) =>
     selector(buildCollectionStoreState(storeOverrides))
   );
   mockUsePlatformStore.mockImplementation((selector) =>
     selector(buildPlatformStoreState())
+  );
+  mockUseResourceLibraryStore.mockImplementation((selector) =>
+    selector(buildResourceLibraryStoreState())
   );
 
   return render(

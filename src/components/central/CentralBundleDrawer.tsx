@@ -13,6 +13,12 @@ interface CentralBundleDrawerProps {
   loadingPath: string | null;
   onOpenChange: (open: boolean) => void;
   onInstallationsChange?: () => void | Promise<void>;
+  onInstallSkills?: (
+    skillIds: string[],
+    agentIds: string[],
+    method: "symlink" | "copy"
+  ) => Promise<void>;
+  onUninstallSkillsFromAgent?: (skillIds: string[], agentId: string) => Promise<void>;
 }
 
 function skillPath(skill: SkillWithLinks): string {
@@ -26,6 +32,8 @@ export function CentralBundleDrawer({
   loadingPath,
   onOpenChange,
   onInstallationsChange,
+  onInstallSkills,
+  onUninstallSkillsFromAgent,
 }: CentralBundleDrawerProps) {
   const { t } = useTranslation();
   const skills: SkillFolderDrawerSkill[] =
@@ -59,6 +67,8 @@ export function CentralBundleDrawer({
       }
       onOpenChange={onOpenChange}
       onInstallationsChange={onInstallationsChange}
+      onInstallSkills={onInstallSkills}
+      onUninstallSkillsFromAgent={onUninstallSkillsFromAgent}
     />
   );
 }

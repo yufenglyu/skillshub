@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { AgentWithStatus, SkillWithLinks } from "@/types";
 
@@ -25,6 +25,16 @@ const agents: AgentWithStatus[] = [
     global_skills_dir: "~/.cursor/skills/",
     is_detected: true,
     is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "project:1",
+    display_name: "temp",
+    category: "project",
+    global_skills_dir: "~/Projects/temp/.agents/skills",
+    project_skills_dir: ".agents/skills",
+    is_detected: true,
+    is_builtin: false,
     is_enabled: true,
   },
 ];
@@ -325,7 +335,7 @@ describe("ResourceLibraryView delete", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /目录|Folders/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: /目录|Folders/i })[0]);
     fireEvent.click(
       await screen.findByRole("button", {
         name: /删除资源库目录 example|Delete resource directory example/i,
@@ -343,5 +353,33 @@ describe("ResourceLibraryView delete", () => {
         cascadeUninstall: true,
       });
     });
+  });
+
+  it("groups folder install targets by software platform and project directory", async () => {
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /目录|Folders/i })[0]);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /安装目录 example|Install folder example/i,
+      })
+    );
+
+    const dialog = await screen.findByRole("dialog", {
+      name: /安装目录 example|Install folder example/i,
+    });
+
+    expect(
+      within(dialog).getByRole("heading", { name: /软件平台|Software platforms/i })
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("heading", { name: /项目目录|Project directories/i })
+    ).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Cursor")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("temp")).toBeInTheDocument();
   });
 });

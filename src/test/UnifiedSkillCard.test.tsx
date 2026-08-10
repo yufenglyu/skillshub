@@ -177,6 +177,33 @@ describe("UnifiedSkillCard action buttons", () => {
 
     expect(onInstallToCentral).toHaveBeenCalledTimes(1);
   });
+
+  it("shows install-to-central before install-to-target on resource skills", () => {
+    render(
+      <UnifiedSkillCard
+        name="resource-skill"
+        description="Resource skill"
+        onInstallToCentral={vi.fn()}
+        installToCentralLabel="加入中央技能库：resource-skill"
+        onInstallTo={vi.fn()}
+      />
+    );
+
+    const centralButton = screen.getByRole("button", {
+      name: "加入中央技能库：resource-skill",
+    });
+    const installTargetButton = screen.getByRole("button", {
+      name: "将 resource-skill 安装到平台",
+    });
+
+    expect(
+      centralButton.compareDocumentPosition(installTargetButton) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(centralButton.querySelector("svg")?.classList.contains("lucide-database")).toBe(true);
+    expect(installTargetButton.querySelector("svg")?.classList.contains("lucide-package-plus")).toBe(
+      true
+    );
+  });
 });
 
 describe("UnifiedSkillCard platform toggles", () => {

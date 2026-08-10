@@ -15,7 +15,7 @@ SkillsHub keeps skill storage and platform installation separate:
 - **Skill Resource Library** is the default place for imported, downloaded, and manually created skills. GitHub repositories and supported skills.sh links import here first.
 - **Central Skills** is the compatibility library, usually `~/.agents/skills/`, for skills you intentionally promote into the shared central directory.
 - **Software Platforms** are the concrete tool-specific skills folders, such as Claude Code, Codex CLI, Cursor, Gemini CLI, OpenClaw, and similar tools.
-- **Collections** let you group central skills and install them as reusable sets.
+- **Collections** let you group skills from the Resource Library and install them as reusable sets.
 - **Project Directories** are project-level install targets. SkillsHub manages skills under each configured project's `.agents/skills` folder, so Resource Library and Central Skills can be installed into projects the same way they are installed into software platforms.
 
 Application data is stored in `~/.skillshub/db.sqlite`. On first launch after upgrading from older releases, SkillsHub can migrate an existing `~/.skillsmanage/db.sqlite` database when the new database does not exist yet.
@@ -28,8 +28,11 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 - Source metadata tracking for imported skills, plus one-click source updates when a skill can be traced back to its origin.
 - Resource Library source updates can recover missing GitHub raw URLs from saved repository/path metadata before updating local files.
 - Resource Library folder view grouped by source-style paths such as `owner/repo`, matching common local layouts like `author/project/skill`.
+- Folder views in the Resource Library, Central Skills, software platforms, and project directories support folder-level management. Resource Library folders can be promoted to Central Skills or installed into software platforms and project directories, while platform and project directory folders can be uninstalled as folders.
+- Single-skill cards and folder cards use the same install icon semantics: the database icon means promote to Central Skills, and the package-install icon means install into a software platform or project directory.
 - Skill cards show created and updated dates separately with labels that match the current UI language.
 - Direct installation from the Resource Library to selected software platforms or project directories without forcing the skill into Central Skills.
+- Collections add skills from the Resource Library instead of only from Central Skills, and collection members can still be installed into software platforms or project directories.
 - One-click promotion from the Resource Library to Central Skills, with automatic synchronization to every detected local platform and configured project directory when Central Skills already contains managed skills.
 - Central Skills management with folder view, safe deletion previews, platform install status, and batch uninstall from selected platforms.
 - Full skill detail page with Markdown preview, raw source view, grouped notes, tags, source information, time information, storage paths, installation status, and collections.
@@ -81,6 +84,8 @@ SkillsHub uses four different storage concepts:
 | Project directory | Project-scoped install target managed below the configured project root | `<project>/.agents/skills` |
 
 Installing a skill directly from the Resource Library writes only to the selected software platforms or project directories. Promoting a skill to Central Skills writes to the central directory. When Central Skills already contains managed skills, newly detected local platforms and configured project directories are automatically included in central synchronization and shown in the sidebar.
+
+Collections store skill references. When adding skills, the picker reads from the Resource Library; when installing a collection or a single skill inside a collection, SkillsHub distributes the Resource Library skill into the selected software platforms or project directories.
 
 Changing the Resource Library path, Central Skills path, platform directory, or project directory does not automatically rewrite existing symlinks or copies. Reinstall affected skills if you intentionally move those directories.
 

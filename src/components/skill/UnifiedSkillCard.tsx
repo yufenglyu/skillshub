@@ -1,11 +1,11 @@
 import {
+  Database,
   PackagePlus,
   Check,
   Link2,
   FolderOpen,
   Folder,
   Globe,
-  ArrowUpRight,
   Plus,
   ChevronRight,
   X,
@@ -287,6 +287,19 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
             {/* Icon action buttons */}
             {hasActions && (
               <div className="flex items-center gap-0.5 shrink-0">
+                {/* Install to Central (resource/discover) */}
+                {onInstallToCentral && !isCentral && (
+                  <button
+                    onClick={onInstallToCentral}
+                    disabled={isLoading}
+                    title={installToCentralLabel ?? t("discover.installToCentral")}
+                    aria-label={installToCentralLabel ?? t("discover.installToCentral")}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:cursor-default"
+                  >
+                    {isLoading ? <Loader2 className="size-4 animate-spin" /> : <Database className="size-4" />}
+                  </button>
+                )}
+
                 {/* Install To... (central / platform / collection) */}
                 {onInstallTo && (
                   <button
@@ -297,19 +310,6 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:cursor-default"
                   >
                     <PackagePlus className="size-4" />
-                  </button>
-                )}
-
-                {/* Install to Central (discover) */}
-                {onInstallToCentral && !isCentral && (
-                  <button
-                    onClick={onInstallToCentral}
-                    disabled={isLoading}
-                    title={installToCentralLabel ?? t("discover.installToCentral")}
-                    aria-label={installToCentralLabel ?? t("discover.installToCentral")}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:cursor-default"
-                  >
-                    {isLoading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUpRight className="size-4" />}
                   </button>
                 )}
 

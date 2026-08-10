@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Search, Blocks } from "lucide-react";
+import { Blocks } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import { InstallDialog } from "@/components/central/InstallDialog";
@@ -178,15 +178,11 @@ export function ObsidianVaultView() {
       </div>
 
       <div className="px-6 py-3 border-b border-border">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-          <Input
-            placeholder={t("platform.searchPlaceholder")}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8 bg-muted/40"
-          />
-        </div>
+        <SearchInput
+          placeholder={t("platform.searchPlaceholder")}
+          value={searchQuery}
+          onValueChange={setSearchQuery}
+        />
       </div>
 
       <div ref={contentRef} className="flex-1 overflow-auto p-6">

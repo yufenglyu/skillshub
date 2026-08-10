@@ -1,6 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Search,
   Radar,
   RefreshCw,
   Loader2,
@@ -14,7 +13,7 @@ import { useTranslation } from "react-i18next";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
 import { DiscoverConfigDialog } from "@/components/discover/DiscoverConfigDialog";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
@@ -467,27 +466,16 @@ export function DiscoverView() {
         <div className="w-60 shrink-0 border-r border-border flex flex-col">
           {/* Project search */}
           <div className="p-2 border-b border-border">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-              <Input
-                placeholder={t("discover.projectSearchPlaceholder")}
-                value={projectSearch}
-                onChange={(e) => setProjectSearch(e.target.value)}
-                aria-label={t("discover.projectSearchPlaceholder")}
-                className="pl-7 pr-7 h-7 text-xs bg-muted/40"
-              />
-              {projectSearch.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setProjectSearch("")}
-                  aria-label={t("discover.clearSearch")}
-                  title={t("discover.clearSearch")}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-                >
-                  <X className="size-3" />
-                </button>
-              )}
-            </div>
+            <SearchInput
+              placeholder={t("discover.projectSearchPlaceholder")}
+              value={projectSearch}
+              onValueChange={setProjectSearch}
+              clearLabel={t("discover.clearSearch")}
+              aria-label={t("discover.projectSearchPlaceholder")}
+              className="h-7 pl-7 text-xs"
+              iconClassName="left-2 size-3.5"
+              clearButtonClassName="right-1 size-5"
+            />
           </div>
 
           {/* Project list */}
@@ -571,27 +559,17 @@ export function DiscoverView() {
                     {selectedProject.project_path}
                   </button>
                 </div>
-                <div className="relative w-48 shrink-0">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-                  <Input
-                    placeholder={t("discover.skillSearchPlaceholder")}
-                    value={skillSearch}
-                    onChange={(e) => setSkillSearch(e.target.value)}
-                    aria-label={t("discover.skillSearchPlaceholder")}
-                    className="pl-7 pr-7 h-7 text-xs bg-muted/40"
-                  />
-                  {skillSearch.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setSkillSearch("")}
-                      aria-label={t("discover.clearSearch")}
-                      title={t("discover.clearSearch")}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-                    >
-                      <X className="size-3" />
-                    </button>
-                  )}
-                </div>
+                <SearchInput
+                  placeholder={t("discover.skillSearchPlaceholder")}
+                  value={skillSearch}
+                  onValueChange={setSkillSearch}
+                  clearLabel={t("discover.clearSearch")}
+                  aria-label={t("discover.skillSearchPlaceholder")}
+                  containerClassName="w-48 shrink-0"
+                  className="h-7 pl-7 text-xs"
+                  iconClassName="left-2 size-3.5"
+                  clearButtonClassName="right-1 size-5"
+                />
                 <span className="text-xs text-muted-foreground shrink-0">
                   {t("collection.skills", { count: displayedSkills.length })}
                 </span>

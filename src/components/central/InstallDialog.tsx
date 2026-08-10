@@ -13,8 +13,8 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioItem } from "@/components/ui/radio-group";
+import { InstallTargetList } from "@/components/central/InstallTargetList";
 import { AgentWithStatus, SkillWithLinks } from "@/types";
 import { isInstallTargetAgent } from "@/lib/agents";
 
@@ -118,57 +118,14 @@ export function InstallDialog({
             {t("installDialog.choosePlatforms")}
           </DialogDescription>
 
-          {/* Platform checkboxes */}
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2" role="group" aria-label={t("installDialog.selectPlatforms")}>
-            {targetAgents.length === 0 ? (
-              <p className="col-span-2 text-sm text-muted-foreground">
-                {t("installDialog.noPlatforms")}
-              </p>
-            ) : (
-              targetAgents.map((agent) => {
-                const isLinked = skill.linked_agents.includes(agent.id);
-                const isReadOnly = skill.read_only_agents?.includes(agent.id) ?? false;
-                const isChecked = selectedAgentIds.has(agent.id);
-
-                return (
-                  <div
-                    key={agent.id}
-                    className="flex items-center gap-2"
-                  >
-                    <Checkbox
-                      checked={isChecked}
-                      onCheckedChange={(checked) =>
-                        handleCheckboxChange(agent.id, !!checked)
-                      }
-                      aria-label={agent.display_name}
-                    />
-                    <span
-                      className="text-sm text-foreground flex-1 cursor-pointer select-none truncate"
-                      onClick={() => {
-                        handleCheckboxChange(agent.id, !isChecked);
-                      }}
-                    >
-                      {agent.display_name}
-                    </span>
-                    {isReadOnly ? (
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        {t("installDialog.sharedAvailable")}
-                      </span>
-                    ) : isLinked ? (
-                      <span className="text-xs text-primary shrink-0">
-                        {t("installDialog.alreadyLinked")}
-                      </span>
-                    ) : null}
-                    {!agent.is_detected && (
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        {t("installDialog.notDetected")}
-                      </span>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
+          <InstallTargetList
+            agents={targetAgents}
+            selectedAgentIds={selectedAgentIds}
+            onToggleAgent={handleCheckboxChange}
+            linkedAgentIds={new Set(skill.linked_agents)}
+            readOnlyAgentIds={new Set(skill.read_only_agents ?? [])}
+            ariaLabel={t("installDialog.selectPlatforms")}
+          />
 
           {/* Install method selector */}
           <div className="space-y-2">

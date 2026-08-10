@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Search, Blocks, FolderOpen, Trash2, X } from "lucide-react";
+import { Blocks, FolderOpen, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useSkillStore } from "@/stores/skillStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { SearchInput } from "@/components/ui/search-input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import {
@@ -77,10 +85,12 @@ export function PlatformView() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [folderDrawerGroupPath, setFolderDrawerGroupPath] = useState<string | null>(null);
   const [isFolderDrawerOpen, setIsFolderDrawerOpen] = useState(false);
+  const [folderUninstallGroupPath, setFolderUninstallGroupPath] = useState<string | null>(null);
   const [returnFocusRowKey, setReturnFocusRowKey] = useState<string | null>(null);
   const [selectedSkillKeys, setSelectedSkillKeys] = useState<Set<string>>(() => new Set());
   const [isBulkConfirming, setIsBulkConfirming] = useState(false);
   const [isBulkUninstalling, setIsBulkUninstalling] = useState(false);
+  const [isFolderUninstalling, setIsFolderUninstalling] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const detailButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -258,6 +268,13 @@ export function PlatformView() {
   const allVisibleSelected =
     selectableVisibleSkills.length > 0 &&
     selectableVisibleSkills.every((skill) => selectedSkillKeys.has(getSkillRowKey(skill)));
+  const folderUninstallGroup = folderUninstallGroupPath
+    ? platformFolderGroupsByPath.get(folderUninstallGroupPath) ?? null
+    : null;
+  const folderUninstallableSkills = useMemo(
+    () => (folderUninstallGroup?.skills ?? []).filter(isBulkSelectable),
+    [folderUninstallGroup?.skills]
+  );
 
   useEffect(() => {
     setSelectedSkillKeys((current) => {
@@ -357,6 +374,45 @@ export function PlatformView() {
     setIsFolderDrawerOpen(true);
   }
 
+  function handleUninstallFolderClick(relativePath: string) {
+    setFolderUninstallGroupPath(relativePath);
+  }
+
+  async function handleConfirmUninstallFolder() {
+    if (!agentId || !folderUninstallGroup) return;
+    const removableSkills = folderUninstallGroup.skills.filter(isBulkSelectable);
+    if (removableSkills.length === 0) {
+      setFolderUninstallGroupPath(null);
+      return;
+    }
+
+    setIsFolderUninstalling(true);
+    try {
+      for (const skill of removableSkills) {
+        await uninstallSkillFromAgent(skill.id, agentId);
+      }
+      await Promise.all([refreshCounts(), getSkillsByAgent(agentId)]);
+      toast.success(t("skillFolder.uninstallFolderSuccess", { count: removableSkills.length }));
+      setFolderUninstallGroupPath(null);
+    } catch (err) {
+      toast.error(t("detail.uninstallError", { error: String(err) }));
+    } finally {
+      setIsFolderUninstalling(false);
+    }
+  }
+
+  async function handleUninstallFolderDrawerSkills(skillIds: string[]) {
+    if (!agentId || !folderDrawerGroup) return;
+    const removableSkills = folderDrawerGroup.skills.filter(
+      (skill) => skillIds.includes(skill.id) && isBulkSelectable(skill)
+    );
+    for (const skill of removableSkills) {
+      await uninstallSkillFromAgent(skill.id, agentId);
+    }
+    await Promise.all([refreshCounts(), getSkillsByAgent(agentId)]);
+    toast.success(t("skillFolder.uninstallFolderSuccess", { count: removableSkills.length }));
+  }
+
   const folderDrawerGroup = folderDrawerGroupPath
     ? platformFolderGroupsByPath.get(folderDrawerGroupPath)
     : null;
@@ -373,6 +429,8 @@ export function PlatformView() {
           skill.dir_path,
         agentId,
         rowId: skill.row_id ?? null,
+        linkedAgentIds: skill.is_read_only ? [] : agentId ? [agentId] : [],
+        readOnlyAgentIds: skill.is_read_only && agentId ? [agentId] : [],
         sourceLabel:
           skill.source_kind === "user"
             ? t("platform.originUser")
@@ -468,15 +526,12 @@ export function PlatformView() {
       {/* Search bar */}
       <div className="px-6 py-3 border-b border-border">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-            <Input
-              placeholder={t("platform.searchPlaceholder")}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 bg-muted/40"
-            />
-          </div>
+          <SearchInput
+            placeholder={t("platform.searchPlaceholder")}
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+            containerClassName="flex-1"
+          />
           <SkillListModeToggle value={viewMode} onChange={setViewMode} />
         </div>
         {(filteredSkills.length > 0 || filteredFolderGroups.length > 0) && (
@@ -587,6 +642,19 @@ export function PlatformView() {
                       skillCount={group.skillCount}
                       previewNames={group.skills.map((skill) => skill.name)}
                       onOpen={() => handleOpenFolderDrawer(group.relativePath)}
+                      onDelete={
+                        group.skills.some(isBulkSelectable)
+                          ? () => handleUninstallFolderClick(group.relativePath)
+                          : undefined
+                      }
+                      deleteLabel={t("platform.uninstallFolderLabel", {
+                        name: group.name,
+                        platform: agent.display_name,
+                      })}
+                      isDeleting={
+                        isFolderUninstalling &&
+                        folderUninstallGroupPath === group.relativePath
+                      }
                     />
                   ))}
                 </div>
@@ -693,6 +761,8 @@ export function PlatformView() {
         title={folderDrawerGroup?.name ?? folderDrawerGroupPath ?? t("skillFolder.foldersTitle")}
         path={folderDrawerGroup?.path}
         skills={folderDrawerSkills}
+        agents={[agent]}
+        installAgents={[agent]}
         loading={false}
         onOpenChange={(open) => {
           setIsFolderDrawerOpen(open);
@@ -706,7 +776,56 @@ export function PlatformView() {
             agentId ? getSkillsByAgent(agentId) : Promise.resolve(),
           ]);
         }}
+        onUninstallSkillsFromAgent={async (skillIds) => {
+          await handleUninstallFolderDrawerSkills(skillIds);
+        }}
       />
+
+      <Dialog
+        open={!!folderUninstallGroup}
+        onOpenChange={(open) => {
+          if (!open && !isFolderUninstalling) {
+            setFolderUninstallGroupPath(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {t("platform.uninstallFolderConfirmTitle", {
+                name: folderUninstallGroup?.name ?? "",
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {folderUninstallGroup
+                ? t("platform.uninstallFolderConfirmDesc", {
+                    count: folderUninstallableSkills.length,
+                    platform: agent.display_name,
+                  })
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isFolderUninstalling}
+              onClick={() => setFolderUninstallGroupPath(null)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isFolderUninstalling || folderUninstallableSkills.length === 0}
+              onClick={() => void handleConfirmUninstallFolder()}
+            >
+              <Trash2 className="size-3.5" />
+              {t("platform.uninstallFolderConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

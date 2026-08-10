@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { FolderOpen, Link2, Search, XIcon } from "lucide-react";
+import { FolderOpen, Link2, Loader2, PackagePlus, Trash2, XIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -12,13 +12,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { SkillDetailView } from "@/components/skill/SkillDetailView";
 import type { AgentWithStatus } from "@/types";
 import { buildSearchText, normalizeSearchQuery } from "@/lib/search";
 import { formatPathForDisplay } from "@/lib/path";
 import { cn } from "@/lib/utils";
+import { isInstallTargetAgent } from "@/lib/agents";
 
 export interface SkillFolderDrawerSkill {
   key: string;
@@ -44,8 +45,16 @@ interface SkillFolderDrawerProps {
   agents?: AgentWithStatus[];
   loading?: boolean;
   meta?: ReactNode;
+  installAgents?: AgentWithStatus[];
   onOpenChange: (open: boolean) => void;
   onInstallationsChange?: () => void | Promise<void>;
+  onAddSkillsToCentral?: (skillIds: string[]) => Promise<void>;
+  onInstallSkills?: (
+    skillIds: string[],
+    agentIds: string[],
+    method: "symlink" | "copy"
+  ) => Promise<void>;
+  onUninstallSkillsFromAgent?: (skillIds: string[], agentId: string) => Promise<void>;
 }
 
 export function SkillFolderDrawer({
@@ -57,17 +66,31 @@ export function SkillFolderDrawer({
   agents = [],
   loading = false,
   meta,
+  installAgents = agents,
   onOpenChange,
   onInstallationsChange,
+  onAddSkillsToCentral,
+  onInstallSkills,
+  onUninstallSkillsFromAgent,
 }: SkillFolderDrawerProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [installTargetId, setInstallTargetId] = useState("");
+  const [uninstallTargetId, setUninstallTargetId] = useState("");
+  const [installMethod, setInstallMethod] = useState<"symlink" | "copy">("symlink");
+  const [pendingAction, setPendingAction] = useState<
+    "central" | "install" | "uninstall" | null
+  >(null);
   const titleId = "skill-folder-drawer-title";
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
+    setInstallTargetId("");
+    setUninstallTargetId("");
+    setInstallMethod("symlink");
+    setPendingAction(null);
     setSelectedKey((current) =>
       current && skills.some((skill) => skill.key === current)
         ? current
@@ -87,6 +110,39 @@ export function SkillFolderDrawer({
   const selectedSkill =
     skills.find((skill) => skill.key === selectedKey) ?? filteredSkills[0] ?? skills[0] ?? null;
   const linkedAgentNamesById = new Map(agents.map((agent) => [agent.id, agent.display_name]));
+  const skillIds = useMemo(() => skills.map((skill) => skill.id), [skills]);
+  const linkedAgentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const skill of skills) {
+      for (const agentId of skill.linkedAgentIds ?? []) {
+        ids.add(agentId);
+      }
+    }
+    return ids;
+  }, [skills]);
+  const targetInstallAgents = installAgents.filter(isInstallTargetAgent);
+  const uninstallAgents = targetInstallAgents.filter((agent) => linkedAgentIds.has(agent.id));
+  const hasDirectoryActions =
+    skills.length > 0 &&
+    (!!onAddSkillsToCentral || !!onInstallSkills || !!onUninstallSkillsFromAgent);
+
+  async function runDirectoryAction(action: "central" | "install" | "uninstall") {
+    if (skillIds.length === 0 || pendingAction) return;
+
+    setPendingAction(action);
+    try {
+      if (action === "central") {
+        await onAddSkillsToCentral?.(skillIds);
+      } else if (action === "install" && installTargetId) {
+        await onInstallSkills?.(skillIds, [installTargetId], installMethod);
+      } else if (action === "uninstall" && uninstallTargetId) {
+        await onUninstallSkillsFromAgent?.(skillIds, uninstallTargetId);
+      }
+      await onInstallationsChange?.();
+    } finally {
+      setPendingAction(null);
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -135,20 +191,120 @@ export function SkillFolderDrawer({
                 </DialogClose>
               </div>
               {meta && <div className="mt-3">{meta}</div>}
+              {hasDirectoryActions && (
+                <div className="mt-3 rounded-xl border border-border bg-muted/20 p-3">
+                  <div className="mb-2 text-xs font-medium text-muted-foreground">
+                    {t("skillFolder.directoryActions")}
+                  </div>
+                  <div className="grid gap-2 lg:grid-cols-[auto_minmax(220px,1fr)_auto_minmax(220px,1fr)_auto] lg:items-center">
+                    {onAddSkillsToCentral && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void runDirectoryAction("central")}
+                        disabled={pendingAction !== null}
+                        className="gap-1.5"
+                      >
+                        {pendingAction === "central" ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <PackagePlus className="size-3.5" />
+                        )}
+                        {t("skillFolder.addFolderToCentral")}
+                      </Button>
+                    )}
+                    {onInstallSkills && (
+                      <>
+                        <div className="flex min-w-0 gap-2">
+                          <select
+                            value={installTargetId}
+                            onChange={(event) => setInstallTargetId(event.target.value)}
+                            className="h-8 min-w-0 flex-1 rounded-lg border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={t("skillFolder.installTargetLabel")}
+                          >
+                            <option value="">{t("skillFolder.installTargetPlaceholder")}</option>
+                            {targetInstallAgents.map((agent) => (
+                              <option key={agent.id} value={agent.id}>
+                                {agent.display_name}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={installMethod}
+                            onChange={(event) =>
+                              setInstallMethod(event.target.value as "symlink" | "copy")
+                            }
+                            className="h-8 rounded-lg border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={t("installDialog.installMethod")}
+                          >
+                            <option value="symlink">{t("installDialog.symlink")}</option>
+                            <option value="copy">{t("installDialog.copy")}</option>
+                          </select>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void runDirectoryAction("install")}
+                          disabled={!installTargetId || pendingAction !== null}
+                          className="gap-1.5"
+                        >
+                          {pendingAction === "install" ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <PackagePlus className="size-3.5" />
+                          )}
+                          {t("skillFolder.installFolder")}
+                        </Button>
+                      </>
+                    )}
+                    {onUninstallSkillsFromAgent && (
+                      <>
+                        <select
+                          value={uninstallTargetId}
+                          onChange={(event) => setUninstallTargetId(event.target.value)}
+                          className="h-8 min-w-0 rounded-lg border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={t("skillFolder.uninstallTargetLabel")}
+                        >
+                          <option value="">{t("skillFolder.uninstallTargetPlaceholder")}</option>
+                          {uninstallAgents.map((agent) => (
+                            <option key={agent.id} value={agent.id}>
+                              {agent.display_name}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => void runDirectoryAction("uninstall")}
+                          disabled={!uninstallTargetId || pendingAction !== null}
+                          className="gap-1.5"
+                        >
+                          {pendingAction === "uninstall" ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="size-3.5" />
+                          )}
+                          {t("skillFolder.uninstallFolder")}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
               <aside className="flex min-h-0 flex-col border-b border-border md:border-b-0 md:border-r">
                 <div className="shrink-0 space-y-3 p-3">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder={t("skillFolder.searchPlaceholder")}
-                      className="h-9 bg-muted/40 pl-8"
-                    />
-                  </div>
+                  <SearchInput
+                    value={query}
+                    onValueChange={setQuery}
+                    placeholder={t("skillFolder.searchPlaceholder")}
+                    className="h-9"
+                  />
                   <div className="text-xs text-muted-foreground">
                     {t("skillFolder.skillCount", { count: skills.length })}
                   </div>

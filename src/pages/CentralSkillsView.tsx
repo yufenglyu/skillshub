@@ -4,7 +4,6 @@ import {
   Blocks,
   FolderOpen,
   RefreshCw,
-  Search,
   Trash2,
   X,
 } from "lucide-react";
@@ -21,7 +20,7 @@ import { SkillListModeToggle } from "@/components/skill/SkillListModeToggle";
 import { InstallDialog } from "@/components/central/InstallDialog";
 import { CentralBundleDrawer } from "@/components/central/CentralBundleDrawer";
 import { PlatformInstallDrawer } from "@/components/central/PlatformInstallDrawer";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -592,6 +591,46 @@ export function CentralSkillsView() {
     }
   }
 
+  async function handleInstallBundleSkills(
+    skillIds: string[],
+    agentIds: string[],
+    method: "symlink" | "copy"
+  ) {
+    try {
+      let failedCount = 0;
+      for (const skillId of skillIds) {
+        const result = await installSkill(skillId, agentIds, method);
+        failedCount += result.failed.length;
+      }
+      await Promise.all([
+        refreshCounts(),
+        ...agentIds.map((agentId) => getSkillsByAgent(agentId)),
+        bundleDrawerPath ? loadCentralBundleDetail(bundleDrawerPath) : Promise.resolve(),
+      ]);
+      if (failedCount > 0) {
+        toast.error(t("skillFolder.installFolderPartialFail", { count: failedCount }));
+        return;
+      }
+      toast.success(t("skillFolder.installFolderSuccess", { count: skillIds.length }));
+    } catch (err) {
+      toast.error(t("central.installError", { error: String(err) }));
+    }
+  }
+
+  async function handleUninstallBundleSkills(skillIds: string[], agentId: string) {
+    try {
+      await uninstallSkillsFromAgent(skillIds, agentId);
+      await Promise.all([
+        refreshCounts(),
+        getSkillsByAgent(agentId),
+        bundleDrawerPath ? loadCentralBundleDetail(bundleDrawerPath) : Promise.resolve(),
+      ]);
+      toast.success(t("skillFolder.uninstallFolderSuccess", { count: skillIds.length }));
+    } catch (err) {
+      toast.error(t("detail.uninstallError", { error: String(err) }));
+    }
+  }
+
   const platformDrawerSkill = useMemo(
     () => skills.find((skill) => skill.id === platformDrawerSkillId) ?? null,
     [platformDrawerSkillId, skills]
@@ -623,16 +662,13 @@ export function CentralSkillsView() {
       {/* Search bar */}
       <div className="px-6 py-3 border-b border-border">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-            <Input
-              placeholder={t("central.searchPlaceholder")}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 bg-muted/40"
-              aria-label={t("central.searchPlaceholder")}
-            />
-          </div>
+          <SearchInput
+            placeholder={t("central.searchPlaceholder")}
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+            aria-label={t("central.searchPlaceholder")}
+            containerClassName="flex-1"
+          />
           <div className="flex flex-wrap items-center gap-2">
             <SkillListModeToggle value={viewMode} onChange={setViewMode} />
           </div>
@@ -918,6 +954,8 @@ export function CentralSkillsView() {
               : Promise.resolve(null),
           ]);
         }}
+        onInstallSkills={handleInstallBundleSkills}
+        onUninstallSkillsFromAgent={handleUninstallBundleSkills}
       />
 
       <PlatformInstallDrawer

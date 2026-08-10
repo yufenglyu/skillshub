@@ -1,4 +1,4 @@
-import { FolderOpen, Link2, Trash2 } from "lucide-react";
+import { Database, FolderOpen, Link2, Loader2, PackageMinus, PackagePlus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,15 @@ interface SkillFolderCardProps {
   isSymlink?: boolean;
   previewNames?: string[];
   onOpen: () => void;
+  onAddToCentral?: () => void;
+  addToCentralLabel?: string;
+  isAddingToCentral?: boolean;
+  onInstall?: () => void;
+  installLabel?: string;
+  isInstalling?: boolean;
+  onUninstall?: () => void;
+  uninstallLabel?: string;
+  isUninstalling?: boolean;
   onDelete?: () => void;
   deleteLabel?: string;
   isDeleting?: boolean;
@@ -29,6 +38,15 @@ export function SkillFolderCard({
   isSymlink = false,
   previewNames = [],
   onOpen,
+  onAddToCentral,
+  addToCentralLabel,
+  isAddingToCentral = false,
+  onInstall,
+  installLabel,
+  isInstalling = false,
+  onUninstall,
+  uninstallLabel,
+  isUninstalling = false,
   onDelete,
   deleteLabel,
   isDeleting = false,
@@ -77,18 +95,69 @@ export function SkillFolderCard({
             </p>
           )}
         </button>
-        {onDelete && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive hover:text-destructive"
-            onClick={onDelete}
-            disabled={isDeleting}
-            aria-label={deleteLabel}
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {onAddToCentral && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onAddToCentral}
+              disabled={isAddingToCentral}
+              aria-label={addToCentralLabel}
+              title={addToCentralLabel}
+            >
+              {isAddingToCentral ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Database className="size-4" />
+              )}
+            </Button>
+          )}
+          {onInstall && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onInstall}
+              disabled={isInstalling}
+              aria-label={installLabel}
+              title={installLabel}
+            >
+              {isInstalling ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <PackagePlus className="size-4" />
+              )}
+            </Button>
+          )}
+          {onUninstall && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onUninstall}
+              disabled={isUninstalling}
+              aria-label={uninstallLabel}
+              title={uninstallLabel}
+            >
+              {isUninstalling ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <PackageMinus className="size-4" />
+              )}
+            </Button>
+          )}
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-destructive hover:text-destructive"
+              onClick={onDelete}
+              disabled={isDeleting}
+              aria-label={deleteLabel}
+              title={deleteLabel}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

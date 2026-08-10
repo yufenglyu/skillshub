@@ -12,8 +12,9 @@ import {
 import {
   InputGroup,
   InputGroupAddon,
+  InputGroupButton,
 } from "@/components/ui/input-group"
-import { SearchIcon, CheckIcon } from "lucide-react"
+import { SearchIcon, CheckIcon, XIcon } from "lucide-react"
 
 function Command({
   className,
@@ -66,8 +67,13 @@ function CommandDialog({
 
 function CommandInput({
   className,
+  value,
+  onValueChange,
+  clearLabel = "Clear search",
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+}: React.ComponentProps<typeof CommandPrimitive.Input> & { clearLabel?: string }) {
+  const hasValue = typeof value === "string" && value.length > 0
+
   return (
     <div data-slot="command-input-wrapper" className="p-1 pb-0">
       <InputGroup className="h-8! rounded-lg! border-input/30 bg-input/30 shadow-none! *:data-[slot=input-group-addon]:pl-2!">
@@ -77,11 +83,26 @@ function CommandInput({
             "w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50",
             className
           )}
+          value={value}
+          onValueChange={onValueChange}
           {...props}
         />
         <InputGroupAddon>
           <SearchIcon className="size-4 shrink-0 opacity-50" />
         </InputGroupAddon>
+        {hasValue && onValueChange && (
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton
+              type="button"
+              size="icon-xs"
+              aria-label={clearLabel}
+              title={clearLabel}
+              onClick={() => onValueChange("")}
+            >
+              <XIcon className="size-3.5" />
+            </InputGroupButton>
+          </InputGroupAddon>
+        )}
       </InputGroup>
     </div>
   )

@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Loader2, Search, CheckSquare, XSquare } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
+import { Loader2, CheckSquare, XSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -14,9 +13,9 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { SkillWithLinks } from "@/types";
+import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -37,8 +36,9 @@ export function SkillPickerDialog({
   onAdd,
 }: SkillPickerDialogProps) {
   const { t } = useTranslation();
-  const [skills, setSkills] = useState<SkillWithLinks[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const skills = useResourceLibraryStore((s) => s.skills);
+  const isLoading = useResourceLibraryStore((s) => s.isLoading);
+  const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -50,21 +50,9 @@ export function SkillPickerDialog({
       setSearchQuery("");
       setSelectedSkillIds(new Set());
       setError(null);
-      loadSkills();
+      void loadResourceLibrary().catch((err) => setError(String(err)));
     }
-  }, [open]);
-
-  async function loadSkills() {
-    setIsLoading(true);
-    try {
-      const data = await invoke<SkillWithLinks[]>("get_central_skills");
-      setSkills(data ?? []);
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setIsLoading(false);
-    }
-  }
+  }, [loadResourceLibrary, open]);
 
   // Filter skills by search and exclude skills already in collection.
   const filteredSkills = useMemo(() => {
@@ -128,16 +116,14 @@ export function SkillPickerDialog({
 
           {/* Search + Select All / Clear */}
           <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-              <Input
-                placeholder={t("skillPicker.searchPlaceholder")}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8"
-                aria-label={t("skillPicker.searchPlaceholder")}
-              />
-            </div>
+            <SearchInput
+              placeholder={t("skillPicker.searchPlaceholder")}
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+              containerClassName="flex-1"
+              className="bg-background"
+              aria-label={t("skillPicker.searchPlaceholder")}
+            />
             {filteredSkills.length > 0 && (
               <div className="flex items-center gap-1 shrink-0">
                 <Button
