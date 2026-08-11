@@ -600,16 +600,7 @@
     "updateNotChecked": "尚未检查更新。",
     "updateAvailable": "发现新版本 v{{version}}。",
     "updateUpToDate": "当前已是最新版本。",
-    "updateCheckFailed": "检查更新失败：{{error}}",
-    "markUpdateLatest": "标记为已是最新",
-    "updateManuallyConfirmed": "已手动确认最新（{{date}}，{{reason}}）",
-    "updateConfirmFailed": "保存确认状态失败：{{error}}",
-    "updateOverrideReason": {
-      "remote_missing": "未获取到远程版本",
-      "remote_wrong_high": "远程版本疑似偏高",
-      "remote_wrong_low": "远程版本疑似偏低",
-      "manual": "手动确认"
-    },
+    "updateCheckFailed": "检查更新失败: {{error}}",
     "openLatestRelease": "打开发布页",
     "dbPath": "数据库路径",
     "flavor": "主题风格",

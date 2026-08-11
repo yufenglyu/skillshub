@@ -601,15 +601,6 @@
     "updateAvailable": "New version v{{version}} is available.",
     "updateUpToDate": "You are on the latest version.",
     "updateCheckFailed": "Update check failed: {{error}}",
-    "markUpdateLatest": "Mark as latest",
-    "updateManuallyConfirmed": "Manually confirmed latest ({{date}}, {{reason}})",
-    "updateConfirmFailed": "Failed to save confirmation: {{error}}",
-    "updateOverrideReason": {
-      "remote_missing": "remote version unavailable",
-      "remote_wrong_high": "remote version appears too high",
-      "remote_wrong_low": "remote version appears too low",
-      "manual": "manual confirmation"
-    },
     "openLatestRelease": "Open release page",
     "dbPath": "Database Path",
     "flavor": "Flavor",

@@ -55,25 +55,6 @@ export interface AppUpdateInfo {
   publishedAt?: string | null;
 }
 
-export type AppUpdateOverrideReason =
-  | "remote_missing"
-  | "remote_wrong_high"
-  | "remote_wrong_low"
-  | "manual";
-
-export interface AppUpdateOverride {
-  softwareId: string;
-  localVersion: string;
-  remoteVersion?: string | null;
-  remoteSource?: string | null;
-  status: "confirmed_latest";
-  reason: AppUpdateOverrideReason;
-  confirmedAt: string;
-  confirmedBy: "user";
-  lastCheckedAt?: string | null;
-  note?: string | null;
-}
-
 // ─── Scan Types ───────────────────────────────────────────────────────────────
 
 export interface ScanResult {

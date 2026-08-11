@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { SettingsView } from "../pages/SettingsView";
-import { ScanDirectory, AgentWithStatus, AppUpdateInfo, AppUpdateOverride } from "../types";
+import { ScanDirectory, AgentWithStatus, AppUpdateInfo } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
 // Mock stores
@@ -128,9 +128,6 @@ function setupMocks({
   updateInfo = null as AppUpdateInfo | null,
   isCheckingUpdate = false,
   checkAppUpdate = vi.fn(),
-  appUpdateOverride = null as AppUpdateOverride | null,
-  loadAppUpdateOverride = vi.fn(),
-  markAppUpdateConfirmedLatest = vi.fn(),
   loadCentralSkills = vi.fn(),
   rescan = vi.fn(),
   refreshCounts = vi.fn(),
@@ -173,9 +170,6 @@ function setupMocks({
       updateInfo,
       isCheckingUpdate,
       checkAppUpdate,
-      appUpdateOverride,
-      loadAppUpdateOverride,
-      markAppUpdateConfirmedLatest,
       clearError: vi.fn(),
     })
   );
@@ -1012,37 +1006,6 @@ describe("SettingsView", () => {
       "href",
       "https://github.com/yufenglyu/skillshub/releases/tag/v0.12.1"
     );
-  });
-
-  it("lets the user manually confirm latest when update check fails", async () => {
-    const checkAppUpdate = vi.fn().mockRejectedValue(new Error("network failed"));
-    const markAppUpdateConfirmedLatest = vi.fn().mockResolvedValue({
-      softwareId: "skillshub",
-      localVersion: "0.16.0",
-      remoteVersion: null,
-      remoteSource: null,
-      status: "confirmed_latest",
-      reason: "remote_missing",
-      confirmedAt: "2026-08-11T01:02:03.000Z",
-      confirmedBy: "user",
-    });
-    setupMocks({ checkAppUpdate, markAppUpdateConfirmedLatest });
-    renderSettingsView();
-
-    fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
-
-    expect(await screen.findByText("检查更新失败：Error: network failed")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "标记为已是最新" }));
-
-    await waitFor(() => {
-      expect(markAppUpdateConfirmedLatest).toHaveBeenCalledWith({
-        currentVersion: "0.16.0",
-        latestVersion: "",
-        latestUrl: "",
-        isUpdateAvailable: false,
-      });
-    });
-    expect(await screen.findByText(/已手动确认最新/)).toBeTruthy();
   });
 
   it("shows database path label", () => {

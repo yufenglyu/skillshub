@@ -9,7 +9,6 @@ import {
   WebDavConfig,
   WebDavBackupFile,
   AppUpdateInfo,
-  AppUpdateOverride,
 } from "@/types";
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -27,7 +26,6 @@ interface SettingsState {
   isLoadingWebDavConfig: boolean;
   isSavingWebDavConfig: boolean;
   updateInfo: AppUpdateInfo | null;
-  appUpdateOverride: AppUpdateOverride | null;
   isCheckingUpdate: boolean;
 
   // Actions — scan directories
@@ -60,8 +58,6 @@ interface SettingsState {
   downloadWebDavBackup: (config: WebDavConfig, remotePath: string) => Promise<Uint8Array>;
   deleteWebDavBackup: (config: WebDavConfig, remotePath: string) => Promise<void>;
   checkAppUpdate: () => Promise<AppUpdateInfo>;
-  loadAppUpdateOverride: () => Promise<void>;
-  markAppUpdateConfirmedLatest: (info?: AppUpdateInfo | null) => Promise<AppUpdateOverride>;
 
   clearError: () => void;
 }
@@ -86,26 +82,6 @@ function normalizeWebDavConfig(config: WebDavConfig): WebDavConfig {
   };
 }
 
-function compareVersionLike(a: string, b: string): number {
-  const left = a.replace(/^v/i, "").split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
-  const right = b.replace(/^v/i, "").split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
-  const length = Math.max(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    const delta = (left[index] ?? 0) - (right[index] ?? 0);
-    if (delta !== 0) return delta > 0 ? 1 : -1;
-  }
-  return 0;
-}
-
-function appUpdateOverrideReason(info?: AppUpdateInfo | null): AppUpdateOverride["reason"] {
-  const latestVersion = info?.latestVersion?.trim();
-  if (!latestVersion) return "remote_missing";
-  const comparison = compareVersionLike(latestVersion, info?.currentVersion || "0.16.0");
-  if (comparison > 0) return "remote_wrong_high";
-  if (comparison < 0) return "remote_wrong_low";
-  return "manual";
-}
-
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -121,7 +97,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   isLoadingWebDavConfig: false,
   isSavingWebDavConfig: false,
   updateInfo: null,
-  appUpdateOverride: null,
   isCheckingUpdate: false,
 
   // ── Scan Directories ───────────────────────────────────────────────────────
@@ -379,40 +354,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       set({ error: String(err), isCheckingUpdate: false });
       throw err;
     }
-  },
-
-  loadAppUpdateOverride: async () => {
-    try {
-      const value = await invoke<string | null>("get_setting", { key: "app_update_override" });
-      if (!value) {
-        set({ appUpdateOverride: null });
-        return;
-      }
-      const parsed = JSON.parse(value) as AppUpdateOverride;
-      set({ appUpdateOverride: parsed.status === "confirmed_latest" ? parsed : null });
-    } catch (err) {
-      set({ error: String(err), appUpdateOverride: null });
-    }
-  },
-
-  markAppUpdateConfirmedLatest: async (info) => {
-    const latestVersion = info?.latestVersion?.trim() || null;
-    const override: AppUpdateOverride = {
-      softwareId: "skillshub",
-      localVersion: info?.currentVersion || "0.16.0",
-      remoteVersion: latestVersion,
-      remoteSource: info?.latestUrl || null,
-      status: "confirmed_latest",
-      reason: appUpdateOverrideReason(info),
-      confirmedAt: new Date().toISOString(),
-      confirmedBy: "user",
-    };
-    await invoke("set_setting", {
-      key: "app_update_override",
-      value: JSON.stringify(override),
-    });
-    set({ appUpdateOverride: override });
-    return override;
   },
 
   // ── Misc ───────────────────────────────────────────────────────────────────
