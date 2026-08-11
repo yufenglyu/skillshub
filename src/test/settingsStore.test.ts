@@ -557,4 +557,86 @@ describe("settingsStore", () => {
     expect(useSettingsStore.getState().githubPat).toBe("");
     expect(useSettingsStore.getState().isSavingGitHubPat).toBe(false);
   });
+
+  it("loads the saved manual app update confirmation", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(
+      JSON.stringify({
+        softwareId: "skillshub",
+        localVersion: "0.16.0",
+        remoteVersion: null,
+        remoteSource: null,
+        status: "confirmed_latest",
+        reason: "remote_missing",
+        confirmedAt: "2026-08-11T01:02:03.000Z",
+        confirmedBy: "user",
+      })
+    );
+
+    await useSettingsStore.getState().loadAppUpdateOverride();
+
+    expect(invoke).toHaveBeenCalledWith("get_setting", { key: "app_update_override" });
+    expect(useSettingsStore.getState().appUpdateOverride).toMatchObject({
+      softwareId: "skillshub",
+      localVersion: "0.16.0",
+      status: "confirmed_latest",
+      reason: "remote_missing",
+    });
+  });
+
+  it("marks the current app version as manually confirmed latest", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T01:02:03.000Z"));
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
+    await useSettingsStore.getState().markAppUpdateConfirmedLatest({
+      currentVersion: "0.16.0",
+      latestVersion: "",
+      latestUrl: "",
+      isUpdateAvailable: false,
+    });
+
+    expect(invoke).toHaveBeenCalledWith("set_setting", {
+      key: "app_update_override",
+      value: JSON.stringify({
+        softwareId: "skillshub",
+        localVersion: "0.16.0",
+        remoteVersion: null,
+        remoteSource: null,
+        status: "confirmed_latest",
+        reason: "remote_missing",
+        confirmedAt: "2026-08-11T01:02:03.000Z",
+        confirmedBy: "user",
+      }),
+    });
+    expect(useSettingsStore.getState().appUpdateOverride).toMatchObject({
+      localVersion: "0.16.0",
+      reason: "remote_missing",
+      status: "confirmed_latest",
+    });
+
+    vi.useRealTimers();
+  });
+
+  it("records suspiciously high remote versions when manually confirmed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T01:02:03.000Z"));
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
+    await useSettingsStore.getState().markAppUpdateConfirmedLatest({
+      currentVersion: "0.16.0",
+      latestVersion: "9.99.0",
+      latestUrl: "https://example.com/release",
+      isUpdateAvailable: true,
+    });
+
+    const args = vi.mocked(invoke).mock.calls[0][1] as { value: string };
+    const saved = JSON.parse(args.value);
+    expect(saved).toMatchObject({
+      remoteVersion: "9.99.0",
+      remoteSource: "https://example.com/release",
+      reason: "remote_wrong_high",
+    });
+
+    vi.useRealTimers();
+  });
 });

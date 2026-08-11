@@ -1,5 +1,5 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save } from "lucide-react";
+import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save, CheckCircle2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -472,8 +472,11 @@ export function SettingsView() {
   const saveGitHubPat = useSettingsStore((s) => s.saveGitHubPat);
   const clearGitHubPat = useSettingsStore((s) => s.clearGitHubPat);
   const updateInfo = useSettingsStore((s) => s.updateInfo);
+  const appUpdateOverride = useSettingsStore((s) => s.appUpdateOverride);
   const isCheckingUpdate = useSettingsStore((s) => s.isCheckingUpdate);
   const checkAppUpdate = useSettingsStore((s) => s.checkAppUpdate);
+  const loadAppUpdateOverride = useSettingsStore((s) => s.loadAppUpdateOverride);
+  const markAppUpdateConfirmedLatest = useSettingsStore((s) => s.markAppUpdateConfirmedLatest);
 
   const agents = usePlatformStore((s) => s.agents);
 
@@ -499,6 +502,21 @@ export function SettingsView() {
     () => (homeDir ? joinPathForDisplay(homeDir, ".skillshub/db.sqlite") : DB_PATH_FALLBACK),
     [homeDir]
   );
+  const validAppUpdateOverride = useMemo(
+    () =>
+      appUpdateOverride?.softwareId === "skillshub" &&
+      appUpdateOverride.localVersion === APP_VERSION
+        ? appUpdateOverride
+        : null,
+    [appUpdateOverride]
+  );
+  const appUpdateOverrideLabel = useMemo(() => {
+    if (!validAppUpdateOverride) return null;
+    return t("settings.updateManuallyConfirmed", {
+      date: new Date(validAppUpdateOverride.confirmedAt).toLocaleString(),
+      reason: t(`settings.updateOverrideReason.${validAppUpdateOverride.reason}`),
+    });
+  }, [t, validAppUpdateOverride]);
 
   // ── Local State ────────────────────────────────────────────────────────────
 
@@ -609,7 +627,8 @@ export function SettingsView() {
     loadGitHubPat();
     loadResourceLibraryDir();
     loadWebDavConfig();
-  }, [loadScanDirectories, loadGitHubPat, loadResourceLibraryDir, loadWebDavConfig]);
+    loadAppUpdateOverride();
+  }, [loadScanDirectories, loadGitHubPat, loadResourceLibraryDir, loadWebDavConfig, loadAppUpdateOverride]);
 
   useEffect(() => {
     setGitHubPatInput(githubPat);
@@ -851,8 +870,36 @@ export function SettingsView() {
       });
     } catch (err) {
       setUpdateMessage({
+        type: validAppUpdateOverride && appUpdateOverrideLabel ? "success" : "error",
+        text:
+          validAppUpdateOverride && appUpdateOverrideLabel
+            ? appUpdateOverrideLabel
+            : t("settings.updateCheckFailed", { error: String(err) }),
+      });
+    }
+  }
+
+  async function handleConfirmAppUpdateLatest() {
+    try {
+      const override = await markAppUpdateConfirmedLatest(
+        updateInfo ?? {
+          currentVersion: APP_VERSION,
+          latestVersion: "",
+          latestUrl: "",
+          isUpdateAvailable: false,
+        }
+      );
+      setUpdateMessage({
+        type: "success",
+        text: t("settings.updateManuallyConfirmed", {
+          date: new Date(override.confirmedAt).toLocaleString(),
+          reason: t(`settings.updateOverrideReason.${override.reason}`),
+        }),
+      });
+    } catch (err) {
+      setUpdateMessage({
         type: "error",
-        text: t("settings.updateCheckFailed", { error: String(err) }),
+        text: t("settings.updateConfirmFailed", { error: String(err) }),
       });
     }
   }
@@ -1540,9 +1587,11 @@ export function SettingsView() {
                     role={updateMessage ? "status" : undefined}
                   >
                     {updateMessage?.text ?? (
-                      updateInfo
+                      appUpdateOverrideLabel ?? (
+                        updateInfo
                         ? t("settings.latestVersion", { version: updateInfo.latestVersion })
                         : t("settings.updateNotChecked")
+                      )
                     )}
                   </div>
                 </div>
@@ -1562,6 +1611,17 @@ export function SettingsView() {
                       {isCheckingUpdate ? t("settings.checkingUpdates") : t("settings.checkUpdates")}
                     </span>
                   </Button>
+                  {(updateInfo || updateMessage?.type === "error") ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleConfirmAppUpdateLatest}
+                      disabled={isCheckingUpdate}
+                    >
+                      <CheckCircle2 className="size-3.5" />
+                      <span>{t("settings.markUpdateLatest")}</span>
+                    </Button>
+                  ) : null}
                   {updateInfo?.isUpdateAvailable && updateInfo.latestUrl ? (
                     <a
                       href={updateInfo.latestUrl}
