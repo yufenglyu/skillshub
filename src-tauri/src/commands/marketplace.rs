@@ -1,12 +1,12 @@
 use chrono::Utc;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
-use super::github_import;
+use super::{github_import, skills_cli};
 use crate::{db, path_utils::source_grouped_skill_dir, AppState};
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -587,6 +587,53 @@ fn github_raw_update_urls(source: &db::SkillSource) -> Vec<String> {
     urls
 }
 
+fn skill_directory_name_from_source_path(source_path: &str) -> Option<String> {
+    let trimmed = source_path.trim().trim_matches('/');
+    if trimmed.is_empty() || trimmed == "SKILL.md" || trimmed == "." {
+        return None;
+    }
+
+    let without_manifest = trimmed.strip_suffix("/SKILL.md").unwrap_or(trimmed);
+    without_manifest
+        .rsplit('/')
+        .find(|segment| !segment.trim().is_empty())
+        .map(|segment| segment.to_string())
+}
+
+fn relocated_github_skill_md_url(
+    source: &db::SkillSource,
+    branch: &str,
+    repo_paths: &[String],
+) -> Option<(String, String)> {
+    if source.source_type != "github" {
+        return None;
+    }
+    let repo = source.source_repo.as_deref()?.trim_matches('/');
+    let source_path = source.source_path.as_deref()?;
+    let skill_dir = skill_directory_name_from_source_path(source_path)?;
+    let expected_suffix = format!("/{skill_dir}/SKILL.md");
+    let mut matches = repo_paths
+        .iter()
+        .filter(|path| {
+            path.ends_with(&expected_suffix) || path.as_str() == format!("{skill_dir}/SKILL.md")
+        })
+        .collect::<Vec<_>>();
+    matches.sort();
+    matches.dedup();
+    if matches.len() != 1 {
+        return None;
+    }
+
+    let relocated_path = matches[0].trim_start_matches('/').to_string();
+    Some((
+        format!(
+            "https://raw.githubusercontent.com/{}/{}/{}",
+            repo, branch, relocated_path
+        ),
+        relocated_path,
+    ))
+}
+
 fn github_source_from_url(url: &str) -> (Option<String>, Option<String>, Option<String>) {
     let Some(marker_index) = url.find("githubusercontent.com/") else {
         return (None, None, None);
@@ -623,7 +670,66 @@ async fn fetch_update_skill_markdown(
             Err(error) => last_error = Some(error),
         }
     }
-    Err(last_error.unwrap_or_else(|| "No update URL is available".to_string()))
+    let tried = if urls.is_empty() {
+        "no URL candidates".to_string()
+    } else {
+        urls.join(", ")
+    };
+    Err(format!(
+        "{} Tried: {}",
+        last_error.unwrap_or_else(|| "No update URL is available.".to_string()),
+        tried
+    ))
+}
+
+async fn fetch_relocated_github_skill_markdown(
+    client: &reqwest::Client,
+    source: &db::SkillSource,
+    auth: Option<&str>,
+) -> Result<Option<(String, String, String)>, String> {
+    if source.source_type != "github" {
+        return Ok(None);
+    }
+    let Some(repo) = source.source_repo.as_deref() else {
+        return Ok(None);
+    };
+    let repo_url = format!("https://github.com/{}", repo.trim_matches('/'));
+    let repo_ref = github_import::resolve_repo_ref(&repo_url, auth).await?;
+    let repo_paths = github_import::fetch_repo_skill_manifest_paths(&repo_ref, auth).await?;
+    let Some((relocated_url, relocated_path)) =
+        relocated_github_skill_md_url(source, &repo_ref.branch, &repo_paths)
+    else {
+        return Ok(None);
+    };
+    let content = github_import::fetch_raw_text(client, &relocated_url, auth).await?;
+    Ok(Some((relocated_url, relocated_path, content)))
+}
+
+async fn apply_source_update_content(
+    pool: &db::DbPool,
+    skill: &db::Skill,
+    source: &mut db::SkillSource,
+    used_url: String,
+    relocated_source_path: Option<String>,
+    content: String,
+) -> Result<String, String> {
+    validate_update_skill_markdown(&skill.id, &content)?;
+    let skill_md_path = PathBuf::from(&skill.file_path);
+    std::fs::write(&skill_md_path, content)
+        .map_err(|e| format!("Failed to write update for {}: {}", skill.id, e))?;
+    if source.source_url.as_deref() != Some(used_url.as_str())
+        || relocated_source_path
+            .as_deref()
+            .is_some_and(|source_path| source.source_path.as_deref() != Some(source_path))
+    {
+        source.source_url = Some(used_url);
+        if let Some(source_path) = relocated_source_path {
+            source.source_path = Some(source_path);
+        }
+        source.updated_at = Utc::now().to_rfc3339();
+        db::upsert_skill_source(pool, source).await?;
+    }
+    Ok(skill.id.clone())
 }
 
 fn sanitize_local_skill_id(name: &str) -> Result<String, String> {
@@ -958,40 +1064,364 @@ async fn update_source_backed_skills_impl(
     is_central: bool,
 ) -> Result<Vec<String>, String> {
     let sources = db::get_all_skill_sources(pool).await?;
+    let syncs = db::get_all_skill_source_syncs(pool).await?;
+    let syncs_by_skill = syncs
+        .into_iter()
+        .map(|sync| (sync.skill_id.clone(), sync))
+        .collect::<HashMap<_, _>>();
     let auth = github_import::github_direct_auth_from_settings(pool).await?;
     let client = reqwest::Client::builder()
         .user_agent("SkillsHub/0.10.7")
         .build()
         .map_err(|e| e.to_string())?;
     let mut updated = Vec::new();
+    let mut failures = Vec::new();
+    let mut npx_repo_sources: HashMap<String, Vec<(db::SkillSource, db::Skill)>> = HashMap::new();
+    let mut npx_skill_sources = Vec::new();
 
     for mut source in sources {
-        let urls = github_raw_update_urls(&source);
-        if urls.is_empty() {
-            continue;
-        }
         let Some(skill) = db::get_skill_by_id(pool, &source.skill_id).await? else {
             continue;
         };
         if skill.is_central != is_central {
             continue;
         }
-        let (used_url, content) = fetch_update_skill_markdown(&client, &urls, auth.as_deref())
-            .await
-            .map_err(|e| format!("Failed to update {}: {}", skill.id, e))?;
-        validate_update_skill_markdown(&skill.id, &content)?;
-        let skill_md_path = PathBuf::from(&skill.file_path);
-        std::fs::write(&skill_md_path, content)
-            .map_err(|e| format!("Failed to write update for {}: {}", skill.id, e))?;
-        if source.source_url.as_deref() != Some(used_url.as_str()) {
-            source.source_url = Some(used_url);
-            source.updated_at = Utc::now().to_rfc3339();
-            db::upsert_skill_source(pool, &source).await?;
+
+        if source.source_type == "skills-cli" {
+            let sync_scope = syncs_by_skill
+                .get(&source.skill_id)
+                .map(|sync| sync.sync_scope.as_str())
+                .unwrap_or(skills_cli::NPX_SYNC_SCOPE_SKILL);
+            if sync_scope == skills_cli::NPX_SYNC_SCOPE_REPO {
+                if let Some(repo) = source
+                    .source_repo
+                    .as_deref()
+                    .or(source.source_url.as_deref())
+                    .map(str::trim)
+                    .filter(|repo| !repo.is_empty())
+                {
+                    npx_repo_sources
+                        .entry(repo.to_string())
+                        .or_default()
+                        .push((source, skill));
+                }
+            } else {
+                npx_skill_sources.push((source, skill));
+            }
+            continue;
         }
-        updated.push(skill.id);
+
+        let urls = github_raw_update_urls(&source);
+        if urls.is_empty() {
+            continue;
+        }
+        let (used_url, relocated_source_path, content) =
+            match fetch_update_skill_markdown(&client, &urls, auth.as_deref()).await {
+                Ok((used_url, content)) => (used_url, None, content),
+                Err(primary_error) => {
+                    match fetch_relocated_github_skill_markdown(&client, &source, auth.as_deref())
+                        .await
+                    {
+                        Ok(Some((used_url, source_path, content))) => {
+                            (used_url, Some(source_path), content)
+                        }
+                        Ok(None) => {
+                            failures.push(format!("{}: {}", skill.id, primary_error));
+                            continue;
+                        }
+                        Err(relocate_error) => {
+                            failures.push(format!(
+                                "{}: {}; relocate failed: {}",
+                                skill.id, primary_error, relocate_error
+                            ));
+                            continue;
+                        }
+                    }
+                }
+            };
+        match apply_source_update_content(
+            pool,
+            &skill,
+            &mut source,
+            used_url,
+            relocated_source_path,
+            content,
+        )
+        .await
+        {
+            Ok(skill_id) => updated.push(skill_id),
+            Err(error) => {
+                failures.push(format!("{}: {}", skill.id, error));
+                continue;
+            }
+        }
+    }
+
+    for (repo, group) in npx_repo_sources {
+        match update_npx_repo_source_group(pool, &repo, &group, auth.as_deref()).await {
+            Ok(group_updated) => updated.extend(group_updated),
+            Err(error) => failures.push(format!("{repo}: {error}")),
+        }
+    }
+
+    for (source, skill) in npx_skill_sources {
+        match update_npx_skill_source(pool, &source, &skill, auth.as_deref()).await {
+            Ok(Some(skill_id)) => updated.push(skill_id),
+            Ok(None) => {}
+            Err(error) => failures.push(format!("{}: {}", skill.id, error)),
+        }
+    }
+
+    if updated.is_empty() && !failures.is_empty() {
+        return Err(format!(
+            "No skills were updated. Failures: {}",
+            failures.join("; ")
+        ));
     }
 
     Ok(updated)
+}
+
+fn npx_source_input(source: &db::SkillSource) -> Option<String> {
+    source
+        .source_repo
+        .as_deref()
+        .or(source.source_url.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+async fn fetch_npx_source_remote_ref(repo: &str, auth: Option<&str>) -> Result<String, String> {
+    let repo_ref = github_import::resolve_repo_ref(&format!("https://github.com/{repo}"), auth)
+        .await
+        .map_err(|error| format!("failed to resolve repository: {error}"))?;
+    github_import::fetch_repo_head_ref(&repo_ref, auth)
+        .await
+        .map_err(|error| format!("failed to inspect repository head: {error}"))
+}
+
+async fn current_skill_sync(
+    pool: &db::DbPool,
+    skill_id: &str,
+) -> Result<db::SkillSourceSync, String> {
+    let now = Utc::now().to_rfc3339();
+    Ok(db::get_skill_source_sync(pool, skill_id)
+        .await?
+        .unwrap_or(db::SkillSourceSync {
+            skill_id: skill_id.to_string(),
+            sync_scope: skills_cli::NPX_SYNC_SCOPE_SKILL.to_string(),
+            remote_ref: None,
+            skill_fingerprint: None,
+            last_checked_at: None,
+            last_sync_at: None,
+            sync_status: "never".to_string(),
+            sync_error: None,
+            remote_deleted: false,
+            updated_at: now,
+        }))
+}
+
+struct NpxSyncStatusRecord<'a> {
+    skill_id: &'a str,
+    sync_scope: &'a str,
+    remote_ref: Option<&'a str>,
+    status: &'a str,
+    error: Option<&'a str>,
+    remote_deleted: bool,
+    synced: bool,
+}
+
+async fn record_npx_sync_status(
+    pool: &db::DbPool,
+    record: NpxSyncStatusRecord<'_>,
+) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
+    let existing = db::get_skill_source_sync(pool, record.skill_id).await?;
+    db::upsert_skill_source_sync(
+        pool,
+        &db::SkillSourceSync {
+            skill_id: record.skill_id.to_string(),
+            sync_scope: record.sync_scope.to_string(),
+            remote_ref: record
+                .remote_ref
+                .map(str::to_string)
+                .or_else(|| existing.as_ref().and_then(|sync| sync.remote_ref.clone())),
+            skill_fingerprint: existing
+                .as_ref()
+                .and_then(|sync| sync.skill_fingerprint.clone()),
+            last_checked_at: Some(now.clone()),
+            last_sync_at: if record.synced {
+                Some(now.clone())
+            } else {
+                existing.as_ref().and_then(|sync| sync.last_sync_at.clone())
+            },
+            sync_status: record.status.to_string(),
+            sync_error: record.error.map(str::to_string),
+            remote_deleted: record.remote_deleted,
+            updated_at: now,
+        },
+    )
+    .await
+}
+
+async fn update_npx_repo_source_group(
+    pool: &db::DbPool,
+    repo: &str,
+    group: &[(db::SkillSource, db::Skill)],
+    auth: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let remote_ref = fetch_npx_source_remote_ref(repo, auth).await?;
+    let mut last_remote_ref = None;
+    for (source, _) in group {
+        if let Some(sync) = db::get_skill_source_sync(pool, &source.skill_id).await? {
+            if sync
+                .remote_ref
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                last_remote_ref = sync.remote_ref;
+                break;
+            }
+        }
+    }
+    if last_remote_ref.as_deref() == Some(remote_ref.as_str()) {
+        for (source, _) in group {
+            record_npx_sync_status(
+                pool,
+                NpxSyncStatusRecord {
+                    skill_id: &source.skill_id,
+                    sync_scope: skills_cli::NPX_SYNC_SCOPE_REPO,
+                    remote_ref: Some(&remote_ref),
+                    status: "unchanged",
+                    error: None,
+                    remote_deleted: false,
+                    synced: false,
+                },
+            )
+            .await?;
+        }
+        return Ok(Vec::new());
+    }
+
+    let request = skills_cli::ImportSkillsViaNpxRequest {
+        input: repo.to_string(),
+        skill: None,
+        overwrite: true,
+    };
+    let result = skills_cli::import_skills_via_npx_impl(pool, request).await?;
+    let imported_ids = result
+        .local_import
+        .added_skills
+        .iter()
+        .map(|skill| skill.id.clone())
+        .collect::<HashSet<_>>();
+    for skill in &result.local_import.added_skills {
+        record_npx_sync_status(
+            pool,
+            NpxSyncStatusRecord {
+                skill_id: &skill.id,
+                sync_scope: skills_cli::NPX_SYNC_SCOPE_REPO,
+                remote_ref: Some(&remote_ref),
+                status: "success",
+                error: None,
+                remote_deleted: false,
+                synced: true,
+            },
+        )
+        .await?;
+    }
+    for (source, _) in group {
+        if !imported_ids.contains(&source.skill_id) {
+            record_npx_sync_status(
+                pool,
+                NpxSyncStatusRecord {
+                    skill_id: &source.skill_id,
+                    sync_scope: skills_cli::NPX_SYNC_SCOPE_REPO,
+                    remote_ref: Some(&remote_ref),
+                    status: "remote_deleted",
+                    error: Some("The skill was not returned by the latest repository import."),
+                    remote_deleted: true,
+                    synced: false,
+                },
+            )
+            .await?;
+        }
+    }
+    Ok(imported_ids.into_iter().collect())
+}
+
+async fn update_npx_skill_source(
+    pool: &db::DbPool,
+    source: &db::SkillSource,
+    skill: &db::Skill,
+    auth: Option<&str>,
+) -> Result<Option<String>, String> {
+    let repo = npx_source_input(source)
+        .ok_or_else(|| "source repository is missing for npx skills update".to_string())?;
+    let remote_ref = fetch_npx_source_remote_ref(&repo, auth).await?;
+    let sync = current_skill_sync(pool, &source.skill_id).await?;
+    if sync.remote_ref.as_deref() == Some(remote_ref.as_str()) {
+        record_npx_sync_status(
+            pool,
+            NpxSyncStatusRecord {
+                skill_id: &source.skill_id,
+                sync_scope: skills_cli::NPX_SYNC_SCOPE_SKILL,
+                remote_ref: Some(&remote_ref),
+                status: "unchanged",
+                error: None,
+                remote_deleted: false,
+                synced: false,
+            },
+        )
+        .await?;
+        return Ok(None);
+    }
+    let mut request = skills_cli::npx_update_request_from_source(source)
+        .ok_or_else(|| "source is not an npx skills source".to_string())?;
+    if request.skill.is_none() {
+        request.skill = Some(skill.id.clone());
+    }
+    let result = skills_cli::import_skills_via_npx_impl(pool, request).await?;
+    let updated = result
+        .local_import
+        .added_skills
+        .into_iter()
+        .find(|updated_skill| updated_skill.id == skill.id);
+    if updated.is_some() {
+        record_npx_sync_status(
+            pool,
+            NpxSyncStatusRecord {
+                skill_id: &source.skill_id,
+                sync_scope: skills_cli::NPX_SYNC_SCOPE_SKILL,
+                remote_ref: Some(&remote_ref),
+                status: "success",
+                error: None,
+                remote_deleted: false,
+                synced: true,
+            },
+        )
+        .await?;
+        Ok(Some(skill.id.clone()))
+    } else {
+        record_npx_sync_status(
+            pool,
+            NpxSyncStatusRecord {
+                skill_id: &source.skill_id,
+                sync_scope: skills_cli::NPX_SYNC_SCOPE_SKILL,
+                remote_ref: Some(&remote_ref),
+                status: "remote_deleted",
+                error: Some("The skill was not returned by the latest repository import."),
+                remote_deleted: true,
+                synced: false,
+            },
+        )
+        .await?;
+        Err(
+            "npx skills did not import this skill; it may have been removed or renamed upstream."
+                .to_string(),
+        )
+    }
 }
 
 #[tauri::command]
@@ -1018,13 +1448,6 @@ async fn update_source_backed_skill_impl(
     let mut source = db::get_skill_source(pool, skill_id)
         .await?
         .ok_or_else(|| format!("Skill '{}' has no recorded source", skill_id))?;
-    let urls = github_raw_update_urls(&source);
-    if urls.is_empty() {
-        return Err(format!(
-            "Skill '{}' source is not an updatable SKILL.md file",
-            skill_id
-        ));
-    }
     let skill = db::get_skill_by_id(pool, skill_id)
         .await?
         .ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
@@ -1034,25 +1457,59 @@ async fn update_source_backed_skill_impl(
             skill_id
         ));
     }
+
+    if let Some(request) = skills_cli::npx_update_request_from_source(&source) {
+        let auth = github_import::github_direct_auth_from_settings(pool).await?;
+        if request.skill.is_none() {
+            let updated = update_npx_repo_source_group(
+                pool,
+                &request.input,
+                &[(source.clone(), skill.clone())],
+                auth.as_deref(),
+            )
+            .await?;
+            return Ok(updated
+                .into_iter()
+                .find(|updated_skill_id| updated_skill_id == &skill.id)
+                .unwrap_or_else(|| skill.id.clone()));
+        }
+        return update_npx_skill_source(pool, &source, &skill, auth.as_deref())
+            .await
+            .map(|updated| updated.unwrap_or_else(|| skill.id.clone()))
+            .map_err(|error| format!("Failed to update {}: {}", skill.id, error));
+    }
+
+    let urls = github_raw_update_urls(&source);
+    if urls.is_empty() {
+        return Err(format!(
+            "Skill '{}' source is not an updatable SKILL.md file",
+            skill_id
+        ));
+    }
     let auth = github_import::github_direct_auth_from_settings(pool).await?;
     let client = reqwest::Client::builder()
         .user_agent("SkillsHub/0.10.7")
         .build()
         .map_err(|e| e.to_string())?;
-    let (used_url, content) = fetch_update_skill_markdown(&client, &urls, auth.as_deref())
-        .await
-        .map_err(|e| format!("Failed to update {}: {}", skill.id, e))?;
-    validate_update_skill_markdown(&skill.id, &content)?;
-    let skill_md_path = PathBuf::from(&skill.file_path);
-    std::fs::write(&skill_md_path, content)
-        .map_err(|e| format!("Failed to write update for {}: {}", skill.id, e))?;
-    if source.source_url.as_deref() != Some(used_url.as_str()) {
-        source.source_url = Some(used_url);
-        source.updated_at = Utc::now().to_rfc3339();
-        db::upsert_skill_source(pool, &source).await?;
-    }
-
-    Ok(skill.id)
+    let (used_url, relocated_source_path, content) =
+        match fetch_update_skill_markdown(&client, &urls, auth.as_deref()).await {
+            Ok((used_url, content)) => (used_url, None, content),
+            Err(primary_error) => {
+                fetch_relocated_github_skill_markdown(&client, &source, auth.as_deref())
+                    .await?
+                    .map(|(used_url, source_path, content)| (used_url, Some(source_path), content))
+                    .ok_or_else(|| format!("Failed to update {}: {}", skill.id, primary_error))?
+            }
+        };
+    apply_source_update_content(
+        pool,
+        &skill,
+        &mut source,
+        used_url,
+        relocated_source_path,
+        content,
+    )
+    .await
 }
 
 // ─── AI Explanation ──────────────────────────────────────────────────────────
@@ -1874,9 +2331,9 @@ mod tests {
         github_raw_update_urls, install_marketplace_skill_content_impl,
         is_updatable_skill_source_url, load_cached_skill_explanation,
         marketplace_skills_from_candidates, registry_has_cached_skills,
-        search_marketplace_skills_impl, sync_registry_impl, validate_update_skill_markdown,
-        ExplanationApiProtocol, ExplanationErrorKind, RegistryCacheMetadata, RegistrySyncStatus,
-        SyncRegistryOptions,
+        relocated_github_skill_md_url, search_marketplace_skills_impl, sync_registry_impl,
+        validate_update_skill_markdown, ExplanationApiProtocol, ExplanationErrorKind,
+        RegistryCacheMetadata, RegistrySyncStatus, SyncRegistryOptions,
     };
     use crate::commands::github_import::RemoteSkillCandidate;
     use crate::db;
@@ -2539,6 +2996,32 @@ mod tests {
                 "https://raw.githubusercontent.com/example/skills/master/brand-guidelines/SKILL.md",
                 "https://raw.githubusercontent.com/example/skills/master/skills/brand-guidelines/SKILL.md",
             ]
+        );
+    }
+
+    #[test]
+    fn relocated_github_skill_md_url_recovers_category_moved_skill_paths() {
+        let source = db::SkillSource {
+            skill_id: "ask-matt".to_string(),
+            source_type: "github".to_string(),
+            source_url: None,
+            source_author: Some("mattpocock".to_string()),
+            source_repo: Some("mattpocock/skills".to_string()),
+            source_path: Some("ask-matt/SKILL.md".to_string()),
+            updated_at: "2026-08-12T12:00:00Z".to_string(),
+        };
+        let repo_paths = vec![
+            "skills/engineering/ask-matt/SKILL.md".to_string(),
+            "skills/productivity/handoff/SKILL.md".to_string(),
+        ];
+
+        assert_eq!(
+            relocated_github_skill_md_url(&source, "main", &repo_paths),
+            Some((
+                "https://raw.githubusercontent.com/mattpocock/skills/main/skills/engineering/ask-matt/SKILL.md"
+                    .to_string(),
+                "skills/engineering/ask-matt/SKILL.md".to_string()
+            ))
         );
     }
 

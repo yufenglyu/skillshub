@@ -14,6 +14,10 @@ export function formatPathForDisplay(path: string): string {
   return isWindowsPath(path) ? path.replace(/\//g, "\\") : path;
 }
 
+export function normalizePathForInputDisplay(path: string): string {
+  return formatPathForDisplay(path).replace(/\\\\+/g, "\\");
+}
+
 export function compactHomePath(path: string): string {
   const normalized = normalizePathSeparators(path);
   if (normalized === "~") {

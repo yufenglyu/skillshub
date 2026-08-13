@@ -179,6 +179,35 @@ export interface CreateManualResourceSkillInput {
   sourcePath?: string | null;
 }
 
+export type LocalResourceImportKind = "single_skill" | "collection";
+
+export interface AddLocalResourceSkillsInput {
+  sourceDir: string;
+  overwrite: boolean;
+}
+
+export interface AddLocalResourceSkillsResult {
+  sourceDir: string;
+  importKind: LocalResourceImportKind;
+  collectionName?: string | null;
+  addedSkills: SkillWithLinks[];
+  skippedSkills: string[];
+}
+
+export interface ImportSkillsViaNpxInput {
+  input: string;
+  skill?: string | null;
+  overwrite: boolean;
+}
+
+export interface ImportSkillsViaNpxResult {
+  package: string;
+  skill?: string | null;
+  originalInput: string;
+  cliVersion?: string | null;
+  localImport: AddLocalResourceSkillsResult;
+}
+
 export interface SkillWithLinks {
   id: string;
   name: string;

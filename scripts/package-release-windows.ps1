@@ -84,6 +84,34 @@ function Assert-WindowsHost {
   }
 }
 
+function Write-BuildOutputGuide {
+  param([string]$Root, [string]$OutDir)
+  Write-Host ""
+  Write-Host "Build output layout:" -ForegroundColor Yellow
+  Write-Host "  $(Join-Path $Root 'dist')"
+  Write-Host "    Vite frontend build consumed by Tauri. Do not upload this as a desktop release."
+  Write-Host "  $(Join-Path $Root 'src-tauri/target')"
+  Write-Host "    Cargo/Tauri build cache plus raw bundle output. Useful for diagnostics, not the curated release folder."
+  Write-Host "  $OutDir"
+  Write-Host "    Final renamed release assets produced by this script. Use this directory for manual distribution."
+  Write-Host ""
+}
+
+function Write-ReleaseAssetSummary {
+  param([string]$OutDir)
+  Write-Host ""
+  Write-Host "Final release assets:" -ForegroundColor Green
+  $assets = Get-ChildItem -Path $OutDir -File -ErrorAction SilentlyContinue | Sort-Object Name
+  if ($assets.Count -eq 0) {
+    Write-Host "  (none)"
+  } else {
+    foreach ($asset in $assets) {
+      Write-Host "  $($asset.FullName)"
+    }
+  }
+  Write-Host ""
+}
+
 function Test-IsWindows {
   $var = Get-Variable -Name IsWindows -ErrorAction SilentlyContinue
   if ($null -ne $var) { return [bool]$var.Value }
@@ -215,6 +243,7 @@ function Copy-WindowsAssets {
   if (-not (Test-Path $targetRoot)) {
     $targetRoot = Join-Path $Root "src-tauri/target/release"
   }
+  Write-Host "Tauri raw bundle output: $(Join-Path $targetRoot 'bundle')" -ForegroundColor DarkGray
   $msi = Get-ChildItem -Path (Join-Path $targetRoot "bundle/msi") -Recurse -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($null -eq $msi) { throw "Windows MSI bundle not found under $targetRoot." }
   Copy-Item $msi.FullName (Join-Path $OutDir "skillshub_${NextVersion}_windows_x64.msi") -Force
@@ -241,6 +270,7 @@ if ($VersionOnly) {
 Assert-WindowsHost -SkipActualBuild ([bool]$SkipBuild)
 $outPath = Join-Path $root $OutputDir
 New-Item -ItemType Directory -Force -Path $outPath | Out-Null
+Write-BuildOutputGuide -Root $root -OutDir $outPath
 
 Ensure-Dependencies -Root $root
 Run-Checks -Root $root
@@ -255,3 +285,4 @@ if ($SkipBuild) {
 
 Copy-WindowsAssets -Root $root -NextVersion $nextVersion -OutDir $outPath
 Write-Host "Packaged windows assets in $outPath" -ForegroundColor Green
+Write-ReleaseAssetSummary -OutDir $outPath

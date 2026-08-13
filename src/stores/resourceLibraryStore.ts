@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { invoke, isTauriRuntime } from "@/lib/tauri";
 import {
+  AddLocalResourceSkillsInput,
+  AddLocalResourceSkillsResult,
   AgentWithStatus,
   BatchInstallResult,
   CentralSkillBundleDeletePreview,
@@ -9,6 +11,8 @@ import {
   DeleteCentralSkillBundleResult,
   DeleteResourceSkillOptions,
   DeleteResourceSkillResult,
+  ImportSkillsViaNpxInput,
+  ImportSkillsViaNpxResult,
   ScanDirectory,
   SkillWithLinks,
 } from "@/types";
@@ -54,6 +58,8 @@ interface ResourceLibraryState {
   togglePlatformLink: (skillId: string, agentId: string) => Promise<void>;
   updateSourceBackedSkills: () => Promise<string[]>;
   updateSourceBackedSkill: (skillId: string) => Promise<string>;
+  importSkillsViaNpx: (input: ImportSkillsViaNpxInput) => Promise<ImportSkillsViaNpxResult>;
+  addLocalSkills: (input: AddLocalResourceSkillsInput) => Promise<AddLocalResourceSkillsResult>;
   createManualSkill: (input: CreateManualResourceSkillInput) => Promise<SkillWithLinks>;
   previewDeleteResourceBundle: (relativePath: string) => Promise<CentralSkillBundleDeletePreview>;
   deleteResourceBundle: (
@@ -187,6 +193,85 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
       return updated;
     } catch (err) {
       set({ error: String(err), isUpdatingSources: false });
+      throw err;
+    }
+  },
+
+  importSkillsViaNpx: async (input) => {
+    set({ isLoading: true, error: null });
+    if (!isTauriRuntime()) {
+      const imported: SkillWithLinks = {
+        ...BROWSER_RESOURCE_SKILLS[0],
+        id: input.skill ?? "imported-skill",
+        name: input.skill ?? "imported-skill",
+        source: "skills-cli",
+        source_repo: input.input,
+        source_path: input.skill ?? null,
+        scanned_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      const result: ImportSkillsViaNpxResult = {
+        package: input.input,
+        skill: input.skill ?? null,
+        originalInput: input.input,
+        cliVersion: "browser",
+        localImport: {
+          sourceDir: "~/.skillshub/staging/browser",
+          importKind: "collection",
+          collectionName: "browser",
+          addedSkills: [imported],
+          skippedSkills: [],
+        },
+      };
+      set((state) => ({ skills: [imported, ...state.skills], isLoading: false }));
+      return result;
+    }
+
+    try {
+      const result = await invoke<ImportSkillsViaNpxResult>("import_skills_via_npx", { input });
+      const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
+      set({ skills: skills ?? [], isLoading: false });
+      return result;
+    } catch (err) {
+      set({ error: String(err), isLoading: false });
+      throw err;
+    }
+  },
+
+  addLocalSkills: async (input) => {
+    set({ isLoading: true, error: null });
+    if (!isTauriRuntime()) {
+      const localSkill: SkillWithLinks = {
+        ...BROWSER_RESOURCE_SKILLS[0],
+        id: input.sourceDir.split(/[\\/]/).filter(Boolean).pop() ?? "local-skill",
+        name: input.sourceDir.split(/[\\/]/).filter(Boolean).pop() ?? "local-skill",
+        source: "local-folder",
+        source_path: input.sourceDir,
+        scanned_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      const result: AddLocalResourceSkillsResult = {
+        sourceDir: input.sourceDir,
+        importKind: "single_skill",
+        collectionName: null,
+        addedSkills: [localSkill],
+        skippedSkills: [],
+      };
+      set((state) => ({ skills: [localSkill, ...state.skills], isLoading: false }));
+      return result;
+    }
+
+    try {
+      const result = await invoke<AddLocalResourceSkillsResult>("add_local_resource_skills", {
+        input,
+      });
+      const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
+      set({ skills: skills ?? [], isLoading: false });
+      return result;
+    } catch (err) {
+      set({ error: String(err), isLoading: false });
       throw err;
     }
   },

@@ -8,3 +8,4 @@ pub mod marketplace;
 pub mod scanner;
 pub mod settings;
 pub mod skills;
+pub mod skills_cli;

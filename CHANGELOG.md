@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.20.0 - 2026-08-13
+
+This release focuses on a more reliable Resource Library workflow for importing, adding, and updating skills, plus better update visibility.
+
+### Features
+
+- Replace direct network import flows with an isolated `npx skills add owner/repo` import that copies complete downloaded skill folders into the Resource Library.
+- Support an optional skill name during import; leave it empty to import every discovered skill from the repository, or fill it to import one skill.
+- Add a local **Add Skills** flow that copies a prepared single-skill folder or skill-pack folder into the Resource Library and marks it separately from npx imports.
+- Add source update marker checks for imported skills, skipping unchanged sources and re-downloading plus overwriting local copies when the source changed.
+- Add a bottom status bar for live import, update, and install progress, including update summaries.
+- Support folder-level install, Central Skills promotion, and uninstall actions across the Resource Library, Central Skills, software platforms, and project directories.
+
+### Improvements
+
+- Store npx-imported skills under `owner/repo/skill` instead of ambiguous `local` folders.
+- Hide background command windows when running `npx` on Windows and improve Node.js/npx path discovery.
+- Move import/add dialog explanations into help icons to keep dialogs compact.
+- Normalize local skill folder inputs so Windows paths display with single backslashes.
+- Align single-skill and folder-card install icons while keeping Central promotion distinct from platform/project installation.
+- Make skill detail content read-only preview by default and merge time, source, and storage path metadata into Basic Info.
+- Clarify local packaging script output so `dist/`, `src-tauri/target/`, and `release-assets/` have distinct roles.
+- Refresh English and Chinese README content and screenshots for the current Resource Library, Central Skills, Collections, Settings, platform, and project-directory views.
+
+### Fixes
+
+- Fix skill detail not found errors caused by mismatched paths and records after npx imports.
+- Improve source update failures so the status bar and toast include the failed skill and reason.
+- Keep Resource Library updates aligned when a multi-skill repository adds, removes, or changes skills.
+
 ## 0.16.0 - 2026-08-10
 
 Release focused on making project directories first-class install targets and keeping the sidebar/settings model aligned.

@@ -1,10 +1,12 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useDiscoverStore } from "@/stores/discoverStore";
+import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
+import { useAppStatusStore } from "@/stores/appStatusStore";
 
 let triggerRescanInMock = false;
 
@@ -18,6 +20,14 @@ vi.mock("@/stores/centralSkillsStore", () => ({
 
 vi.mock("@/stores/discoverStore", () => ({
   useDiscoverStore: vi.fn(),
+}));
+
+vi.mock("@/stores/resourceLibraryStore", () => ({
+  useResourceLibraryStore: vi.fn(),
+}));
+
+vi.mock("@/stores/appStatusStore", () => ({
+  useAppStatusStore: vi.fn(),
 }));
 
 vi.mock("@/components/layout/Sidebar", () => ({
@@ -44,6 +54,8 @@ vi.mock("@/components/layout/GlobalSearchDialog", () => ({
 const mockUsePlatformStore = vi.mocked(usePlatformStore);
 const mockUseCentralSkillsStore = vi.mocked(useCentralSkillsStore);
 const mockUseDiscoverStore = vi.mocked(useDiscoverStore);
+const mockUseResourceLibraryStore = vi.mocked(useResourceLibraryStore);
+const mockUseAppStatusStore = vi.mocked(useAppStatusStore);
 
 let testNavigate: ReturnType<typeof useNavigate> | null = null;
 
@@ -92,6 +104,96 @@ describe("AppShell", () => {
       if (typeof selector === "function") return selector(state);
       return state;
     });
+    mockUseResourceLibraryStore.mockImplementation((selector?: unknown) => {
+      const state = {
+        skills: [],
+        loadResourceLibrary: vi.fn(),
+      };
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+    mockUseAppStatusStore.mockImplementation((selector?: unknown) => {
+      const state = {
+        task: null,
+      };
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+  });
+
+  it("renders a bottom status bar with the current idle summary", () => {
+    mockUseCentralSkillsStore.mockImplementation((selector?: unknown) => {
+      const state = {
+        skills: [{ id: "central-skill" }],
+        loadCentralSkills: vi.fn(),
+      };
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+    mockUseResourceLibraryStore.mockImplementation((selector?: unknown) => {
+      const state = {
+        skills: [{ id: "resource-a" }, { id: "resource-b" }],
+        loadResourceLibrary: vi.fn(),
+      };
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/a"]}>
+        <Routes>
+          <Route path="/" element={<AppShell />}>
+            <Route path="a" element={<DummyPage label="page-a" />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("contentinfo", { name: /状态栏|Status bar/i })).toBeInTheDocument();
+    expect(screen.getByText("就绪")).toBeInTheDocument();
+    expect(screen.getByText("技能资源库 2 · 中央技能库 1")).toBeInTheDocument();
+  });
+
+  it("shows expandable update statistics in the bottom status bar", () => {
+    mockUseAppStatusStore.mockImplementation((selector?: unknown) => {
+      const state = {
+        task: {
+          id: "resource-source-update",
+          label: "更新技能",
+          detail: "更新完成",
+          status: "success",
+          updatedCount: 3,
+          skippedCount: 2,
+          failedCount: 1,
+          items: [
+            { name: "ask-matt", status: "updated", detail: "已更新" },
+            { name: "local-demo", status: "skipped", detail: "本地添加，跳过更新" },
+            { name: "broken-skill", status: "failed", detail: "下载失败" },
+          ],
+        },
+      };
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/a"]}>
+        <Routes>
+          <Route path="/" element={<AppShell />}>
+            <Route path="a" element={<DummyPage label="page-a" />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /查看更新统计|View update statistics/i }));
+
+    expect(screen.getByRole("dialog", { name: /更新统计|Update statistics/i })).toBeInTheDocument();
+    expect(screen.getByText(/更新 3/)).toBeInTheDocument();
+    expect(screen.getByText(/跳过 2/)).toBeInTheDocument();
+    expect(screen.getByText(/失败 1/)).toBeInTheDocument();
+    expect(screen.getByText("ask-matt")).toBeInTheDocument();
+    expect(screen.getByText("broken-skill")).toBeInTheDocument();
   });
 
   it("resets shell scroll and keeps main non-scrollable when the route changes", async () => {

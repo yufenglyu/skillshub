@@ -192,6 +192,8 @@ function buildResourceLibraryStoreState(overrides = {}) {
     togglePlatformLink: vi.fn(),
     updateSourceBackedSkills: vi.fn(),
     updateSourceBackedSkill: vi.fn(),
+    importSkillsViaNpx: vi.fn(),
+    addLocalSkills: vi.fn(),
     createManualSkill: vi.fn(),
     previewDeleteResourceBundle: vi.fn(),
     deleteResourceBundle: vi.fn(),

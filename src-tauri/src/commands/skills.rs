@@ -9,8 +9,8 @@ use crate::db::{self, Collection, DbPool, SkillForAgent};
 use crate::path_utils::remove_symlink_path;
 use crate::AppState;
 
-use super::linker::uninstall_skill_from_agent_impl;
-use super::scanner::{scan_skill_root, ScanDirectoryOptions};
+use super::linker::{copy_dir_all, uninstall_skill_from_agent_impl};
+use super::scanner::{parse_skill_md, scan_skill_root, ScanDirectoryOptions};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -201,6 +201,30 @@ pub struct CreateManualResourceSkillRequest {
     pub source_author: Option<String>,
     pub source_repo: Option<String>,
     pub source_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddLocalResourceSkillsRequest {
+    pub source_dir: String,
+    pub overwrite: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalResourceImportKind {
+    SingleSkill,
+    Collection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddLocalResourceSkillsResult {
+    pub source_dir: String,
+    pub import_kind: LocalResourceImportKind,
+    pub collection_name: Option<String>,
+    pub added_skills: Vec<SkillWithLinks>,
+    pub skipped_skills: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1282,9 +1306,13 @@ async fn get_skill_detail_with_row_impl(
         }
     }
 
-    let skill = db::get_skill_by_id(pool, skill_id)
-        .await?
-        .ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
+    let mut skill = db::get_skill_by_id(pool, skill_id).await?;
+    if skill.is_none() {
+        let resource_root = db::get_skill_resource_library_dir(pool).await?;
+        sync_resource_library_skills(pool, &resource_root).await?;
+        skill = db::get_skill_by_id(pool, skill_id).await?;
+    }
+    let skill = skill.ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
 
     let row_id = skill.id.clone();
     let dir_path = skill_dir_path(&skill);
@@ -1793,6 +1821,289 @@ pub async fn create_manual_resource_skill(
     input: CreateManualResourceSkillRequest,
 ) -> Result<SkillWithLinks, String> {
     create_manual_resource_skill_impl(&state.db, input).await
+}
+
+#[derive(Debug, Clone)]
+struct LocalSkillImportCandidate {
+    source_dir: PathBuf,
+    relative_dir: PathBuf,
+    skill_id: String,
+}
+
+fn path_component_to_string(path: &Path) -> Result<String, String> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+        .ok_or_else(|| format!("Path '{}' has no valid directory name", path.display()))
+}
+
+fn resource_target_dir(
+    resource_root: &Path,
+    base_segments: &[String],
+    collection_name: Option<&str>,
+    relative_dir: &Path,
+) -> Result<PathBuf, String> {
+    let mut base = resource_root.to_path_buf();
+    for segment in base_segments {
+        base.push(segment);
+    }
+    let target = if let Some(collection_name) = collection_name {
+        base.join(collection_name).join(relative_dir)
+    } else {
+        base.join(relative_dir)
+    };
+    ensure_under_resource_root(&target, resource_root)
+        .map_err(|_| "Local skill target is outside Skill Resource Library".to_string())?;
+    Ok(target)
+}
+
+fn discover_local_skill_candidates(
+    source_dir: &Path,
+) -> Result<
+    (
+        LocalResourceImportKind,
+        Option<String>,
+        Vec<LocalSkillImportCandidate>,
+    ),
+    String,
+> {
+    if !source_dir.is_dir() {
+        return Err(format!(
+            "Local skill source '{}' is not a directory",
+            source_dir.display()
+        ));
+    }
+
+    if source_dir.join("SKILL.md").is_file() {
+        let skill_id = validate_manual_skill_id(&path_component_to_string(source_dir)?)?;
+        return Ok((
+            LocalResourceImportKind::SingleSkill,
+            None,
+            vec![LocalSkillImportCandidate {
+                source_dir: source_dir.to_path_buf(),
+                relative_dir: PathBuf::from(&skill_id),
+                skill_id,
+            }],
+        ));
+    }
+
+    let collection_name = validate_manual_skill_id(&path_component_to_string(source_dir)?)?;
+    let scanned = scan_skill_root(source_dir, false, ScanDirectoryOptions::nested());
+    let mut candidates = Vec::new();
+    for skill in scanned {
+        let skill_dir = PathBuf::from(&skill.dir_path);
+        let relative_dir = skill_dir
+            .strip_prefix(source_dir)
+            .map_err(|_| {
+                format!(
+                    "Local skill '{}' is outside selected source folder",
+                    skill_dir.display()
+                )
+            })?
+            .to_path_buf();
+        if relative_dir.as_os_str().is_empty()
+            || relative_dir
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            return Err(format!(
+                "Local skill '{}' has an unsupported relative path",
+                skill_dir.display()
+            ));
+        }
+        candidates.push(LocalSkillImportCandidate {
+            source_dir: skill_dir,
+            relative_dir,
+            skill_id: skill.id,
+        });
+    }
+
+    candidates.sort_by(|left, right| left.relative_dir.cmp(&right.relative_dir));
+    candidates.dedup_by(|left, right| left.source_dir == right.source_dir);
+
+    if candidates.is_empty() {
+        return Err(format!(
+            "Local folder '{}' does not contain any SKILL.md files",
+            source_dir.display()
+        ));
+    }
+
+    Ok((
+        LocalResourceImportKind::Collection,
+        Some(collection_name),
+        candidates,
+    ))
+}
+
+async fn add_resource_skills_from_local_dir_impl(
+    pool: &DbPool,
+    input: AddLocalResourceSkillsRequest,
+    target_base_segments: &[String],
+    preserve_collection_folder: bool,
+    source_type: &str,
+    source_author: Option<String>,
+    source_repo: Option<String>,
+) -> Result<AddLocalResourceSkillsResult, String> {
+    let source_dir = PathBuf::from(input.source_dir.trim());
+    let source_dir = source_dir.canonicalize().map_err(|e| {
+        format!(
+            "Failed to resolve local skill source '{}': {}",
+            source_dir.display(),
+            e
+        )
+    })?;
+    let resource_root = resource_root_path(pool).await?;
+    std::fs::create_dir_all(&resource_root)
+        .map_err(|e| format!("Failed to create Skill Resource Library directory: {}", e))?;
+    let resource_root = resource_root.canonicalize().map_err(|e| {
+        format!(
+            "Failed to resolve Skill Resource Library directory '{}': {}",
+            resource_root.display(),
+            e
+        )
+    })?;
+    if source_dir.starts_with(&resource_root) {
+        return Err("Local skill source is already inside the Skill Resource Library".to_string());
+    }
+
+    let (import_kind, collection_name, candidates) = discover_local_skill_candidates(&source_dir)?;
+    let mut copied_targets = Vec::new();
+    let mut skipped_skills = Vec::new();
+
+    for candidate in &candidates {
+        let target_collection_name = preserve_collection_folder
+            .then_some(collection_name.as_deref())
+            .flatten();
+        let target_dir = resource_target_dir(
+            &resource_root,
+            target_base_segments,
+            target_collection_name,
+            &candidate.relative_dir,
+        )?;
+        if target_dir.exists() {
+            if input.overwrite {
+                std::fs::remove_dir_all(&target_dir).map_err(|e| {
+                    format!(
+                        "Failed to replace existing local skill '{}': {}",
+                        target_dir.display(),
+                        e
+                    )
+                })?;
+            } else {
+                skipped_skills.push(candidate.skill_id.clone());
+                continue;
+            }
+        }
+        if let Err(error) = copy_dir_all(&candidate.source_dir, &target_dir) {
+            for copied in copied_targets {
+                let _ = std::fs::remove_dir_all(copied);
+            }
+            return Err(error);
+        }
+        copied_targets.push(target_dir);
+    }
+
+    let now = Utc::now().to_rfc3339();
+    let mut added_skills = Vec::new();
+    for candidate in &candidates {
+        if skipped_skills.contains(&candidate.skill_id) {
+            continue;
+        }
+        let target_collection_name = preserve_collection_folder
+            .then_some(collection_name.as_deref())
+            .flatten();
+        let target_dir = resource_target_dir(
+            &resource_root,
+            target_base_segments,
+            target_collection_name,
+            &candidate.relative_dir,
+        )?;
+        let skill_md_path = target_dir.join("SKILL.md");
+        let info = parse_skill_md(&skill_md_path).ok_or_else(|| {
+            format!(
+                "Imported local skill '{}' is not a valid SKILL.md file",
+                skill_md_path.display()
+            )
+        })?;
+        let skill = db::Skill {
+            id: candidate.skill_id.clone(),
+            name: info.name,
+            description: info.description,
+            file_path: skill_md_path.to_string_lossy().into_owned(),
+            canonical_path: Some(target_dir.to_string_lossy().into_owned()),
+            is_central: false,
+            source: Some(source_type.to_string()),
+            content: None,
+            scanned_at: now.clone(),
+        };
+        db::upsert_skill(pool, &skill).await?;
+        db::upsert_skill_source(
+            pool,
+            &db::SkillSource {
+                skill_id: candidate.skill_id.clone(),
+                source_type: source_type.to_string(),
+                source_url: None,
+                source_author: source_author.clone().or_else(|| collection_name.clone()),
+                source_repo: source_repo.clone(),
+                source_path: Some(candidate.source_dir.to_string_lossy().into_owned()),
+                updated_at: now.clone(),
+            },
+        )
+        .await?;
+        added_skills.push(skill_with_links(pool, skill).await?);
+    }
+
+    Ok(AddLocalResourceSkillsResult {
+        source_dir: source_dir.to_string_lossy().into_owned(),
+        import_kind,
+        collection_name,
+        added_skills,
+        skipped_skills,
+    })
+}
+
+pub async fn add_local_resource_skills_impl(
+    pool: &DbPool,
+    input: AddLocalResourceSkillsRequest,
+) -> Result<AddLocalResourceSkillsResult, String> {
+    add_resource_skills_from_local_dir_impl(
+        pool,
+        input,
+        &["local".to_string()],
+        true,
+        "local-folder",
+        None,
+        None,
+    )
+    .await
+}
+
+pub async fn add_repo_resource_skills_impl(
+    pool: &DbPool,
+    input: AddLocalResourceSkillsRequest,
+    owner: &str,
+    repo: &str,
+) -> Result<AddLocalResourceSkillsResult, String> {
+    let owner = validate_manual_skill_id(owner)?;
+    let repo = validate_manual_skill_id(repo)?;
+    add_resource_skills_from_local_dir_impl(
+        pool,
+        input,
+        &[owner.clone(), repo.clone()],
+        false,
+        "skills-cli",
+        Some(owner.clone()),
+        Some(format!("{owner}/{repo}")),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn add_local_resource_skills(
+    state: State<'_, AppState>,
+    input: AddLocalResourceSkillsRequest,
+) -> Result<AddLocalResourceSkillsResult, String> {
+    add_local_resource_skills_impl(&state.db, input).await
 }
 
 async fn sync_resource_library_skills(pool: &DbPool, resource_root: &Path) -> Result<(), String> {
@@ -2779,6 +3090,41 @@ mod tests {
             skill.canonical_path.as_deref(),
             Some(skill_dir.to_string_lossy().as_ref())
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_skill_detail_indexes_resource_skill_from_disk_when_db_is_stale() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("resource-library");
+        let skill_dir = resource_root
+            .join("author")
+            .join("repo")
+            .join("academic-paper");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: academic-paper\ndescription: Indexed lazily from disk\n---\n\n# Academic Paper\n",
+        )
+        .unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .unwrap();
+
+        let detail = get_skill_detail_with_row_impl(&pool, "academic-paper", None, None)
+            .await
+            .expect("detail lookup should repair stale resource library index");
+
+        assert_eq!(detail.id, "academic-paper");
+        assert_eq!(
+            detail.description.as_deref(),
+            Some("Indexed lazily from disk")
+        );
+        assert_eq!(
+            detail.file_path,
+            skill_dir.join("SKILL.md").to_string_lossy().into_owned()
+        );
+        assert_eq!(detail.source_repo.as_deref(), Some("author/repo"));
     }
 
     #[tokio::test]
@@ -4290,6 +4636,185 @@ mod tests {
         .unwrap_err();
         assert!(unsafe_error.contains("Invalid manual skill id"));
         assert!(!tmp.path().join("outside").exists());
+    }
+
+    #[tokio::test]
+    async fn test_add_local_resource_skills_imports_single_skill_directory() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_dir = tmp.path().join("resource-library");
+        let source_dir = tmp.path().join("local-source").join("local-demo");
+        fs::create_dir_all(source_dir.join("scripts")).unwrap();
+        fs::write(
+            source_dir.join("SKILL.md"),
+            "---\nname: Local Demo\ndescription: Added from a local folder\n---\n\n# Local Demo\n",
+        )
+        .unwrap();
+        fs::write(
+            source_dir.join("scripts").join("run.ps1"),
+            "Write-Host local",
+        )
+        .unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+
+        let result = add_local_resource_skills_impl(
+            &pool,
+            AddLocalResourceSkillsRequest {
+                source_dir: source_dir.to_string_lossy().into_owned(),
+                overwrite: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.import_kind, LocalResourceImportKind::SingleSkill);
+        assert_eq!(result.collection_name, None);
+        assert_eq!(result.added_skills.len(), 1);
+        assert_eq!(result.added_skills[0].id, "local-demo");
+        assert!(resource_dir
+            .join("local")
+            .join("local-demo")
+            .join("scripts")
+            .join("run.ps1")
+            .exists());
+
+        let source = db::get_skill_source(&pool, "local-demo")
+            .await
+            .unwrap()
+            .unwrap();
+        let canonical_source_dir = source_dir.canonicalize().unwrap();
+        assert_eq!(source.source_type, "local-folder");
+        assert_eq!(
+            source.source_path.as_deref(),
+            Some(canonical_source_dir.to_string_lossy().as_ref())
+        );
+        assert_eq!(source.source_repo, None);
+    }
+
+    #[tokio::test]
+    async fn test_add_local_resource_skills_imports_collection_directory() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_dir = tmp.path().join("resource-library");
+        let source_dir = tmp.path().join("starter-pack");
+        let alpha_dir = source_dir.join("alpha-skill");
+        let beta_dir = source_dir.join("nested").join("beta-skill");
+        fs::create_dir_all(&alpha_dir).unwrap();
+        fs::create_dir_all(beta_dir.join("references")).unwrap();
+        fs::write(
+            alpha_dir.join("SKILL.md"),
+            "---\nname: Alpha Skill\n---\n\n# Alpha\n",
+        )
+        .unwrap();
+        fs::write(
+            beta_dir.join("SKILL.md"),
+            "---\nname: Beta Skill\n---\n\n# Beta\n",
+        )
+        .unwrap();
+        fs::write(beta_dir.join("references").join("notes.md"), "# Notes").unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+
+        let result = add_local_resource_skills_impl(
+            &pool,
+            AddLocalResourceSkillsRequest {
+                source_dir: source_dir.to_string_lossy().into_owned(),
+                overwrite: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.import_kind, LocalResourceImportKind::Collection);
+        assert_eq!(result.collection_name.as_deref(), Some("starter-pack"));
+        assert_eq!(result.added_skills.len(), 2);
+        assert!(resource_dir
+            .join("local")
+            .join("starter-pack")
+            .join("alpha-skill")
+            .join("SKILL.md")
+            .exists());
+        assert!(resource_dir
+            .join("local")
+            .join("starter-pack")
+            .join("nested")
+            .join("beta-skill")
+            .join("references")
+            .join("notes.md")
+            .exists());
+
+        let beta_source = db::get_skill_source(&pool, "beta-skill")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(beta_source.source_type, "local-folder");
+        assert_eq!(beta_source.source_author.as_deref(), Some("starter-pack"));
+    }
+
+    #[tokio::test]
+    async fn test_add_repo_resource_skills_imports_under_owner_repo() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_dir = tmp.path().join("resource-library");
+        let source_dir = tmp.path().join("staging").join(".agents").join("skills");
+        let alpha_dir = source_dir.join("alpha-skill");
+        let beta_dir = source_dir.join("nested").join("beta-skill");
+        fs::create_dir_all(&alpha_dir).unwrap();
+        fs::create_dir_all(&beta_dir).unwrap();
+        fs::write(
+            alpha_dir.join("SKILL.md"),
+            "---\nname: Alpha Skill\n---\n\n# Alpha\n",
+        )
+        .unwrap();
+        fs::write(
+            beta_dir.join("SKILL.md"),
+            "---\nname: Beta Skill\n---\n\n# Beta\n",
+        )
+        .unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+
+        let result = add_repo_resource_skills_impl(
+            &pool,
+            AddLocalResourceSkillsRequest {
+                source_dir: source_dir.to_string_lossy().into_owned(),
+                overwrite: false,
+            },
+            "owner",
+            "repo",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.import_kind, LocalResourceImportKind::Collection);
+        assert_eq!(result.collection_name.as_deref(), Some("skills"));
+        assert_eq!(result.added_skills.len(), 2);
+        assert!(resource_dir
+            .join("owner")
+            .join("repo")
+            .join("alpha-skill")
+            .join("SKILL.md")
+            .exists());
+        assert!(resource_dir
+            .join("owner")
+            .join("repo")
+            .join("nested")
+            .join("beta-skill")
+            .join("SKILL.md")
+            .exists());
+        assert!(!resource_dir.join("local").join("skills").exists());
+
+        let alpha_source = db::get_skill_source(&pool, "alpha-skill")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(alpha_source.source_type, "skills-cli");
+        assert_eq!(alpha_source.source_author.as_deref(), Some("owner"));
+        assert_eq!(alpha_source.source_repo.as_deref(), Some("owner/repo"));
     }
 
     // ── get_skill_detail ──────────────────────────────────────────────────────

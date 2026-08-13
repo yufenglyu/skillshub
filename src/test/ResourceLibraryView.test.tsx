@@ -9,6 +9,8 @@ const mockAddToCentral = vi.fn();
 const mockTogglePlatformLink = vi.fn();
 const mockUpdateSourceBackedSkills = vi.fn();
 const mockUpdateSourceBackedSkill = vi.fn();
+const mockImportSkillsViaNpx = vi.fn();
+const mockAddLocalSkills = vi.fn();
 const mockCreateManualSkill = vi.fn();
 const mockPreviewDeleteResourceBundle = vi.fn();
 const mockDeleteResourceBundle = vi.fn();
@@ -16,6 +18,9 @@ const mockDeleteResourceSkill = vi.fn();
 const mockRefreshCounts = vi.fn();
 const mockLoadCentralSkills = vi.fn();
 const mockGetSkillsByAgent = vi.fn();
+const mockStartTask = vi.fn();
+const mockCompleteTask = vi.fn();
+const mockFailTask = vi.fn();
 
 const agents: AgentWithStatus[] = [
   {
@@ -79,6 +84,8 @@ vi.mock("@/stores/resourceLibraryStore", () => ({
       togglePlatformLink: mockTogglePlatformLink,
       updateSourceBackedSkills: mockUpdateSourceBackedSkills,
       updateSourceBackedSkill: mockUpdateSourceBackedSkill,
+      importSkillsViaNpx: mockImportSkillsViaNpx,
+      addLocalSkills: mockAddLocalSkills,
       createManualSkill: mockCreateManualSkill,
       previewDeleteResourceBundle: mockPreviewDeleteResourceBundle,
       deleteResourceBundle: mockDeleteResourceBundle,
@@ -101,20 +108,12 @@ vi.mock("@/stores/skillStore", () => ({
     selector({ skillsByAgent: {}, getSkillsByAgent: mockGetSkillsByAgent }),
 }));
 
-vi.mock("@/stores/githubImportStore", () => ({
-  useGitHubImportStore: (selector: (state: Record<string, unknown>) => unknown) =>
+vi.mock("@/stores/appStatusStore", () => ({
+  useAppStatusStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
-      githubImport: {
-        isPreviewLoading: false,
-        isImporting: false,
-        preview: null,
-        importResult: null,
-        previewedRepoUrl: null,
-        error: null,
-      },
-      previewGitHubRepoImport: vi.fn(),
-      importGitHubRepoSkills: vi.fn(),
-      resetGitHubImport: vi.fn(),
+      startTask: mockStartTask,
+      completeTask: mockCompleteTask,
+      failTask: mockFailTask,
     }),
 }));
 
@@ -129,6 +128,8 @@ describe("ResourceLibraryView delete", () => {
     mockTogglePlatformLink.mockReset();
     mockUpdateSourceBackedSkills.mockReset();
     mockUpdateSourceBackedSkill.mockReset();
+    mockImportSkillsViaNpx.mockReset();
+    mockAddLocalSkills.mockReset();
     mockCreateManualSkill.mockReset();
     mockPreviewDeleteResourceBundle.mockReset();
     mockPreviewDeleteResourceBundle.mockResolvedValue({
@@ -164,6 +165,9 @@ describe("ResourceLibraryView delete", () => {
     mockRefreshCounts.mockReset();
     mockLoadCentralSkills.mockReset();
     mockGetSkillsByAgent.mockReset();
+    mockStartTask.mockReset();
+    mockCompleteTask.mockReset();
+    mockFailTask.mockReset();
   });
 
   it("opens a cascade confirmation for installed resource skills", async () => {
@@ -191,7 +195,7 @@ describe("ResourceLibraryView delete", () => {
     expect(mockRefreshCounts).toHaveBeenCalled();
   });
 
-  it("shows manual create after the unified import button", () => {
+  it("shows local add after the npx import button", () => {
     render(
       <MemoryRouter>
         <ResourceLibraryView />
@@ -199,8 +203,8 @@ describe("ResourceLibraryView delete", () => {
     );
 
     const importButton = screen.getByRole("button", { name: /导入技能|Import skills/i });
-    const manualCreate = screen.getByRole("button", { name: /手动创建|Manual Create/i });
-    expect(importButton.compareDocumentPosition(manualCreate)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const addButton = screen.getByRole("button", { name: /添加技能|Add skills/i });
+    expect(importButton.compareDocumentPosition(addButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("renders icons for update-from-source and unified import buttons", () => {
@@ -210,11 +214,61 @@ describe("ResourceLibraryView delete", () => {
       </MemoryRouter>
     );
 
-    const updateButton = screen.getByRole("button", { name: /从来源更新|Update from sources/i });
+    const updateButton = screen.getByRole("button", { name: /更新技能|Update skills/i });
     const importButton = screen.getByRole("button", { name: /导入技能|Import skills/i });
 
     expect(updateButton.querySelector("svg")).not.toBeNull();
     expect(importButton.querySelector("svg")).not.toBeNull();
+  });
+
+  it("reports source update progress to the app status bar", async () => {
+    mockUpdateSourceBackedSkills.mockResolvedValue(["resource-demo", "other-skill"]);
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /更新技能|Update skills/i }));
+
+    expect(mockStartTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "resource-source-update",
+        label: "更新技能",
+      })
+    );
+
+    await waitFor(() => {
+      expect(mockCompleteTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          updatedCount: 2,
+        })
+      );
+    });
+  });
+
+  it("reports the failing skill and reason to the app status bar", async () => {
+    mockUpdateSourceBackedSkills.mockRejectedValue(
+      new Error("Failed to update ask-matt: Failed to download skill metadata.")
+    );
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /更新技能|Update skills/i }));
+
+    await waitFor(() => {
+      expect(mockFailTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          detail: "Failed to update ask-matt: Failed to download skill metadata.",
+          error: "Failed to update ask-matt: Failed to download skill metadata.",
+        })
+      );
+    });
   });
 
   it("shows per-skill source update for GitHub metadata without a stored URL", () => {
@@ -235,7 +289,7 @@ describe("ResourceLibraryView delete", () => {
 
     expect(
       screen.getByRole("button", {
-        name: /从来源更新 resource-demo|Update resource-demo from source/i,
+        name: /更新技能 resource-demo|Update skill resource-demo/i,
       })
     ).toBeInTheDocument();
   });
@@ -261,12 +315,12 @@ describe("ResourceLibraryView delete", () => {
     expect(screen.getAllByText("example/skills").length).toBeGreaterThan(0);
     expect(
       screen.getByRole("button", {
-        name: /从来源更新 resource-demo|Update resource-demo from source/i,
+        name: /更新技能 resource-demo|Update skill resource-demo/i,
       })
     ).toBeInTheDocument();
   });
 
-  it("opens a source menu for GitHub and skills.sh imports", () => {
+  it("opens the npx import dialog from the import button", () => {
     render(
       <MemoryRouter>
         <ResourceLibraryView />
@@ -275,8 +329,13 @@ describe("ResourceLibraryView delete", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /导入技能|Import skills/i }));
 
-    expect(screen.getByRole("menuitem", { name: /从 GitHub 导入|Import from GitHub/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /从 skills\.sh 导入|Import from skills\.sh/i })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: /导入技能|Import skills/i });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/GitHub 仓库|GitHub repository/i)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/技能名称|Skill name/i)).toBeInTheDocument();
+    expect(
+      within(dialog).getByTitle(/留空时导入仓库中能识别到的全部技能|Leave blank to import every skill/i)
+    ).toBeInTheDocument();
   });
 
   it("sorts resource skills by modified time and direction controls", async () => {

@@ -3,11 +3,9 @@ import {
   ArrowLeft,
   ArrowUpDown,
   Blocks,
-  ChevronDown,
   Database,
   Download,
   FolderOpen,
-  Globe2,
   Loader2,
   PackagePlus,
   Plus,
@@ -16,15 +14,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import { InstallDialog } from "@/components/central/InstallDialog";
 import { InstallTargetList } from "@/components/central/InstallTargetList";
-import { GitHubRepoImportWizard } from "@/components/github-import/GitHubRepoImportWizard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import { SkillFolderCard } from "@/components/skill/SkillFolderCard";
 import { SkillListModeToggle } from "@/components/skill/SkillListModeToggle";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { Button } from "@/components/ui/button";
+import { HelpIcon } from "@/components/ui/help-icon";
 import { SearchInput } from "@/components/ui/search-input";
 import {
   Dialog,
@@ -37,14 +36,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { isInstallTargetAgent } from "@/lib/agents";
-import { formatPathForDisplay } from "@/lib/path";
+import { formatPathForDisplay, normalizePathForInputDisplay } from "@/lib/path";
 import { buildSearchText, normalizeSearchQuery } from "@/lib/search";
 import {
   splitResourceLibrarySkillsByFolder,
   type SkillFolderGroup,
 } from "@/lib/skillFolders";
 import { cn } from "@/lib/utils";
-import { useGitHubImportStore } from "@/stores/githubImportStore";
+import { useAppStatusStore, type AppStatusTaskItem } from "@/stores/appStatusStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
@@ -64,7 +63,6 @@ function EmptyState({ message }: { message: string }) {
 
 type ResourceSortField = "name" | "createdAt" | "updatedAt";
 type ResourceSortDirection = "asc" | "desc";
-type ImportSource = "github" | "skillsSh";
 
 function parseSortableTimestamp(value?: string | null): number {
   if (!value) return 0;
@@ -94,40 +92,30 @@ function resourceSkillSourceRepo(skill: SkillWithLinks): string | null {
   return skill.source_repo ?? githubRepoFromSourceLabel(skill.source) ?? null;
 }
 
-function parseSkillsShImportTarget(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    throw new Error("Missing skills.sh URL.");
-  }
+function sourceUpdateItems(skills: SkillWithLinks[], updatedIds: string[]): AppStatusTaskItem[] {
+  const updatedIdSet = new Set(updatedIds);
+  return skills
+    .filter(
+      (skill) =>
+        updatedIdSet.has(skill.id) ||
+        skill.source_url ||
+        skill.source_repo ||
+        skill.source === "local-folder"
+    )
+    .map((skill) => {
+      if (updatedIdSet.has(skill.id)) {
+        return { name: skill.name, status: "updated" as const, detail: skill.source_repo };
+      }
+      if (skill.source === "local-folder") {
+        return { name: skill.name, status: "skipped" as const, detail: "local-folder" };
+      }
+      return { name: skill.name, status: "skipped" as const, detail: "not changed" };
+    });
+}
 
-  let path = trimmed;
-  try {
-    const parsed = new URL(trimmed);
-    const host = parsed.hostname.toLowerCase();
-    if (host !== "skills.sh" && host !== "www.skills.sh") {
-      throw new Error("Only skills.sh URLs are supported.");
-    }
-    path = parsed.pathname;
-  } catch (err) {
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-      throw err;
-    }
-  }
-
-  const segments = path
-    .split("/")
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
-  if (segments.length < 3) {
-    throw new Error("Use a skills.sh skill URL like https://skills.sh/owner/repo/skill.");
-  }
-
-  const [owner, repo, skillSlug] = segments;
-  return {
-    repoUrl: `https://github.com/${owner}/${repo}`,
-    skillSlug,
-  };
+function formatTaskError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.replace(/^Error:\s*/i, "").trim() || "Unknown error";
 }
 
 export function ResourceLibraryView() {
@@ -143,7 +131,8 @@ export function ResourceLibraryView() {
   const installSkill = useResourceLibraryStore((state) => state.installSkill);
   const addToCentral = useResourceLibraryStore((state) => state.addToCentral);
   const togglePlatformLink = useResourceLibraryStore((state) => state.togglePlatformLink);
-  const createManualSkill = useResourceLibraryStore((state) => state.createManualSkill);
+  const importSkillsViaNpx = useResourceLibraryStore((state) => state.importSkillsViaNpx);
+  const addLocalSkills = useResourceLibraryStore((state) => state.addLocalSkills);
   const previewDeleteResourceBundle = useResourceLibraryStore(
     (state) => state.previewDeleteResourceBundle
   );
@@ -155,20 +144,14 @@ export function ResourceLibraryView() {
   const updateSourceBackedSkill = useResourceLibraryStore(
     (state) => state.updateSourceBackedSkill
   );
+  const startStatusTask = useAppStatusStore((state) => state.startTask);
+  const completeStatusTask = useAppStatusStore((state) => state.completeTask);
+  const failStatusTask = useAppStatusStore((state) => state.failTask);
 
   const refreshCounts = usePlatformStore((state) => state.refreshCounts);
   const loadCentralSkills = useCentralSkillsStore((state) => state.loadCentralSkills);
   const getSkillsByAgent = useSkillStore((state) => state.getSkillsByAgent);
   const uninstallSkillFromAgent = useSkillStore((state) => state.uninstallSkillFromAgent);
-  const skillsByAgent = useSkillStore((state) => state.skillsByAgent);
-  const githubImport = useGitHubImportStore((state) => state.githubImport);
-  const previewGitHubRepoImport = useGitHubImportStore(
-    (state) => state.previewGitHubRepoImport
-  );
-  const importGitHubRepoSkills = useGitHubImportStore(
-    (state) => state.importGitHubRepoSkills
-  );
-  const resetGitHubImport = useGitHubImportStore((state) => state.resetGitHubImport);
 
   const [viewMode, setViewMode] = useSkillListViewMode("resource-library");
   const [sortField, setSortField] = useState<ResourceSortField>("name");
@@ -182,14 +165,13 @@ export function ResourceLibraryView() {
   const [drawerSkillId, setDrawerSkillId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [updatingSkillId, setUpdatingSkillId] = useState<string | null>(null);
-  const [isGitHubImportOpen, setIsGitHubImportOpen] = useState(false);
-  const [importSource, setImportSource] = useState<ImportSource>("github");
-  const [isImportMenuOpen, setIsImportMenuOpen] = useState(false);
-  const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
-  const [manualSkillId, setManualSkillId] = useState("");
-  const [manualName, setManualName] = useState("");
-  const [manualDescription, setManualDescription] = useState("");
-  const [manualBody, setManualBody] = useState("");
+  const [isNpxImportOpen, setIsNpxImportOpen] = useState(false);
+  const [npxImportInput, setNpxImportInput] = useState("");
+  const [npxImportSkill, setNpxImportSkill] = useState("");
+  const [isNpxImporting, setIsNpxImporting] = useState(false);
+  const [isLocalAddOpen, setIsLocalAddOpen] = useState(false);
+  const [localSourceDir, setLocalSourceDir] = useState("");
+  const [isAddingLocal, setIsAddingLocal] = useState(false);
   const [folderDeletePreview, setFolderDeletePreview] =
     useState<CentralSkillBundleDeletePreview | null>(null);
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
@@ -202,9 +184,6 @@ export function ResourceLibraryView() {
     "central" | "install" | "uninstall" | null
   >(null);
   const [pendingFolderActionKey, setPendingFolderActionKey] = useState<string | null>(null);
-  const [githubRepoUrl, setGitHubRepoUrl] = useState("");
-  const [importUrlError, setImportUrlError] = useState<string | null>(null);
-  const importMenuRef = useRef<HTMLDivElement | null>(null);
   const detailButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -218,17 +197,6 @@ export function ResourceLibraryView() {
   useEffect(() => {
     loadResourceLibrary();
   }, [loadResourceLibrary]);
-
-  useEffect(() => {
-    function handlePointerDown(event: MouseEvent) {
-      if (!importMenuRef.current?.contains(event.target as Node)) {
-        setIsImportMenuOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, []);
 
   const folderSplit = useMemo(
     () => splitResourceLibrarySkillsByFolder(skills, resourceLibraryDir),
@@ -340,14 +308,6 @@ export function ResourceLibraryView() {
     () => availableInstallAgents.filter((agent) => folderActionLinkedAgentIds.has(agent.id)),
     [folderActionLinkedAgentIds, availableInstallAgents]
   );
-  const installableImportedSkills = useMemo(() => {
-    if (!githubImport.importResult) return [];
-    const importedIds = new Set(
-      githubImport.importResult.importedSkills.map((skill) => skill.importedSkillId)
-    );
-    return skills.filter((skill) => importedIds.has(skill.id));
-  }, [githubImport.importResult, skills]);
-
   const sortFieldOptions: Array<{ value: ResourceSortField; label: string }> = [
     { value: "name", label: t("central.sortByName") },
     { value: "createdAt", label: t("central.sortByCreatedAt") },
@@ -407,20 +367,57 @@ export function ResourceLibraryView() {
   }
 
   async function handleUpdateSources() {
+    startStatusTask({
+      id: "resource-source-update",
+      label: t("status.resourceSourceUpdate"),
+      detail: t("status.resourceSourceConnecting"),
+      totalCount: skills.length,
+    });
     try {
       const updated = await updateSourceBackedSkills();
+      const items = sourceUpdateItems(skills, updated);
+      const skippedCount = items.filter((item) => item.status === "skipped").length;
+      completeStatusTask({
+        detail: t("status.resourceSourceUpdated", { count: updated.length }),
+        updatedCount: updated.length,
+        skippedCount,
+        failedCount: 0,
+        items,
+      });
       toast.success(t("resource.updateSourcesSuccess", { count: updated.length }));
     } catch (err) {
+      const errorMessage = formatTaskError(err);
+      failStatusTask({
+        detail: errorMessage,
+        error: errorMessage,
+        failedCount: 1,
+        items: [{ name: t("status.resourceSourceUpdate"), status: "failed", detail: errorMessage }],
+      });
       toast.error(t("resource.updateSourcesError", { error: String(err) }));
     }
   }
 
   async function handleUpdateSingleSource(skill: SkillWithLinks) {
     setUpdatingSkillId(skill.id);
+    startStatusTask({
+      id: `resource-source-update:${skill.id}`,
+      label: t("status.resourceSingleSourceUpdate", { name: skill.name }),
+      detail: t("status.resourceSourceConnecting"),
+      totalCount: 1,
+    });
     try {
       await updateSourceBackedSkill(skill.id);
+      completeStatusTask({
+        detail: t("status.resourceSingleSourceUpdated", { name: skill.name }),
+        updatedCount: 1,
+      });
       toast.success(t("central.updateSourceSuccess", { name: skill.name }));
     } catch (err) {
+      const errorMessage = formatTaskError(err);
+      failStatusTask({
+        detail: errorMessage,
+        error: errorMessage,
+      });
       toast.error(t("central.updateSourceError", { name: skill.name, error: String(err) }));
     } finally {
       setUpdatingSkillId(null);
@@ -600,22 +597,68 @@ export function ResourceLibraryView() {
     void handleDeleteResourceSkill(skill, false);
   }
 
-  async function handleCreateManualSkill() {
+  async function handleImportViaNpx() {
+    const input = npxImportInput.trim();
+    if (!input || isNpxImporting) return;
+    setIsNpxImporting(true);
+    startStatusTask({
+      id: "resource-npx-import",
+      label: t("resource.npxImportStatus"),
+      detail: t("resource.npxImportConnecting"),
+    });
     try {
-      await createManualSkill({
-        skillId: manualSkillId,
-        name: manualName,
-        description: manualDescription || null,
-        body: manualBody || null,
+      const result = await importSkillsViaNpx({
+        input,
+        skill: npxImportSkill.trim() || null,
+        overwrite: true,
       });
-      setIsManualCreateOpen(false);
-      setManualSkillId("");
-      setManualName("");
-      setManualDescription("");
-      setManualBody("");
-      toast.success(t("resource.manualCreateSuccess"));
+      await Promise.all([loadResourceLibrary(), refreshCounts()]);
+      completeStatusTask({
+        detail: t("resource.npxImportSuccessDetail", {
+          count: result.localImport.addedSkills.length,
+        }),
+        updatedCount: result.localImport.addedSkills.length,
+      });
+      toast.success(
+        t("resource.npxImportSuccess", { count: result.localImport.addedSkills.length })
+      );
+      setIsNpxImportOpen(false);
+      setNpxImportInput("");
+      setNpxImportSkill("");
     } catch (err) {
-      toast.error(t("resource.manualCreateError", { error: String(err) }));
+      const errorMessage = formatTaskError(err);
+      failStatusTask({ detail: errorMessage, error: errorMessage });
+      toast.error(t("resource.npxImportError", { error: String(err) }));
+    } finally {
+      setIsNpxImporting(false);
+    }
+  }
+
+  async function handleChooseLocalSourceDir() {
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      title: t("resource.localAddChooseTitle"),
+    });
+    if (typeof selected === "string") {
+      setLocalSourceDir(normalizePathForInputDisplay(selected));
+    }
+  }
+
+  async function handleAddLocalSkills() {
+    const sourceDir = normalizePathForInputDisplay(localSourceDir).trim();
+    if (!sourceDir || isAddingLocal) return;
+    setIsAddingLocal(true);
+    try {
+      const result = await addLocalSkills({ sourceDir, overwrite: true });
+      await loadResourceLibrary();
+      toast.success(t("resource.localAddSuccess", { count: result.addedSkills.length }));
+      setIsLocalAddOpen(false);
+      setLocalSourceDir("");
+    } catch (err) {
+      toast.error(t("resource.localAddError", { error: String(err) }));
+    } finally {
+      setIsAddingLocal(false);
     }
   }
 
@@ -648,82 +691,6 @@ export function ResourceLibraryView() {
     }
   }
 
-  async function handleGitHubPreview() {
-    setImportUrlError(null);
-    let previewUrl = githubRepoUrl;
-    if (importSource === "skillsSh") {
-      try {
-        previewUrl = parseSkillsShImportTarget(githubRepoUrl).repoUrl;
-      } catch {
-        setImportUrlError(t("githubImport.skillsShUrlInvalid"));
-        return null;
-      }
-    }
-
-    try {
-      return await previewGitHubRepoImport(previewUrl);
-    } catch {
-      return null;
-    }
-  }
-
-  async function handleGitHubImport(
-    selections: Parameters<typeof importGitHubRepoSkills>[1]
-  ) {
-    try {
-      let importUrl = githubRepoUrl;
-      if (importSource === "skillsSh") {
-        try {
-          importUrl = parseSkillsShImportTarget(githubRepoUrl).repoUrl;
-        } catch {
-          throw new Error(t("githubImport.skillsShUrlInvalid"));
-        }
-      }
-      const result = await importGitHubRepoSkills(importUrl, selections);
-      await Promise.all([loadResourceLibrary(), refreshCounts()]);
-      toast.success(t("resource.githubImportSuccess"));
-      return result;
-    } catch (err) {
-      toast.error(t("githubImport.installError", { error: String(err) }));
-      throw err;
-    }
-  }
-
-  function handleOpenImport(source: ImportSource) {
-    setImportSource(source);
-    setImportUrlError(null);
-    resetGitHubImport();
-    setGitHubRepoUrl("");
-    setIsImportMenuOpen(false);
-    setIsGitHubImportOpen(true);
-  }
-
-  const skillsShTarget = useMemo(() => {
-    if (importSource !== "skillsSh") return null;
-    try {
-      return parseSkillsShImportTarget(githubRepoUrl);
-    } catch {
-      return null;
-    }
-  }, [githubRepoUrl, importSource]);
-
-  async function handleInstallImportedSkill(
-    skillId: string,
-    agentIds: string[],
-    method: "symlink" | "copy"
-  ) {
-    await handleInstall(skillId, agentIds, method);
-    await Promise.all(agentIds.map((agentId) => getSkillsByAgent(agentId)));
-  }
-
-  async function handleAfterImportSuccess() {
-    const agentIds = Object.keys(skillsByAgent);
-    await Promise.all([
-      loadResourceLibrary(),
-      ...agentIds.map((agentId) => getSkillsByAgent(agentId)),
-    ]);
-  }
-
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
@@ -751,60 +718,13 @@ export function ResourceLibraryView() {
             )}
             {t("resource.updateSources")}
           </Button>
-          <div ref={importMenuRef} className="relative">
-            <Button
-              variant="outline"
-              onClick={() => setIsImportMenuOpen((open) => !open)}
-              aria-haspopup="menu"
-              aria-expanded={isImportMenuOpen}
-            >
-              <Download className="size-4" />
-              {t("resource.importSkills")}
-              <ChevronDown className="size-4" />
-            </Button>
-            {isImportMenuOpen ? (
-              <div
-                role="menu"
-                className="absolute right-0 z-30 mt-2 w-64 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
-                  onClick={() => handleOpenImport("github")}
-                >
-                  <Download className="mt-0.5 size-4 text-primary" />
-                  <span>
-                    <span className="block font-medium">
-                      {t("githubImport.githubImportSecondaryCta")}
-                    </span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {t("resource.importFromGitHubHint")}
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
-                  onClick={() => handleOpenImport("skillsSh")}
-                >
-                  <Globe2 className="mt-0.5 size-4 text-primary" />
-                  <span>
-                    <span className="block font-medium">
-                      {t("githubImport.skillsShImportSecondaryCta")}
-                    </span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {t("resource.importFromSkillsShHint")}
-                    </span>
-                  </span>
-                </button>
-              </div>
-            ) : null}
-          </div>
-          <Button variant="outline" onClick={() => setIsManualCreateOpen(true)}>
+          <Button variant="outline" onClick={() => setIsNpxImportOpen(true)}>
+            <Download className="size-4" />
+            {t("resource.importSkills")}
+          </Button>
+          <Button variant="outline" onClick={() => setIsLocalAddOpen(true)}>
             <Plus className="size-4" />
-            {t("resource.manualCreate")}
+            {t("resource.addSkills")}
           </Button>
         </div>
       </div>
@@ -1120,63 +1040,87 @@ export function ResourceLibraryView() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>
+      <Dialog open={isNpxImportOpen} onOpenChange={setIsNpxImportOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{t("resource.manualCreateTitle")}</DialogTitle>
-            <DialogDescription>{t("resource.manualCreateDesc")}</DialogDescription>
+            <DialogTitle className="inline-flex items-center gap-2">
+              {t("resource.npxImportTitle")}
+              <HelpIcon label={t("common.info")} title={t("resource.npxImportDesc")} />
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label htmlFor="manual-skill-id" className="mb-1 block text-xs text-muted-foreground">
-                {t("resource.manualSkillId")}
+              <label htmlFor="npx-import-input" className="mb-1 block text-xs text-muted-foreground">
+                {t("resource.npxImportInput")}
               </label>
               <Input
-                id="manual-skill-id"
-                value={manualSkillId}
-                onChange={(event) => setManualSkillId(event.target.value)}
-                placeholder="my-skill"
+                id="npx-import-input"
+                value={npxImportInput}
+                onChange={(event) => setNpxImportInput(event.target.value)}
+                placeholder="mattpocock/skills"
               />
             </div>
             <div>
-              <label htmlFor="manual-skill-name" className="mb-1 block text-xs text-muted-foreground">
-                {t("resource.manualSkillName")}
+              <label htmlFor="npx-import-skill" className="mb-1 block text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1">
+                  {t("resource.npxImportSkill")}
+                  <HelpIcon label={t("common.info")} title={t("resource.npxImportSkillHelp")} className="[&_svg]:size-3.5" />
+                </span>
               </label>
               <Input
-                id="manual-skill-name"
-                value={manualName}
-                onChange={(event) => setManualName(event.target.value)}
-                placeholder="My Skill"
-              />
-            </div>
-            <div>
-              <label htmlFor="manual-skill-description" className="mb-1 block text-xs text-muted-foreground">
-                {t("resource.manualSkillDescription")}
-              </label>
-              <Input
-                id="manual-skill-description"
-                value={manualDescription}
-                onChange={(event) => setManualDescription(event.target.value)}
-              />
-            </div>
-            <div>
-              <label htmlFor="manual-skill-body" className="mb-1 block text-xs text-muted-foreground">
-                {t("resource.manualSkillBody")}
-              </label>
-              <textarea
-                id="manual-skill-body"
-                value={manualBody}
-                onChange={(event) => setManualBody(event.target.value)}
-                className="min-h-28 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                id="npx-import-skill"
+                value={npxImportSkill}
+                onChange={(event) => setNpxImportSkill(event.target.value)}
+                placeholder="ask-matt"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsManualCreateOpen(false)}>
+            <Button variant="outline" onClick={() => setIsNpxImportOpen(false)} disabled={isNpxImporting}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={() => void handleCreateManualSkill()}>
-              {t("resource.manualCreateSubmit")}
+            <Button onClick={() => void handleImportViaNpx()} disabled={!npxImportInput.trim() || isNpxImporting}>
+              {isNpxImporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+              {t("resource.npxImportSubmit")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isLocalAddOpen} onOpenChange={setIsLocalAddOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="inline-flex items-center gap-2">
+              {t("resource.localAddTitle")}
+              <HelpIcon label={t("common.info")} title={t("resource.localAddDesc")} />
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="local-source-dir" className="mb-1 block text-xs text-muted-foreground">
+                {t("resource.localAddSourceDir")}
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  id="local-source-dir"
+                  value={localSourceDir}
+                  onChange={(event) => setLocalSourceDir(normalizePathForInputDisplay(event.target.value))}
+                  placeholder="D:\\Skills\\my-skill-pack"
+                />
+                <Button type="button" variant="outline" onClick={() => void handleChooseLocalSourceDir()}>
+                  <FolderOpen className="size-4" />
+                  {t("common.browse")}
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsLocalAddOpen(false)} disabled={isAddingLocal}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => void handleAddLocalSkills()} disabled={!localSourceDir.trim() || isAddingLocal}>
+              {isAddingLocal ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+              {t("resource.localAddSubmit")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1347,32 +1291,6 @@ export function ResourceLibraryView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <GitHubRepoImportWizard
-        open={isGitHubImportOpen}
-        onOpenChange={setIsGitHubImportOpen}
-        importSource={importSource}
-        repoUrl={githubRepoUrl}
-        onRepoUrlChange={setGitHubRepoUrl}
-        preview={githubImport.preview}
-        previewError={importUrlError ?? githubImport.error}
-        isPreviewLoading={githubImport.isPreviewLoading}
-        isImporting={githubImport.isImporting}
-        importResult={githubImport.importResult}
-        onPreview={handleGitHubPreview}
-        onImport={handleGitHubImport}
-        availableAgents={availableInstallAgents}
-        installableSkills={installableImportedSkills}
-        onInstallImportedSkill={handleInstallImportedSkill}
-        onAfterImportSuccess={handleAfterImportSuccess}
-        onReset={() => {
-          resetGitHubImport();
-          setGitHubRepoUrl("");
-          setImportUrlError(null);
-        }}
-        preferredSkillSlug={skillsShTarget?.skillSlug ?? null}
-        launcherLabel={t("resource.title")}
-      />
     </div>
   );
 }

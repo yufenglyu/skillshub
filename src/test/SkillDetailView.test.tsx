@@ -360,19 +360,20 @@ describe("SkillDetailView", () => {
 
   // ── Metadata ──────────────────────────────────────────────────────────────
 
-  it("shows timestamp metadata section", () => {
+  it("shows basic metadata section with scan timestamp", () => {
     renderView();
-    expect(screen.getByRole("region", { name: /技能时间信息/i })).toBeInTheDocument();
+    const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
+    expect(within(metadataRegion).getByText(/扫描时间/i)).toBeInTheDocument();
   });
 
-  it("shows file tree above storage metadata and keeps directories collapsed by default", async () => {
+  it("shows file tree above basic metadata and keeps directories collapsed by default", async () => {
     renderView();
 
     const filesRegion = await screen.findByRole("region", { name: /技能文件/i });
-    const storageRegion = screen.getByRole("region", { name: /技能存储路径/i });
-    const docsButton = within(filesRegion).getByRole("button", { name: "docs" });
+    const metadataRegion = await screen.findByRole("region", { name: /技能基本信息/i });
+    const docsButton = await within(filesRegion).findByRole("button", { name: "docs" });
 
-    expect(filesRegion.compareDocumentPosition(storageRegion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(filesRegion.compareDocumentPosition(metadataRegion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(filesRegion).getByText("docs")).toBeInTheDocument();
     expect(within(filesRegion).getByRole("button", { name: "SKILL.md" })).toBeInTheDocument();
     expect(docsButton).toHaveAttribute("aria-expanded", "false");
@@ -397,8 +398,8 @@ describe("SkillDetailView", () => {
 
   it("shows source", () => {
     renderView();
-    const sourceRegion = screen.getByRole("region", { name: /技能来源信息/i });
-    expect(within(sourceRegion).getByText("native")).toBeInTheDocument();
+    const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
+    expect(within(metadataRegion).getByText("native")).toBeInTheDocument();
   });
 
   it("shows GitHub repository source without exposing the basic info editor", () => {
@@ -413,8 +414,8 @@ describe("SkillDetailView", () => {
     });
     renderView("frontend-design", "page", { skipMockSetup: true });
 
-    const sourceRegion = screen.getByRole("region", { name: /技能来源信息/i });
-    expect(within(sourceRegion).getByText("owner/repo")).toBeInTheDocument();
+    const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
+    expect(within(metadataRegion).getByText("owner/repo")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("resource-library")).toBeNull();
     expect(screen.queryByRole("button", { name: /保存基本信息/i })).toBeNull();
   });
@@ -780,13 +781,13 @@ describe("SkillDetailView", () => {
 
   it("shows SKILL.md preview as markdown content", () => {
     renderView();
-    expect(screen.getByRole("tabpanel", { name: /预览模式/i })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /预览/i })).toBeInTheDocument();
   });
 
-  it("labels the markdown preview tab as preview mode", () => {
+  it("does not show preview or raw source tabs for read-only content", () => {
     renderView();
-    expect(screen.getByRole("tab", { name: /预览模式/i })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /Markdown/i })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /预览模式/i })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /原始源码/i })).toBeNull();
   });
 
   it("renders the right detail sidebar wider by default with a resize handle", () => {
@@ -808,11 +809,6 @@ describe("SkillDetailView", () => {
     fireEvent.mouseUp(document);
 
     expect(sidebar).toHaveStyle({ "--skill-detail-sidebar-width": "612px" });
-  });
-
-  it("shows Raw Source tab button", () => {
-    renderView();
-    expect(screen.getByRole("tab", { name: /原始源码/i })).toBeInTheDocument();
   });
 
   it("hides AI Explanation tab and shows the AI note button in the notes region", () => {
@@ -838,17 +834,17 @@ describe("SkillDetailView", () => {
     expect(saveButton.className).toContain("bg-primary");
   });
 
-  it("renders markdown content by default in Markdown tab", () => {
+  it("renders markdown content by default in preview", () => {
     renderView();
-    const markdownPane = screen.getByRole("tabpanel", { name: /预览模式/i });
+    const markdownPane = screen.getByRole("region", { name: /预览/i });
     expect(markdownPane).toBeInTheDocument();
     expect(screen.getByTestId("react-markdown")).toBeInTheDocument();
     expect(screen.getByTestId("react-markdown")).toHaveAttribute("data-has-remark-gfm", "true");
   });
 
-  it("renders frontmatter card in Markdown tab", () => {
+  it("renders frontmatter card in preview", () => {
     renderView();
-    const markdown = screen.getByRole("tabpanel", { name: /预览模式/i });
+    const markdown = screen.getByRole("region", { name: /预览/i });
     expect(within(markdown).getByRole("heading", { name: /Frontmatter/i })).toBeInTheDocument();
     expect(within(markdown).getByText("frontend-design")).toBeInTheDocument();
     expect(within(markdown).getByText("Build distinctive, production-grade frontend interfaces")).toBeInTheDocument();
@@ -864,7 +860,7 @@ describe("SkillDetailView", () => {
     });
     renderView("frontend-design", "page", { skipMockSetup: true });
 
-    const markdown = screen.getByRole("tabpanel", { name: /预览模式/i });
+    const markdown = screen.getByRole("region", { name: /预览/i });
     expect(within(markdown).getByText("wrangler")).toBeInTheDocument();
     expect(screen.getByTestId("react-markdown")).toHaveTextContent("# Wrangler CLI");
     expect(screen.getByTestId("react-markdown")).not.toHaveTextContent("name: wrangler");
@@ -878,7 +874,7 @@ describe("SkillDetailView", () => {
     });
     renderView("frontend-design", "page", { skipMockSetup: true });
 
-    const markdown = screen.getByRole("tabpanel", { name: /预览模式/i });
+    const markdown = screen.getByRole("region", { name: /预览/i });
     expect(within(markdown).getByRole("heading", { name: /Frontmatter/i })).toBeInTheDocument();
     expect(within(markdown).getByText(/这段 frontmatter 无法稳定解析/i)).toBeInTheDocument();
     expect(within(markdown).getAllByText(/name: broken-skill/).length).toBeGreaterThan(0);
@@ -886,35 +882,15 @@ describe("SkillDetailView", () => {
     expect(screen.getByTestId("react-markdown")).toHaveTextContent("# Broken Skill");
   });
 
-  it("switches to raw source tab when Raw Source is clicked", async () => {
-    renderView();
-    const rawTab = screen.getByRole("tab", { name: /原始源码/i });
-    fireEvent.click(rawTab);
-    await waitFor(() => {
-      expect(screen.getByRole("tabpanel", { name: /原始源码/i })).toBeInTheDocument();
-    });
-  });
-
-  it("shows raw content including frontmatter in raw source tab", async () => {
-    renderView();
-    const rawTab = screen.getByRole("tab", { name: /原始源码/i });
-    fireEvent.click(rawTab);
-    await waitFor(() => {
-      const rawPane = screen.getByRole("tabpanel", { name: /原始源码/i });
-      expect(rawPane).toHaveTextContent("---");
-      expect(rawPane).toHaveTextContent("name: frontend-design");
-    });
-  });
-
   it("switches preview when a non-markdown file is selected from the file tree", async () => {
     renderView();
 
     const filesRegion = await screen.findByRole("region", { name: /技能文件/i });
-    fireEvent.click(within(filesRegion).getByRole("button", { name: "docs" }));
-    fireEvent.click(within(filesRegion).getByRole("button", { name: "notes.txt" }));
+    fireEvent.click(await within(filesRegion).findByRole("button", { name: "docs" }));
+    fireEvent.click(await within(filesRegion).findByRole("button", { name: "notes.txt" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /预览|Preview/i })).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: /预览|Preview/i })).toBeInTheDocument();
       expect(screen.getByText(mockNotesContent)).toBeInTheDocument();
     });
 

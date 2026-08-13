@@ -81,6 +81,34 @@ run() {
   "$@"
 }
 
+print_build_output_layout() {
+  local root="$1"
+  local out_dir="$2"
+  cat <<EOF
+
+Build output layout:
+  $root/dist
+    Vite frontend build consumed by Tauri. Do not upload this as a desktop release.
+  $root/src-tauri/target
+    Cargo/Tauri build cache plus raw bundle output. Useful for diagnostics, not the curated release folder.
+  $out_dir
+    Final renamed release assets produced by this script. Use this directory for manual distribution.
+
+EOF
+}
+
+print_release_asset_summary() {
+  local out_dir="$1"
+  echo
+  echo "Final release assets:"
+  if find "$out_dir" -maxdepth 1 -type f -print -quit | grep -q .; then
+    find "$out_dir" -maxdepth 1 -type f -print | sort | sed 's/^/  /'
+  else
+    echo "  (none)"
+  fi
+  echo
+}
+
 read_json_field() {
   local file="$1"
   local field="$2"
@@ -237,6 +265,7 @@ copy_linux_assets() {
   local rpm
   local appimage
 
+  echo "Tauri raw bundle output: $bundle_root"
   case "$(uname -m)" in
     aarch64|arm64) arch="arm64" ;;
     *) arch="x86_64" ;;
@@ -286,6 +315,7 @@ fi
 
 out_path="$root/$output_dir"
 mkdir -p "$out_path"
+print_build_output_layout "$root" "$out_path"
 
 ensure_dependencies "$root"
 run_checks "$root"
@@ -299,3 +329,4 @@ fi
 
 copy_linux_assets "$root" "$next_version" "$out_path"
 echo "Packaged linux assets in $out_path"
+print_release_asset_summary "$out_path"

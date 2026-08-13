@@ -1006,6 +1006,11 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
         db_skill.source = sanitize_skill_origin(db_skill.source);
         db_skill.content = None;
         db::upsert_skill(pool, &db_skill).await?;
+        sqlx::query("DELETE FROM skill_source_syncs WHERE skill_id = ?")
+            .bind(&db_skill.id)
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
         sqlx::query("DELETE FROM skill_sources WHERE skill_id = ?")
             .bind(&db_skill.id)
             .execute(pool)

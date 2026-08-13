@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
+import { AppStatusBar } from "./AppStatusBar";
 import { GlobalSearchDialog } from "./GlobalSearchDialog";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
@@ -52,9 +53,12 @@ export function AppShell() {
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">
       <Sidebar />
-      <main ref={mainRef} className="flex-1 min-h-0 min-w-0 overflow-hidden">
-        <Outlet />
-      </main>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <main ref={mainRef} className="flex-1 min-h-0 min-w-0 overflow-hidden">
+          <Outlet />
+        </main>
+        <AppStatusBar />
+      </div>
       <GlobalSearchDialog
         open={isSearchOpen}
         onOpenChange={setIsSearchOpen}

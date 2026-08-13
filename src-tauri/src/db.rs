@@ -48,6 +48,20 @@ pub struct SkillSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SkillSourceSync {
+    pub skill_id: String,
+    pub sync_scope: String,
+    pub remote_ref: Option<String>,
+    pub skill_fingerprint: Option<String>,
+    pub last_checked_at: Option<String>,
+    pub last_sync_at: Option<String>,
+    pub sync_status: String,
+    pub sync_error: Option<String>,
+    pub remote_deleted: bool,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SkillMetadata {
     pub skill_id: String,
     pub notes: Option<String>,
@@ -200,6 +214,25 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
             source_repo   TEXT,
             source_path   TEXT,
             updated_at    TEXT NOT NULL
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS skill_source_syncs (
+            skill_id          TEXT PRIMARY KEY,
+            sync_scope        TEXT NOT NULL DEFAULT 'skill',
+            remote_ref        TEXT,
+            skill_fingerprint TEXT,
+            last_checked_at   TEXT,
+            last_sync_at      TEXT,
+            sync_status       TEXT NOT NULL DEFAULT 'never',
+            sync_error        TEXT,
+            remote_deleted    BOOLEAN NOT NULL DEFAULT 0,
+            updated_at        TEXT NOT NULL,
+            FOREIGN KEY (skill_id) REFERENCES skill_sources(skill_id)
         )",
     )
     .execute(pool)
@@ -1596,6 +1629,57 @@ pub async fn get_all_skill_sources(pool: &DbPool) -> Result<Vec<SkillSource>, St
         .map_err(|e| e.to_string())
 }
 
+pub async fn upsert_skill_source_sync(pool: &DbPool, sync: &SkillSourceSync) -> Result<(), String> {
+    sqlx::query(
+        "INSERT INTO skill_source_syncs
+         (skill_id, sync_scope, remote_ref, skill_fingerprint, last_checked_at, last_sync_at,
+          sync_status, sync_error, remote_deleted, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(skill_id) DO UPDATE SET
+           sync_scope = excluded.sync_scope,
+           remote_ref = excluded.remote_ref,
+           skill_fingerprint = excluded.skill_fingerprint,
+           last_checked_at = excluded.last_checked_at,
+           last_sync_at = excluded.last_sync_at,
+           sync_status = excluded.sync_status,
+           sync_error = excluded.sync_error,
+           remote_deleted = excluded.remote_deleted,
+           updated_at = excluded.updated_at",
+    )
+    .bind(&sync.skill_id)
+    .bind(&sync.sync_scope)
+    .bind(&sync.remote_ref)
+    .bind(&sync.skill_fingerprint)
+    .bind(&sync.last_checked_at)
+    .bind(&sync.last_sync_at)
+    .bind(&sync.sync_status)
+    .bind(&sync.sync_error)
+    .bind(sync.remote_deleted)
+    .bind(&sync.updated_at)
+    .execute(pool)
+    .await
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+pub async fn get_skill_source_sync(
+    pool: &DbPool,
+    skill_id: &str,
+) -> Result<Option<SkillSourceSync>, String> {
+    sqlx::query_as::<_, SkillSourceSync>("SELECT * FROM skill_source_syncs WHERE skill_id = ?")
+        .bind(skill_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn get_all_skill_source_syncs(pool: &DbPool) -> Result<Vec<SkillSourceSync>, String> {
+    sqlx::query_as::<_, SkillSourceSync>("SELECT * FROM skill_source_syncs ORDER BY skill_id")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 pub async fn get_skill_metadata(
     pool: &DbPool,
     skill_id: &str,
@@ -1652,6 +1736,11 @@ pub async fn delete_skill(pool: &DbPool, skill_id: &str) -> Result<(), String> {
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skill_source_syncs WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
     sqlx::query("DELETE FROM skill_sources WHERE skill_id = ?")
         .bind(skill_id)
         .execute(pool)
@@ -1691,6 +1780,11 @@ pub async fn delete_central_skill_records(
         .await
         .map_err(|e| e.to_string())?;
     sqlx::query("DELETE FROM skill_explanations WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skill_source_syncs WHERE skill_id = ?")
         .bind(skill_id)
         .execute(pool)
         .await
@@ -1745,6 +1839,11 @@ pub async fn delete_skill_owned_records(
         .await
         .map_err(|e| e.to_string())?;
     sqlx::query("DELETE FROM skill_explanations WHERE skill_id = ?")
+        .bind(skill_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM skill_source_syncs WHERE skill_id = ?")
         .bind(skill_id)
         .execute(pool)
         .await
@@ -1998,6 +2097,10 @@ pub async fn delete_skills_not_in_scope(
             .execute(pool)
             .await
             .map_err(|e| e.to_string())?;
+        sqlx::query("DELETE FROM skill_source_syncs")
+            .execute(pool)
+            .await
+            .map_err(|e| e.to_string())?;
         sqlx::query("DELETE FROM skill_sources")
             .execute(pool)
             .await
@@ -2031,6 +2134,16 @@ pub async fn delete_skills_not_in_scope(
     q.execute(pool).await.map_err(|e| e.to_string())?;
 
     // Cascade: remove source metadata rows for skills that are no longer on disk.
+    let sync_sql = format!(
+        "DELETE FROM skill_source_syncs WHERE skill_id NOT IN ({})",
+        placeholders
+    );
+    let mut q_syncs = sqlx::query(&sync_sql);
+    for id in found_skill_ids {
+        q_syncs = q_syncs.bind(id.as_str());
+    }
+    q_syncs.execute(pool).await.map_err(|e| e.to_string())?;
+
     let source_sql = format!(
         "DELETE FROM skill_sources WHERE skill_id NOT IN ({})",
         placeholders
@@ -2672,6 +2785,8 @@ mod tests {
         let tables = [
             "skills",
             "skill_installations",
+            "skill_sources",
+            "skill_source_syncs",
             "agent_skill_observations",
             "agents",
             "collections",
@@ -2693,6 +2808,68 @@ mod tests {
         // Calling init_database again should not fail
         let result = init_database(&pool).await;
         assert!(result.is_ok(), "Second init should be idempotent");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_and_get_skill_source_sync() {
+        let pool = setup_test_db().await;
+        let now = "2026-08-13T10:00:00Z".to_string();
+        upsert_skill_source(
+            &pool,
+            &SkillSource {
+                skill_id: "ask-matt".to_string(),
+                source_type: "skills-cli".to_string(),
+                source_url: Some("mattpocock/skills".to_string()),
+                source_author: Some("skills@1.0.0".to_string()),
+                source_repo: Some("mattpocock/skills".to_string()),
+                source_path: Some("ask-matt".to_string()),
+                updated_at: now.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        let sync = SkillSourceSync {
+            skill_id: "ask-matt".to_string(),
+            sync_scope: "repo".to_string(),
+            remote_ref: Some("abc123".to_string()),
+            skill_fingerprint: Some("hash-a".to_string()),
+            last_checked_at: Some(now.clone()),
+            last_sync_at: Some(now.clone()),
+            sync_status: "success".to_string(),
+            sync_error: None,
+            remote_deleted: false,
+            updated_at: now.clone(),
+        };
+
+        upsert_skill_source_sync(&pool, &sync).await.unwrap();
+        let stored = get_skill_source_sync(&pool, "ask-matt")
+            .await
+            .unwrap()
+            .expect("sync row");
+        assert_eq!(stored.sync_scope, "repo");
+        assert_eq!(stored.remote_ref.as_deref(), Some("abc123"));
+        assert!(!stored.remote_deleted);
+
+        upsert_skill_source_sync(
+            &pool,
+            &SkillSourceSync {
+                sync_scope: "skill".to_string(),
+                remote_ref: Some("def456".to_string()),
+                sync_status: "unchanged".to_string(),
+                remote_deleted: true,
+                ..sync
+            },
+        )
+        .await
+        .unwrap();
+        let updated = get_skill_source_sync(&pool, "ask-matt")
+            .await
+            .unwrap()
+            .expect("updated sync row");
+        assert_eq!(updated.sync_scope, "skill");
+        assert_eq!(updated.remote_ref.as_deref(), Some("def456"));
+        assert_eq!(updated.sync_status, "unchanged");
+        assert!(updated.remote_deleted);
     }
 
     #[tokio::test]

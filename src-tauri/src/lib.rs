@@ -90,6 +90,7 @@ pub fn run() {
             commands::skills::get_skills_by_agent,
             commands::skills::get_central_skills,
             commands::skills::get_resource_library_skills,
+            commands::skills::add_local_resource_skills,
             commands::skills::create_manual_resource_skill,
             commands::skills::update_skill_metadata,
             commands::skills::update_resource_skill_source_metadata,
@@ -106,6 +107,7 @@ pub fn run() {
             commands::skills::read_file_by_path,
             commands::skills::list_skill_directory,
             commands::skills::open_in_file_manager,
+            commands::skills_cli::import_skills_via_npx,
             // Backup
             commands::backup::export_app_backup,
             commands::backup::import_app_backup,

@@ -664,6 +664,52 @@ pub(crate) async fn resolve_repo_ref(
     })
 }
 
+pub(crate) async fn fetch_repo_head_ref(
+    repo: &GitHubRepoRef,
+    auth_token: Option<&str>,
+) -> Result<String, String> {
+    let client = github_client()?;
+    let response = send_github_request_with_fallback(
+        &client,
+        GitHubFetchSurface::Api,
+        |endpoint| {
+            github_endpoint_url(
+                endpoint,
+                GitHubFetchSurface::Api,
+                &format!(
+                    "/repos/{}/{}/commits/{}",
+                    repo.owner, repo.repo, repo.branch
+                ),
+            )
+        },
+        "Failed to inspect GitHub repository head",
+        auth_token,
+    )
+    .await?;
+
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err("GitHub repository head not found.".to_string());
+    }
+    if !response.status().is_success() {
+        let status = response.status();
+        return Err(
+            classify_github_denial_response(response, "inspecting the repository head")
+                .await
+                .unwrap_or_else(|| {
+                    format!("Failed to inspect GitHub repository head: HTTP {}", status)
+                }),
+        );
+    }
+
+    let payload: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    payload
+        .get("sha")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "GitHub repository head response did not include a commit SHA.".to_string())
+}
+
 pub(crate) async fn github_direct_auth_from_settings(
     pool: &DbPool,
 ) -> Result<Option<String>, String> {
@@ -719,6 +765,22 @@ pub(crate) async fn fetch_repo_skill_candidates(
     let client = github_client()?;
     let snapshot = download_repo_snapshot(&client, repo, auth_token).await?;
     build_repo_skill_candidates_from_snapshot(repo, &snapshot)
+}
+
+pub(crate) async fn fetch_repo_skill_manifest_paths(
+    repo: &GitHubRepoRef,
+    auth_token: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let client = github_client()?;
+    let snapshot = download_repo_snapshot(&client, repo, auth_token).await?;
+    let mut paths = snapshot
+        .files
+        .keys()
+        .filter(|path| path.ends_with("/SKILL.md") || path.as_str() == "SKILL.md")
+        .cloned()
+        .collect::<Vec<_>>();
+    paths.sort();
+    Ok(paths)
 }
 
 fn build_repo_skill_candidates_from_snapshot(

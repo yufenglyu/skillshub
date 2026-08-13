@@ -12,7 +12,7 @@ SkillsHub is a local-first desktop app for collecting, reviewing, and installing
 
 SkillsHub keeps skill storage and platform installation separate:
 
-- **Skill Resource Library** is the default place for imported, downloaded, and manually created skills. GitHub repositories and supported skills.sh links import here first.
+- **Skill Resource Library** is the default place for skills imported through `npx skills` and skills added from local folders.
 - **Central Skills** is the compatibility library, usually `~/.agents/skills/`, for skills you intentionally promote into the shared central directory.
 - **Software Platforms** are the concrete tool-specific skills folders, such as Claude Code, Codex CLI, Cursor, Gemini CLI, OpenClaw, and similar tools.
 - **Collections** let you group skills from the Resource Library and install them as reusable sets.
@@ -22,11 +22,11 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 
 ## Highlights
 
-- Resource-library-first workflow for GitHub imports, supported skills.sh imports, and manual skill creation.
-- A single **Import Skills** menu that supports GitHub repository import and skills.sh skill link import.
-- GitHub repository preview before import, with conflict handling for rename, overwrite, or skip.
-- Source metadata tracking for imported skills, plus one-click source updates when a skill can be traced back to its origin.
-- Resource Library source updates can recover missing GitHub raw URLs from saved repository/path metadata before updating local files.
+- Resource-library-first workflow where **Import Skills** runs an isolated `npx skills add owner/repo` download and then copies complete skill folders into the Resource Library.
+- **Add Skills** copies an already prepared local single-skill folder or skill-pack folder into the Resource Library, keeping local additions distinct from source-tracked npx imports.
+- Imports accept only GitHub `owner/repo`; an optional skill name imports a single skill from a multi-skill repository.
+- Source-tracked skills support **Update Skills**: SkillsHub checks the saved repository marker first and only re-downloads and overwrites local copies when the source changed.
+- The bottom status bar reports live import, update, and install progress, with update summaries for successful, skipped, and failed skills.
 - Resource Library folder view grouped by source-style paths such as `owner/repo`, matching common local layouts like `author/project/skill`.
 - Folder views in the Resource Library, Central Skills, software platforms, and project directories support folder-level management. Resource Library folders can be promoted to Central Skills or installed into software platforms and project directories, while platform and project directory folders can be uninstalled as folders.
 - Single-skill cards and folder cards use the same install icon semantics: the database icon means promote to Central Skills, and the package-install icon means install into a software platform or project directory.
@@ -35,8 +35,7 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 - Collections add skills from the Resource Library instead of only from Central Skills, and collection members can still be installed into software platforms or project directories.
 - One-click promotion from the Resource Library to Central Skills, with automatic synchronization to every detected local platform and configured project directory when Central Skills already contains managed skills.
 - Central Skills management with folder view, safe deletion previews, platform install status, and batch uninstall from selected platforms.
-- Full skill detail page with Markdown preview, raw source view, grouped notes, tags, source information, time information, storage paths, installation status, and collections.
-- Editable source metadata fields for manually maintained records, including source type, repository, author, source path, and source URL.
+- Read-only skill detail page that defaults to Markdown preview and merges time, source, and storage-path metadata into one Basic Info section.
 - Software platform management in Settings, including editable built-in platforms, custom platforms, Lobster/Coding grouping, two-column compact layout, built-in/detected group counts, and visual distinction for detected local skills directories.
 - Project directory management in Settings, now ordered below Software Platforms and treated as project-scoped install targets using `.agents/skills`.
 - Collapsible sidebar sections for Software Platforms, Lobster platforms, Coding platforms, and Project Directories.
@@ -101,14 +100,14 @@ Built-in platform definitions can be edited or removed from Settings. They are s
 
 In the sidebar, built-in platforms are shown only when their configured skills directory exists locally, unless you explicitly choose to show all platforms. Software platform groups and project directory lists can be collapsed independently. Settings group headers show both the total built-in platform count and the number detected on the current machine.
 
-## Importing Skills
+## Importing And Adding Skills
 
-The Resource Library has a single import menu:
+The Resource Library separates network imports from local folder additions:
 
-- **Import from GitHub** accepts a repository URL, previews discovered `SKILL.md` files, and imports selected skills into the Resource Library.
-- **Import from skills.sh** accepts a supported skills.sh skill URL and resolves the GitHub-backed source before importing into the Resource Library.
+- **Import Skills** accepts only a GitHub `owner/repo`. SkillsHub runs `npx skills add owner/repo` in an isolated temporary directory, then copies the complete downloaded skill folders into the Resource Library. When you fill the optional skill name, only that skill is imported.
+- **Add Skills** copies an already prepared local skill folder. The folder can be a single skill directory or a pack directory containing multiple skills. SkillsHub marks these records as local additions.
 
-GitHub Personal Access Tokens can be configured in Settings for authenticated GitHub requests. Tokens are used only for direct GitHub domains and are not written into backup files.
+Skills imported through `npx skills` store the source repository, optional skill name, and source update marker for later **Update Skills** runs. Local additions have no remote source and are not included in source updates.
 
 ## Backup And Migration
 
@@ -119,7 +118,7 @@ Backups include skills, source metadata, collections, custom platform settings, 
 ## Privacy And Security
 
 - SkillsHub is local-first and does not include telemetry.
-- Network requests happen only when you use network-backed features such as GitHub import, skills.sh import resolution, source updates, WebDAV backup, update checking, or AI-generated notes.
+- Network requests happen only when you use network-backed features such as `npx skills` import/update, WebDAV backup, update checking, or AI-generated notes.
 - Credentials are stored locally when you choose to save them. The app does not encrypt local settings at rest.
 - Do not share real tokens, API keys, private paths, or sensitive screenshots in issues, pull requests, or logs.
 
@@ -149,17 +148,29 @@ The Vite development server uses port `24200`.
 
 ## Release
 
-GitHub Actions publishes desktop packages when a version tag such as `v0.16.0` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
+GitHub Actions publishes desktop packages when a version tag such as `v0.20.0` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
 Local packaging scripts are still available for host-specific builds:
 
 | Platform | Command |
 |----------|---------|
-| Windows | `pnpm package:release:windows -- -Version 0.16.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.16.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.16.0` |
+| Windows | `pnpm package:release:windows -- -Version 0.20.0` |
+| macOS | `pnpm package:release:macos -- -Version 0.20.0` |
+| Linux | `pnpm package:release:linux -- -Version 0.20.0` |
 
 Use `-VersionOnly` when you only need to update version metadata before committing a release.
+
+### Build Output Directories
+
+Tauri and the local packaging scripts intentionally use separate output folders:
+
+| Path | Produced By | Purpose | Upload To Release |
+|------|-------------|---------|-------------------|
+| `dist/` | Vite | Frontend build copied into the desktop app by Tauri | No |
+| `src-tauri/target/` | Cargo/Tauri | Rust build cache, executable, and raw platform bundle output | No |
+| `release-assets/` | Local packaging scripts and GitHub Actions | Final renamed installer/archive files for distribution | Yes |
+
+When packaging locally, use files from `release-assets/`. Treat `dist/` and `src-tauri/target/` as generated build internals unless you are diagnosing a build problem.
 
 ## Project Structure
 
@@ -167,6 +178,9 @@ Use `-VersionOnly` when you only need to update version metadata before committi
 skillshub/
 ├── src/                 # React frontend
 ├── src-tauri/           # Rust/Tauri backend
+├── dist/                # Generated Vite frontend build used by Tauri
+├── src-tauri/target/    # Generated Cargo/Tauri build output
+├── release-assets/      # Generated final release installers and archives
 ├── images/              # Chinese README screenshots
 ├── images/en/           # English README screenshots
 ├── scripts/             # Release packaging scripts

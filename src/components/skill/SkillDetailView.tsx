@@ -7,7 +7,6 @@ import {
   Tag,
   Plus,
   FileText,
-  Code,
   Bot,
   Loader2,
   ChevronDown,
@@ -211,52 +210,6 @@ function PlatformToggleGroup({
   );
 }
 
-// ─── Tab Toggle ───────────────────────────────────────────────────────────────
-
-type PreviewTab = "markdown" | "raw";
-
-interface TabToggleProps {
-  activeTab: PreviewTab;
-  onChange: (tab: PreviewTab) => void;
-  previewLabel: string;
-}
-
-function TabToggle({ activeTab, onChange, previewLabel }: TabToggleProps) {
-  const { t } = useTranslation();
-  return (
-    <div className="flex border border-border rounded-lg p-0.5 gap-0.5 bg-muted/40">
-      <button
-        role="tab"
-        aria-selected={activeTab === "markdown"}
-        onClick={() => onChange("markdown")}
-        className={cn(
-          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-          activeTab === "markdown"
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground"
-        )}
-      >
-        <FileText className="size-3.5" />
-        {previewLabel}
-      </button>
-      <button
-        role="tab"
-        aria-selected={activeTab === "raw"}
-        onClick={() => onChange("raw")}
-        className={cn(
-          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-          activeTab === "raw"
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground"
-        )}
-      >
-        <Code className="size-3.5" />
-        {t("detail.rawSource")}
-      </button>
-    </div>
-  );
-}
-
 const detailTypographyClassName = cn(
   "text-[13px] leading-6 text-foreground/90",
   "[&_p]:text-[13px] [&_p]:leading-6",
@@ -380,7 +333,7 @@ function FileTreeNode({
  * Shared presentation component for skill detail. Rendered by both the
  * full-page route wrapper (`SkillDetailPage`) and the list-entry drawer
  * (`SkillDetailDrawer`). This component owns:
- *   - ViewHeader (title/description/TabToggle + optional leading slot)
+ *   - ViewHeader (title/description + optional leading slot)
  *   - TwoColumnLayout (LeftPreview tab panel + RightSidebar metadata/install/collections)
  *   - CollectionPicker portal
  *
@@ -494,7 +447,6 @@ export function SkillDetailView({
   const isExplanationLoading = isFileMode ? fileIsExplaining : storeIsExplanationLoading;
 
   // Local UI state
-  const [activeTab, setActiveTab] = useState<PreviewTab>("markdown");
   const [detailSidebarWidth, setDetailSidebarWidth] = useState(DEFAULT_DETAIL_SIDEBAR_WIDTH);
   const [isCollectionPickerOpen, setIsCollectionPickerOpen] = useState(false);
   const [notesInput, setNotesInput] = useState("");
@@ -622,7 +574,6 @@ export function SkillDetailView({
       setSelectedFile(null);
       setSelectedFileContent(null);
       setExpandedDirectories(new Set());
-      setActiveTab("markdown");
       void fetchFileContent();
     }
   }, [isFileMode, fetchFileContent]);
@@ -888,7 +839,6 @@ export function SkillDetailView({
     : skillContent;
   const selectedPreviewPath = selectedFilePath ?? skillFilePath;
   const isSelectedMarkdownFile = (selectedPreviewPath ?? "").toLowerCase().endsWith(".md");
-  const previewLabel = isSelectedMarkdownFile ? t("detail.previewMode") : t("detail.preview");
   const { frontmatterRaw, frontmatterData, body: markdownContent } = previewContent && isSelectedMarkdownFile
     ? parseFrontmatter(previewContent)
     : { frontmatterRaw: "", frontmatterData: {}, body: previewContent ?? "" };
@@ -908,13 +858,39 @@ export function SkillDetailView({
   const displayedSource = detail
     ? displaySourceValue(detail.source, detail.source_repo)
     : null;
-  const showReadOnlySourceMetadata = !!detail && !canEditBasicSource;
+  const storageMetadataRows = useMemo(() => {
+    if (!detail) return [];
+    const seen = new Set<string>();
+    return [
+      [t("detail.filePath"), detail.file_path],
+      [
+        t("detail.directoryPath", {
+          defaultValue: i18n.language.startsWith("zh") ? "目录路径" : "Directory path",
+        }),
+        detail.dir_path,
+      ],
+      [t("detail.canonical"), detail.canonical_path],
+      [
+        t("detail.sourceRoot", {
+          defaultValue: i18n.language.startsWith("zh") ? "来源根目录" : "Source root",
+        }),
+        detail.source_root,
+      ],
+    ]
+      .filter((row): row is [string, string] => Boolean(row[1]))
+      .map(([label, value]) => [label, formatPathForDisplay(value)] as [string, string])
+      .filter(([, value]) => {
+        if (seen.has(value)) return false;
+        seen.add(value);
+        return true;
+      });
+  }, [detail, i18n.language, t]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className={cn("flex flex-col h-full", variant === "drawer" && "min-h-0")}>
-      {/* ── ViewHeader: leading slot + title/description + TabToggle ─────── */}
+      {/* ── ViewHeader: leading slot + title/description ─────────────────── */}
       <div className="border-b border-border px-6 py-3 flex items-center gap-3 shrink-0">
         {leading}
         <div className="min-w-0 flex-1">
@@ -927,7 +903,6 @@ export function SkillDetailView({
             </p>
           )}
         </div>
-        <TabToggle activeTab={activeTab} onChange={setActiveTab} previewLabel={previewLabel} />
       </div>
 
       {/* ── ContentArea ──────────────────────────────────────────────────── */}
@@ -981,53 +956,42 @@ export function SkillDetailView({
               ref={scrollContainerRef}
               className="flex-1 min-w-0 overflow-auto"
             >
-              {activeTab === "markdown" ? (
-                <div
-                  className="p-6 space-y-4"
-                  role="tabpanel"
-                  aria-label={previewLabel}
-                >
-                  {selectedRelativePath && (
-                    <div className="text-xs font-mono text-muted-foreground break-all">
-                      {selectedRelativePath}
-                    </div>
-                  )}
-                  {isSelectedFileLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="size-4 animate-spin" />
-                      {t("common.loading")}
-                    </div>
-                  ) : previewContent ? (
-                    isSelectedMarkdownFile ? (
-                      <>
-                        <SkillFrontmatterCard data={frontmatterData} raw={frontmatterRaw} />
-                        <div className={cn("markdown-body", detailTypographyClassName)}>
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {markdownContent}
-                          </ReactMarkdown>
-                        </div>
-                      </>
-                    ) : (
-                      <pre className="rounded-lg border border-border bg-card p-4 text-[12px] leading-5 font-mono whitespace-pre-wrap break-words text-foreground/80">
-                        {previewContent}
-                      </pre>
-                    )
+              <div
+                className="p-6 space-y-4"
+                role="region"
+                aria-label={t("detail.preview")}
+              >
+                {selectedRelativePath && (
+                  <div className="text-xs font-mono text-muted-foreground break-all">
+                    {selectedRelativePath}
+                  </div>
+                )}
+                {isSelectedFileLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    {t("common.loading")}
+                  </div>
+                ) : previewContent ? (
+                  isSelectedMarkdownFile ? (
+                    <>
+                      <SkillFrontmatterCard data={frontmatterData} raw={frontmatterRaw} />
+                      <div className={cn("markdown-body", detailTypographyClassName)}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {markdownContent}
+                        </ReactMarkdown>
+                      </div>
+                    </>
                   ) : (
-                    <p className="text-sm text-muted-foreground italic">
-                      {t("detail.noContent")}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <pre
-                  className="p-6 text-[12px] leading-5 font-mono whitespace-pre-wrap break-words text-foreground/80"
-                  role="tabpanel"
-                  aria-label={t("detail.rawSource")}
-                >
-                  {selectedRelativePath ? `${selectedRelativePath}\n\n` : ""}
-                  {isSelectedFileLoading ? t("common.loading") : (previewContent ?? t("detail.noContent"))}
-                </pre>
-              )}
+                    <pre className="rounded-lg border border-border bg-card p-4 text-[12px] leading-5 font-mono whitespace-pre-wrap break-words text-foreground/80">
+                      {previewContent}
+                    </pre>
+                  )
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">
+                    {t("detail.noContent")}
+                  </p>
+                )}
+              </div>
             </div>
 
             <div
@@ -1299,11 +1263,11 @@ export function SkillDetailView({
                     </>
                   )}
 
-                  {/* Metadata */}
-                  {canEditBasicSource && (
-                    <section aria-label={t("detail.metadataRegion")}>
-                      <SectionLabel>{t("detail.metadata")}</SectionLabel>
-                        <SectionPanel>
+                  <section aria-label={t("detail.metadataRegion")}>
+                    <SectionLabel>{t("detail.metadata")}</SectionLabel>
+                    <SectionPanel>
+                      {canEditBasicSource ? (
+                        <>
                           <div className="space-y-1.5">
                             <label className="text-[11px] font-medium text-muted-foreground">
                               {t("detail.sourceType")}
@@ -1383,13 +1347,41 @@ export function SkillDetailView({
                               t("detail.saveBasicInfo")
                             )}
                           </Button>
-                        </SectionPanel>
-                    </section>
-                  )}
-
-                  <section aria-label={t("detail.timeMetadataRegion")}>
-                    <SectionLabel>{t("detail.timeMetadata")}</SectionLabel>
-                    <SectionPanel>
+                        </>
+                      ) : (
+                        <>
+                          {!detail.source_kind && displayedSource && (
+                            <MetadataRow label={t("detail.source")} value={displayedSource} />
+                          )}
+                          {detail.source_author && (
+                            <MetadataRow
+                              label={t("detail.sourceAuthor", {
+                                defaultValue: i18n.language.startsWith("zh") ? "来源作者" : "Source author",
+                              })}
+                              value={detail.source_author}
+                            />
+                          )}
+                          {detail.source_repo && detail.source_repo !== displayedSource && (
+                            <MetadataRow
+                              label={t("detail.sourceRepo", {
+                                defaultValue: i18n.language.startsWith("zh") ? "来源仓库" : "Source repository",
+                              })}
+                              value={detail.source_repo}
+                            />
+                          )}
+                          {detail.source_path && (
+                            <MetadataRow
+                              label={t("detail.sourcePath", {
+                                defaultValue: i18n.language.startsWith("zh") ? "来源路径" : "Source path",
+                              })}
+                              value={detail.source_path}
+                            />
+                          )}
+                          {detail.source_url && (
+                            <MetadataRow label={t("detail.sourceUrl")} value={detail.source_url} />
+                          )}
+                        </>
+                      )}
                       {detail.created_at && (
                         <MetadataRow
                           label={t("detail.createdAt", {
@@ -1410,76 +1402,9 @@ export function SkillDetailView({
                         label={t("detail.scannedAt")}
                         value={new Date(detail.scanned_at).toLocaleString()}
                       />
-                    </SectionPanel>
-                  </section>
-
-                  {showReadOnlySourceMetadata && (
-                    <section aria-label={t("detail.sourceMetadataRegion")}>
-                      <SectionLabel>{t("detail.sourceMetadata")}</SectionLabel>
-                      <SectionPanel>
-                        {!detail.source_kind && displayedSource && (
-                        <MetadataRow
-                          label={t("detail.source")}
-                          value={displayedSource}
-                        />
-                      )}
-                      {detail.source_author && (
-                        <MetadataRow
-                          label={t("detail.sourceAuthor", {
-                            defaultValue: i18n.language.startsWith("zh") ? "来源作者" : "Source author",
-                          })}
-                          value={detail.source_author}
-                        />
-                      )}
-                      {detail.source_repo && detail.source_repo !== displayedSource && (
-                        <MetadataRow
-                          label={t("detail.sourceRepo", {
-                            defaultValue: i18n.language.startsWith("zh") ? "来源仓库" : "Source repository",
-                          })}
-                          value={detail.source_repo}
-                        />
-                      )}
-                      {detail.source_path && (
-                        <MetadataRow
-                          label={t("detail.sourcePath", {
-                            defaultValue: i18n.language.startsWith("zh") ? "来源路径" : "Source path",
-                          })}
-                          value={detail.source_path}
-                        />
-                      )}
-                      {detail.source_url && (
-                        <MetadataRow
-                          label={t("detail.sourceUrl")}
-                          value={detail.source_url}
-                        />
-                      )}
-                      </SectionPanel>
-                    </section>
-                  )}
-
-                  <section aria-label={t("detail.storageMetadataRegion")}>
-                    <SectionLabel>{t("detail.storageMetadata")}</SectionLabel>
-                    <SectionPanel>
-                      <MetadataRow label={t("detail.filePath")} value={formatPathForDisplay(detail.file_path)} />
-                      {detail.dir_path && (
-                        <MetadataRow
-                          label={t("detail.directoryPath", {
-                            defaultValue: i18n.language.startsWith("zh") ? "目录路径" : "Directory path",
-                          })}
-                          value={formatPathForDisplay(detail.dir_path)}
-                        />
-                      )}
-                      {detail.canonical_path && (
-                        <MetadataRow label={t("detail.canonical")} value={formatPathForDisplay(detail.canonical_path)} />
-                      )}
-                      {detail.source_root && (
-                        <MetadataRow
-                          label={t("detail.sourceRoot", {
-                            defaultValue: i18n.language.startsWith("zh") ? "来源根目录" : "Source root",
-                          })}
-                          value={formatPathForDisplay(detail.source_root)}
-                        />
-                      )}
+                      {storageMetadataRows.map(([label, value]) => (
+                        <MetadataRow key={`${label}:${value}`} label={label} value={value} />
+                      ))}
                     </SectionPanel>
                   </section>
 

@@ -94,7 +94,12 @@ async fn install_target_for_agent_id(
             .ok_or_else(|| format!("Project directory target '{}' not found", agent_id))?;
         return project_target_for_scan_directory(&scan_dir)
             .await?
-            .ok_or_else(|| format!("Project directory target '{}' is not active or does not exist", agent_id));
+            .ok_or_else(|| {
+                format!(
+                    "Project directory target '{}' is not active or does not exist",
+                    agent_id
+                )
+            });
     }
 
     let agent = db::get_agent_by_id(pool, agent_id)
@@ -2591,13 +2596,10 @@ mod tests {
         db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
             .await
             .unwrap();
-        let scan_dir = db::add_scan_directory(
-            &pool,
-            &project_dir.to_string_lossy(),
-            Some("Project"),
-        )
-        .await
-        .unwrap();
+        let scan_dir =
+            db::add_scan_directory(&pool, &project_dir.to_string_lossy(), Some("Project"))
+                .await
+                .unwrap();
         create_resource_skill(&pool, &resource_dir, "project-shared").await;
 
         add_resource_skill_to_central_impl(&pool, "project-shared")

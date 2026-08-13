@@ -1843,9 +1843,10 @@ mod tests {
         fs::create_dir_all(&project_skills_dir).unwrap();
 
         // Add a project directory. Skills are managed under .agents/skills.
-        let scan_dir = db::add_scan_directory(&pool, project_dir.to_str().unwrap(), Some("Test Dir"))
-            .await
-            .unwrap();
+        let scan_dir =
+            db::add_scan_directory(&pool, project_dir.to_str().unwrap(), Some("Test Dir"))
+                .await
+                .unwrap();
 
         create_skill_dir(
             &project_skills_dir,

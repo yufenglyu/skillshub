@@ -62,6 +62,7 @@ tmp/
 /tmp/
 .tmp-chrome-profile/
 .tmp-chrome-*/
+.tmp-npx-probe/
 reference/
 .factory/
 .worktrees/
