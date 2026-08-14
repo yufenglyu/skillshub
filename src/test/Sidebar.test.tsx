@@ -876,6 +876,43 @@ describe("Sidebar", () => {
     expect(codingHeading.compareDocumentPosition(projectHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
+  it("uses separate empty item toggles for software platforms and project directories", () => {
+    renderSidebar("/central", {
+      platformState: {
+        ...defaultStoreState,
+        agents: [
+          ...defaultStoreState.agents,
+          {
+            id: "project:empty",
+            display_name: "Empty Project",
+            category: "project",
+            global_skills_dir: "D:\\Projects\\Empty\\.agents\\skills",
+            project_skills_dir: ".agents/skills",
+            is_detected: true,
+            is_builtin: false,
+            is_enabled: true,
+          },
+        ],
+        skillsByAgent: {
+          "claude-code": 0,
+          cursor: 3,
+          central: 10,
+          "project:empty": 0,
+        },
+      },
+    });
+
+    expect(screen.queryByRole("button", { name: /Claude Code/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Empty Project/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "显示空项目目录" }));
+    expect(screen.queryByRole("button", { name: /Claude Code/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Empty Project/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "显示所有平台" }));
+    expect(screen.getByRole("button", { name: /Claude Code/ })).toBeInTheDocument();
+  });
+
   // ── Collapse Toggle ───────────────────────────────────────────────────────
 
   it("renders collapse toggle button", () => {

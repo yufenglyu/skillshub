@@ -17,6 +17,7 @@ export const DEFAULT_FOLDER_COLUMNS = [
   "path",
   "skillCount",
   "installSummary",
+  "createdAt",
   "updatedAt",
   "notesSummary",
   "actions",
@@ -24,9 +25,10 @@ export const DEFAULT_FOLDER_COLUMNS = [
 
 const FIXED_COLUMNS = new Set<string>(FIXED_SKILL_COLUMNS);
 const CHANGE_EVENT = "skills-manage:skill-table-columns";
+const STORAGE_VERSION = "v2";
 
 function storageKey(kind: SkillTableKind) {
-  return `skills-manage.skillTableColumns.${kind}`;
+  return `skills-manage.skillTableColumns.${kind}.${STORAGE_VERSION}`;
 }
 
 function defaultsFor(kind: SkillTableKind) {

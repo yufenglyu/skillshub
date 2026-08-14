@@ -248,6 +248,8 @@ describe("CollectionView", () => {
     renderCollectionView();
     expect(screen.getByText("frontend-design")).toBeInTheDocument();
     expect(screen.getByText("code-reviewer")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "名称" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "仓库" })).toBeInTheDocument();
   });
 
   it("shows loading state when isLoadingDetail is true", () => {
@@ -275,7 +277,7 @@ describe("CollectionView", () => {
     fireEvent.click(screen.getByRole("button", { name: /确认删除/i }));
 
     await waitFor(() => {
-      expect(mockRemoveSkillFromCollection).toHaveBeenCalledWith("col-1", "frontend-design");
+      expect(mockRemoveSkillFromCollection).toHaveBeenCalledWith("col-1", "code-reviewer");
     });
   });
 
@@ -353,6 +355,9 @@ describe("CollectionView", () => {
       );
       mockUsePlatformStore.mockImplementation((selector) =>
         selector(buildPlatformStoreState())
+      );
+      mockUseResourceLibraryStore.mockImplementation((selector) =>
+        selector(buildResourceLibraryStoreState())
       );
 
       return render(

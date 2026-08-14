@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { useSkillDisplayMode } from "@/hooks/useSkillDisplayMode";
+import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
 
 describe("skill browser preferences", () => {
@@ -9,15 +9,15 @@ describe("skill browser preferences", () => {
     window.localStorage.clear();
   });
 
-  it("persists display mode globally", () => {
-    const { result, rerender } = renderHook(() => useSkillDisplayMode());
+  it("persists list view mode by scope", () => {
+    const { result, rerender } = renderHook(() => useSkillListViewMode("test"));
 
-    expect(result.current[0]).toBe("card");
+    expect(result.current[0]).toBe("all");
 
-    act(() => result.current[1]("list"));
+    act(() => result.current[1]("folders"));
     rerender();
 
-    expect(result.current[0]).toBe("list");
+    expect(result.current[0]).toBe("folders");
   });
 
   it("persists skill table columns", () => {

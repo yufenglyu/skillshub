@@ -3,7 +3,6 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { SkillColumnSettings } from "@/components/skill/SkillColumnSettings";
 import { SkillDisplayModeToggle } from "@/components/skill/SkillDisplayModeToggle";
 import {
   Dialog,
@@ -16,8 +15,6 @@ import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useAppStatusStore, type AppStatusTask } from "@/stores/appStatusStore";
 import { useSkillBrowserUiStore } from "@/stores/skillBrowserUiStore";
-import { useSkillDisplayMode } from "@/hooks/useSkillDisplayMode";
-import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
 import { cn } from "@/lib/utils";
 
 function statusIcon(task: AppStatusTask | null) {
@@ -41,10 +38,8 @@ export function AppStatusBar() {
   const resourceSkills = useResourceLibraryStore((state) => state.skills?.length ?? 0);
   const centralSkills = useCentralSkillsStore((state) => state.skills?.length ?? 0);
   const browserControlsActive = useSkillBrowserUiStore((state) => state.active);
-  const columnKind = useSkillBrowserUiStore((state) => state.columnKind);
-  const showColumnSettings = useSkillBrowserUiStore((state) => state.showColumnSettings);
-  const [displayMode, setDisplayMode] = useSkillDisplayMode();
-  const { visibleColumns, toggleColumn, resetColumns } = useSkillTableColumns(columnKind);
+  const browserViewMode = useSkillBrowserUiStore((state) => state.viewMode);
+  const onBrowserViewModeChange = useSkillBrowserUiStore((state) => state.onViewModeChange);
 
   const label = task?.label ?? t("status.ready");
   const detail = task?.detail ?? t("status.summary", {
@@ -106,15 +101,10 @@ export function AppStatusBar() {
           ) : null}
           {browserControlsActive ? (
             <div className="flex items-center gap-1 border-l border-border pl-2">
-              {showColumnSettings && displayMode === "list" ? (
-                <SkillColumnSettings
-                  kind={columnKind}
-                  visibleColumns={visibleColumns}
-                  onToggle={toggleColumn}
-                  onReset={resetColumns}
-                />
-              ) : null}
-              <SkillDisplayModeToggle value={displayMode} onChange={setDisplayMode} />
+              <SkillDisplayModeToggle
+                value={browserViewMode}
+                onChange={onBrowserViewModeChange ?? (() => undefined)}
+              />
             </div>
           ) : null}
         </div>

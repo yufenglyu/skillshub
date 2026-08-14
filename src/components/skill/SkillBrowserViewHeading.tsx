@@ -4,17 +4,17 @@ import { useTranslation } from "react-i18next";
 import type { SkillListViewMode } from "@/lib/skillFolders";
 import { cn } from "@/lib/utils";
 
-interface SkillDisplayModeToggleProps {
+interface SkillBrowserViewHeadingProps {
   value: SkillListViewMode;
   onChange: (value: SkillListViewMode) => void;
   className?: string;
 }
 
-export function SkillDisplayModeToggle({
+export function SkillBrowserViewHeading({
   value,
   onChange,
   className,
-}: SkillDisplayModeToggleProps) {
+}: SkillBrowserViewHeadingProps) {
   const { t } = useTranslation();
   const options: Array<{
     value: SkillListViewMode;
@@ -29,7 +29,7 @@ export function SkillDisplayModeToggle({
     <div
       role="group"
       aria-label={t("skillBrowser.organizationLabel")}
-      className={cn("flex rounded-lg bg-muted/40 p-0.5", className)}
+      className={cn("flex items-center gap-1.5", className)}
     >
       {options.map((option) => {
         const Icon = option.icon;
@@ -38,19 +38,18 @@ export function SkillDisplayModeToggle({
           <button
             key={option.value}
             type="button"
-            aria-label={option.label}
             aria-pressed={selected}
-            title={option.label}
             onClick={() => onChange(option.value)}
             className={cn(
-              "inline-flex size-6 items-center justify-center rounded-md transition-colors",
+              "inline-flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm font-semibold transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
               selected
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                ? "bg-primary/10 text-foreground"
+                : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             )}
           >
-            <Icon className="size-3.5" />
+            <Icon className={cn("size-4", selected ? "text-primary" : "text-muted-foreground")} />
+            <span>{option.label}</span>
           </button>
         );
       })}

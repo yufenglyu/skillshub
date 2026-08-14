@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
+import { SkillBrowserTable } from "@/components/skill/SkillBrowserTable";
 import { useCollectionStore } from "@/stores/collectionStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
@@ -27,6 +27,12 @@ import {
   consumeScrollPosition,
   createScrollRestorationState,
 } from "@/lib/scrollRestoration";
+import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
+import {
+  sortBySkillBrowserOrder,
+  type SkillSortDirection,
+  type SkillSortField,
+} from "@/lib/skillSort";
 
 // Scroll-restoration key shared with `CollectionsListView` so list-level and
 // single-collection pages interoperate under the same restoration contract.
@@ -71,6 +77,13 @@ export function CollectionView() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [installTargetSkill, setInstallTargetSkill] = useState<SkillWithLinks | null>(null);
   const [isSingleInstallOpen, setIsSingleInstallOpen] = useState(false);
+  const [sortField, setSortField] = useState<SkillSortField>("name");
+  const [sortDirection, setSortDirection] = useState<SkillSortDirection>("asc");
+  const {
+    visibleColumns,
+    toggleColumn,
+    resetColumns,
+  } = useSkillTableColumns("skill");
   const importInputRef = useRef<HTMLInputElement>(null);
   const skillsContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -269,6 +282,12 @@ export function CollectionView() {
     return null;
   }
 
+  const sortedCollectionSkills = sortBySkillBrowserOrder(
+    currentDetail.skills,
+    sortField,
+    sortDirection
+  );
+
   // ── Main View ────────────────────────────────────────────────────────────
 
   return (
@@ -396,16 +415,28 @@ export function CollectionView() {
             </Button>
           </div>
         ) : (
-          <div className="mx-6 my-3 grid grid-cols-2 gap-4">
-            {currentDetail.skills.map((skill) => (
-              <UnifiedSkillCard
-                key={skill.id}
-                name={skill.name}
-                description={skill.description}
-                sourceAuthor={skill.source_author}
-                sourceRepo={skill.source_repo}
-                sourceUrl={skill.source_url}
-                onDetail={() =>
+          <div className="mx-6 my-3">
+            <SkillBrowserTable
+              kind="skill"
+              visibleColumns={visibleColumns}
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSortChange={(field, direction) => {
+                setSortField(field);
+                setSortDirection(direction);
+              }}
+              onToggleColumn={toggleColumn}
+              onResetColumns={resetColumns}
+              skills={sortedCollectionSkills.map((skill) => ({
+                rowKey: skill.id,
+                name: skill.name,
+                description: skill.description,
+                sourceAuthor: skill.source_author,
+                sourceRepo: skill.source_repo,
+                sourceUrl: skill.source_url,
+                createdAt: skill.created_at,
+                updatedAt: skill.updated_at,
+                onDetail: () =>
                   navigate(`/skill/${skill.id}`, {
                     state: {
                       collectionContext: {
@@ -416,12 +447,11 @@ export function CollectionView() {
                         skillsContainerRef.current?.scrollTop ?? 0
                       ),
                     },
-                  })
-                }
-                onInstallTo={() => handleInstallSingleSkillClick(skill.id)}
-                onRemove={() => handleRemoveSkill(skill.id)}
-              />
-            ))}
+                  }),
+                onInstallTo: () => handleInstallSingleSkillClick(skill.id),
+                onRemove: () => handleRemoveSkill(skill.id),
+              }))}
+            />
           </div>
         )}
       </div>

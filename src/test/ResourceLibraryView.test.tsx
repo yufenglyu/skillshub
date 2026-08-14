@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { AgentWithStatus, SkillWithLinks } from "@/types";
+import { useSkillBrowserUiStore } from "@/stores/skillBrowserUiStore";
 
 const mockLoadResourceLibrary = vi.fn();
 const mockInstallSkill = vi.fn();
@@ -120,6 +121,21 @@ vi.mock("@/stores/appStatusStore", () => ({
 import { ResourceLibraryView } from "@/pages/ResourceLibraryView";
 
 describe("ResourceLibraryView delete", () => {
+  async function switchBrowserViewMode(mode: "all" | "folders") {
+    await waitFor(() => {
+      expect(useSkillBrowserUiStore.getState().onViewModeChange).toBeTruthy();
+    });
+    await act(async () => {
+      useSkillBrowserUiStore.getState().onViewModeChange?.(mode);
+    });
+  }
+
+  function tableDataRows() {
+    return screen
+      .getAllByRole("row")
+      .filter((row) => within(row).queryAllByRole("cell").length > 0);
+  }
+
   beforeEach(() => {
     resourceSkills = defaultSkills;
     mockLoadResourceLibrary.mockReset();
@@ -168,6 +184,8 @@ describe("ResourceLibraryView delete", () => {
     mockStartTask.mockReset();
     mockCompleteTask.mockReset();
     mockFailTask.mockReset();
+    window.localStorage.removeItem("skills-manage.skillListViewMode.resource-library");
+    useSkillBrowserUiStore.getState().clearControls();
   });
 
   it("opens a cascade confirmation for installed resource skills", async () => {
@@ -366,24 +384,20 @@ describe("ResourceLibraryView delete", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "修改时间" }));
+    fireEvent.click(screen.getByRole("button", { name: "更新时间" }));
 
     await waitFor(() => {
-      const detailButtons = screen.getAllByRole("button", {
-        name: /查看 .* 的详情/i,
-      });
-      expect(detailButtons[0]).toHaveTextContent("alpha-skill");
-      expect(detailButtons[1]).toHaveTextContent("zeta-skill");
+      const rows = tableDataRows();
+      expect(rows[0]).toHaveTextContent("alpha-skill");
+      expect(rows[1]).toHaveTextContent("zeta-skill");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "修改时间" }));
+    fireEvent.click(screen.getByRole("button", { name: "更新时间，升序排序" }));
 
     await waitFor(() => {
-      const detailButtons = screen.getAllByRole("button", {
-        name: /查看 .* 的详情/i,
-      });
-      expect(detailButtons[0]).toHaveTextContent("zeta-skill");
-      expect(detailButtons[1]).toHaveTextContent("alpha-skill");
+      const rows = tableDataRows();
+      expect(rows[0]).toHaveTextContent("zeta-skill");
+      expect(rows[1]).toHaveTextContent("alpha-skill");
     });
   });
 
@@ -415,25 +429,21 @@ describe("ResourceLibraryView delete", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: /目录|Folders/i })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "修改时间" }));
+    await switchBrowserViewMode("folders");
+    fireEvent.click(screen.getByRole("button", { name: "更新时间" }));
 
     await waitFor(() => {
-      const folderButtons = screen.getAllByRole("button", {
-        name: /打开目录/i,
-      });
-      expect(folderButtons[0]).toHaveTextContent("zeta/repo");
-      expect(folderButtons[1]).toHaveTextContent("alpha/repo");
+      const rows = tableDataRows();
+      expect(rows[0]).toHaveTextContent("zeta/repo");
+      expect(rows[1]).toHaveTextContent("alpha/repo");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "修改时间" }));
+    fireEvent.click(screen.getByRole("button", { name: "更新时间，升序排序" }));
 
     await waitFor(() => {
-      const folderButtons = screen.getAllByRole("button", {
-        name: /打开目录/i,
-      });
-      expect(folderButtons[0]).toHaveTextContent("alpha/repo");
-      expect(folderButtons[1]).toHaveTextContent("zeta/repo");
+      const rows = tableDataRows();
+      expect(rows[0]).toHaveTextContent("alpha/repo");
+      expect(rows[1]).toHaveTextContent("zeta/repo");
     });
   });
 
@@ -465,15 +475,12 @@ describe("ResourceLibraryView delete", () => {
     expect(screen.queryByRole("button", { name: "正排" })).toBeNull();
     expect(screen.queryByRole("button", { name: "倒排" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "全部" }));
-    fireEvent.click(screen.getByRole("button", { name: "名称" }));
+    fireEvent.click(screen.getByRole("button", { name: "名称，升序排序" }));
 
     await waitFor(() => {
-      const detailButtons = screen.getAllByRole("button", {
-        name: /查看 .* 的详情/i,
-      });
-      expect(detailButtons[0]).toHaveTextContent("zeta-skill");
-      expect(detailButtons[1]).toHaveTextContent("alpha-skill");
+      const rows = tableDataRows();
+      expect(rows[0]).toHaveTextContent("zeta-skill");
+      expect(rows[1]).toHaveTextContent("alpha-skill");
     });
   });
 
@@ -503,15 +510,13 @@ describe("ResourceLibraryView delete", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    await switchBrowserViewMode("folders");
     fireEvent.click(screen.getByRole("button", { name: "#design" }));
 
     await waitFor(() => {
-      const folderButtons = screen.getAllByRole("button", {
-        name: /打开目录/i,
-      });
-      expect(folderButtons).toHaveLength(1);
-      expect(folderButtons[0]).toHaveTextContent("alpha/repo");
+      const rows = tableDataRows();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toHaveTextContent("alpha/repo");
       expect(screen.queryByText("zeta/repo")).toBeNull();
     });
   });
@@ -549,6 +554,52 @@ describe("ResourceLibraryView delete", () => {
     });
   });
 
+  it("switches between flat and folder views from the content heading", async () => {
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByRole("button", { name: /^平铺$|^Flat$/i })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^目录$|^Folders$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^目录$|^Folders$/i })).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      );
+    });
+  });
+
+  it("refreshes project directory caches after adding a resource skill to Central Skills", async () => {
+    mockAddToCentral.mockResolvedValue(undefined);
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /加入中央技能库：resource-demo|Add resource-demo to Central Skills/i,
+      })
+    );
+
+    await waitFor(() => {
+      expect(mockAddToCentral).toHaveBeenCalledWith("resource-demo");
+    });
+    expect(mockLoadCentralSkills).toHaveBeenCalled();
+    expect(mockRefreshCounts).toHaveBeenCalled();
+    expect(mockGetSkillsByAgent).toHaveBeenCalledWith("cursor");
+    expect(mockGetSkillsByAgent).toHaveBeenCalledWith("project:1");
+  });
+
   it("previews and confirms deleting a resource directory", async () => {
     render(
       <MemoryRouter>
@@ -556,7 +607,7 @@ describe("ResourceLibraryView delete", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: /目录|Folders/i })[0]);
+    await switchBrowserViewMode("folders");
     fireEvent.click(
       await screen.findByRole("button", {
         name: /删除资源库目录 example|Delete resource directory example/i,
@@ -583,7 +634,7 @@ describe("ResourceLibraryView delete", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: /目录|Folders/i })[0]);
+    await switchBrowserViewMode("folders");
     fireEvent.click(
       await screen.findByRole("button", {
         name: /安装目录 example|Install folder example/i,

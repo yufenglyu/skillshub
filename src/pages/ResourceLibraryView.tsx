@@ -18,10 +18,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { InstallDialog } from "@/components/central/InstallDialog";
 import { InstallTargetList } from "@/components/central/InstallTargetList";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
-import { SkillBrowserToolbar } from "@/components/skill/SkillBrowserToolbar";
 import { SkillBrowserTable, type FolderTableItem } from "@/components/skill/SkillBrowserTable";
-import { SkillFolderCard } from "@/components/skill/SkillFolderCard";
-import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
+import { SkillBrowserViewHeading } from "@/components/skill/SkillBrowserViewHeading";
 import { Button } from "@/components/ui/button";
 import { HelpIcon } from "@/components/ui/help-icon";
 import { SearchInput } from "@/components/ui/search-input";
@@ -34,7 +32,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useSkillDisplayMode } from "@/hooks/useSkillDisplayMode";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
 import { isInstallTargetAgent } from "@/lib/agents";
@@ -111,6 +108,15 @@ function latestSkillUpdatedAt(skills: SkillWithLinks[]) {
   }, null);
 }
 
+function earliestSkillCreatedAt(skills: SkillWithLinks[]) {
+  return skills.reduce<string | null>((earliest, skill) => {
+    const value = skill.created_at ?? skill.scanned_at ?? null;
+    if (!value) return earliest;
+    if (!earliest) return value;
+    return Date.parse(value) < Date.parse(earliest) ? value : earliest;
+  }, null);
+}
+
 function notesCount(skills: SkillWithLinks[]) {
   const count = skills.filter((skill) => skill.notes?.trim()).length;
   return count;
@@ -157,9 +163,16 @@ export function ResourceLibraryView() {
   const uninstallSkillFromAgent = useSkillStore((state) => state.uninstallSkillFromAgent);
 
   const [viewMode, setViewMode] = useSkillListViewMode("resource-library");
-  const [displayMode] = useSkillDisplayMode();
-  const { visibleColumns: visibleSkillColumns } = useSkillTableColumns("skill");
-  const { visibleColumns: visibleFolderColumns } = useSkillTableColumns("folder");
+  const {
+    visibleColumns: visibleSkillColumns,
+    toggleColumn: toggleSkillColumn,
+    resetColumns: resetSkillColumns,
+  } = useSkillTableColumns("skill");
+  const {
+    visibleColumns: visibleFolderColumns,
+    toggleColumn: toggleFolderColumn,
+    resetColumns: resetFolderColumns,
+  } = useSkillTableColumns("folder");
   const setBrowserControls = useSkillBrowserUiStore((state) => state.setControls);
   const clearBrowserControls = useSkillBrowserUiStore((state) => state.clearControls);
   const [sortField, setSortField] = useState<SkillSortField>("name");
@@ -237,10 +250,11 @@ export function ResourceLibraryView() {
   useEffect(() => {
     setBrowserControls({
       columnKind: viewMode === "folders" && !activeFolder ? "folder" : "skill",
-      showColumnSettings: displayMode === "list",
+      viewMode,
+      onViewModeChange: setViewMode,
     });
     return () => clearBrowserControls();
-  }, [activeFolder, clearBrowserControls, displayMode, setBrowserControls, viewMode]);
+  }, [activeFolder, clearBrowserControls, setBrowserControls, setViewMode, viewMode]);
 
   const availableTags = useMemo(() => {
     const tags = new Map<string, string>();
@@ -313,6 +327,15 @@ export function ResourceLibraryView() {
     () => agents.filter(isInstallTargetAgent),
     [agents]
   );
+
+  async function refreshSyncedInstallTargets(agentIds?: string[]) {
+    const targetIds = agentIds ?? availableInstallAgents.map((agent) => agent.id);
+    await Promise.all([
+      refreshCounts(),
+      ...targetIds.map((agentId) => getSkillsByAgent(agentId)),
+    ]);
+  }
+
   const folderActionGroup = folderActionGroupKey
     ? folderGroupsByPath.get(folderActionGroupKey) ?? null
     : null;
@@ -438,7 +461,7 @@ export function ResourceLibraryView() {
     setUpdatingSkillId(skill.id);
     try {
       await addToCentral(skill.id);
-      await Promise.all([loadCentralSkills(), refreshCounts()]);
+      await Promise.all([loadCentralSkills(), refreshSyncedInstallTargets()]);
       toast.success(t("resource.addToCentralSuccess", { name: skill.name }));
     } catch (err) {
       toast.error(t("resource.addToCentralError", { name: skill.name, error: String(err) }));
@@ -502,7 +525,11 @@ export function ResourceLibraryView() {
           await addToCentral(skill.id);
         }
       }
-      await Promise.all([loadResourceLibrary(), loadCentralSkills(), refreshCounts()]);
+      await Promise.all([
+        loadResourceLibrary(),
+        loadCentralSkills(),
+        refreshSyncedInstallTargets(),
+      ]);
       toast.success(t("skillFolder.addFolderToCentralSuccess", { count: group.skills.length }));
     } catch (err) {
       toast.error(t("resource.addToCentralError", { name: group.name, error: String(err) }));
@@ -740,25 +767,13 @@ export function ResourceLibraryView() {
       </div>
 
       <div className="border-b border-border px-6 py-3">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-          <SearchInput
-            placeholder={t("resource.searchPlaceholder")}
-            value={searchQuery}
-            onValueChange={setSearchQuery}
-            containerClassName="flex-1"
-            aria-label={t("resource.searchPlaceholder")}
-          />
-          <SkillBrowserToolbar
-            sortField={sortField}
-            sortDirection={sortDirection}
-            onSortChange={(field, direction) => {
-              setSortField(field);
-              setSortDirection(direction);
-            }}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-          />
-        </div>
+        <SearchInput
+          placeholder={t("resource.searchPlaceholder")}
+          value={searchQuery}
+          onValueChange={setSearchQuery}
+          containerClassName="w-full"
+          aria-label={t("resource.searchPlaceholder")}
+        />
         {availableTags.length > 0 && (
           <div role="group" aria-label={t("central.tagFilter")} className="mt-3 flex flex-wrap items-center gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">{t("central.tagFilter")}</span>
@@ -802,6 +817,8 @@ export function ResourceLibraryView() {
           <EmptyState message={t("resource.noSkills")} />
         ) : (
           <div className="space-y-6">
+            <SkillBrowserViewHeading value={viewMode} onChange={setViewMode} />
+
             {viewMode === "folders" && activeFolder && (
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="sm" onClick={() => setActiveFolderKey(null)}>
@@ -816,107 +833,63 @@ export function ResourceLibraryView() {
 
             {viewMode === "folders" && !activeFolder && filteredFolders.length > 0 && (
               <section className="space-y-3" aria-label={t("skillFolder.foldersTitle")}>
-                <div className="flex items-center gap-2">
-                  <FolderOpen className="size-4 text-primary" />
-                  <h2 className="text-sm font-semibold">{t("skillFolder.foldersTitle")}</h2>
-                </div>
-                {displayMode === "list" ? (
-                  <SkillBrowserTable
-                    kind="folder"
-                    visibleColumns={visibleFolderColumns}
-                    folders={filteredFolders.map(
-                      (group): FolderTableItem => ({
-                        key: group.relativePath,
+                <SkillBrowserTable
+                  kind="folder"
+                  visibleColumns={visibleFolderColumns}
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSortChange={(field, direction) => {
+                    setSortField(field);
+                    setSortDirection(direction);
+                  }}
+                  onToggleColumn={toggleFolderColumn}
+                  onResetColumns={resetFolderColumns}
+                  folders={filteredFolders.map(
+                    (group): FolderTableItem => ({
+                      key: group.relativePath,
+                      name: group.name,
+                      path: group.path,
+                      skillCount: group.skillCount,
+                      linkedAgentCount: group.linkedAgentCount,
+                      readOnlyAgentCount: group.readOnlyAgentCount,
+                      previewNames: group.skills.map((skill) => skill.name),
+                      createdAt: earliestSkillCreatedAt(group.skills),
+                      updatedAt: latestSkillUpdatedAt(group.skills),
+                      notesSummary:
+                        notesCount(group.skills) > 0
+                          ? t("skillBrowser.notesCount", { count: notesCount(group.skills) })
+                          : null,
+                      onOpen: () => setActiveFolderKey(group.relativePath),
+                      onAddToCentral: group.skills.some((skill) => !skill.is_central)
+                        ? () => void handleAddFolderToCentral(group)
+                        : undefined,
+                      addToCentralLabel: t("skillFolder.addFolderToCentralLabel", {
                         name: group.name,
-                        path: group.path,
-                        skillCount: group.skillCount,
-                        linkedAgentCount: group.linkedAgentCount,
-                        readOnlyAgentCount: group.readOnlyAgentCount,
-                        previewNames: group.skills.map((skill) => skill.name),
-                        updatedAt: latestSkillUpdatedAt(group.skills),
-                        notesSummary:
-                          notesCount(group.skills) > 0
-                            ? t("skillBrowser.notesCount", { count: notesCount(group.skills) })
-                            : null,
-                        onOpen: () => setActiveFolderKey(group.relativePath),
-                        onAddToCentral: group.skills.some((skill) => !skill.is_central)
-                          ? () => void handleAddFolderToCentral(group)
+                      }),
+                      isAddingToCentral:
+                        pendingFolderAction === "central" &&
+                        pendingFolderActionKey === group.relativePath,
+                      onInstall:
+                        availableInstallAgents.length > 0
+                          ? () => handleOpenInstallFolder(group)
                           : undefined,
-                        addToCentralLabel: t("skillFolder.addFolderToCentralLabel", {
-                          name: group.name,
-                        }),
-                        isAddingToCentral:
-                          pendingFolderAction === "central" &&
-                          pendingFolderActionKey === group.relativePath,
-                        onInstall:
-                          availableInstallAgents.length > 0
-                            ? () => handleOpenInstallFolder(group)
-                            : undefined,
-                        installLabel: t("skillFolder.installFolderLabel", { name: group.name }),
-                        isInstalling:
-                          pendingFolderAction === "install" &&
-                          pendingFolderActionKey === group.relativePath,
-                        onUninstall:
-                          group.linkedAgentCount > 0
-                            ? () => handleOpenUninstallFolder(group)
-                            : undefined,
-                        uninstallLabel: t("skillFolder.uninstallFolderLabel", { name: group.name }),
-                        isUninstalling:
-                          pendingFolderAction === "uninstall" &&
-                          pendingFolderActionKey === group.relativePath,
-                        onDelete: () => void handleDeleteFolderClick(group),
-                        deleteLabel: t("resource.deleteFolderLabel", { name: group.name }),
-                      })
-                    )}
-                  />
-                ) : (
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    {filteredFolders.map((group) => (
-                      <SkillFolderCard
-                        key={group.relativePath}
-                        name={group.name}
-                        path={group.path}
-                        skillCount={group.skillCount}
-                        linkedAgentCount={group.linkedAgentCount}
-                        readOnlyAgentCount={group.readOnlyAgentCount}
-                        previewNames={group.skills.map((skill) => skill.name)}
-                        onOpen={() => setActiveFolderKey(group.relativePath)}
-                        onAddToCentral={
-                          group.skills.some((skill) => !skill.is_central)
-                            ? () => void handleAddFolderToCentral(group)
-                            : undefined
-                        }
-                        addToCentralLabel={t("skillFolder.addFolderToCentralLabel", {
-                          name: group.name,
-                        })}
-                        isAddingToCentral={
-                          pendingFolderAction === "central" &&
-                          pendingFolderActionKey === group.relativePath
-                        }
-                        onInstall={
-                          availableInstallAgents.length > 0
-                            ? () => handleOpenInstallFolder(group)
-                            : undefined
-                        }
-                        installLabel={t("skillFolder.installFolderLabel", { name: group.name })}
-                        isInstalling={
-                          pendingFolderAction === "install" &&
-                          pendingFolderActionKey === group.relativePath
-                        }
-                        onUninstall={
-                          group.linkedAgentCount > 0 ? () => handleOpenUninstallFolder(group) : undefined
-                        }
-                        uninstallLabel={t("skillFolder.uninstallFolderLabel", { name: group.name })}
-                        isUninstalling={
-                          pendingFolderAction === "uninstall" &&
-                          pendingFolderActionKey === group.relativePath
-                        }
-                        onDelete={() => void handleDeleteFolderClick(group)}
-                        deleteLabel={t("resource.deleteFolderLabel", { name: group.name })}
-                      />
-                    ))}
-                  </div>
-                )}
+                      installLabel: t("skillFolder.installFolderLabel", { name: group.name }),
+                      isInstalling:
+                        pendingFolderAction === "install" &&
+                        pendingFolderActionKey === group.relativePath,
+                      onUninstall:
+                        group.linkedAgentCount > 0
+                          ? () => handleOpenUninstallFolder(group)
+                          : undefined,
+                      uninstallLabel: t("skillFolder.uninstallFolderLabel", { name: group.name }),
+                      isUninstalling:
+                        pendingFolderAction === "uninstall" &&
+                        pendingFolderActionKey === group.relativePath,
+                      onDelete: () => void handleDeleteFolderClick(group),
+                      deleteLabel: t("resource.deleteFolderLabel", { name: group.name }),
+                    })
+                  )}
+                />
               </section>
             )}
 
@@ -934,100 +907,59 @@ export function ResourceLibraryView() {
                     </div>
                   </div>
                 )}
-                {displayMode === "list" ? (
-                  <SkillBrowserTable
-                    kind="skill"
-                    visibleColumns={visibleSkillColumns}
-                    skills={sortedSkills.map((skill) => {
-                      const normalizedSourceRepo = resourceSkillSourceRepo(skill);
-                      return {
-                        rowKey: skill.id,
-                        name: skill.name,
-                        description: skill.description,
-                        notes: skill.notes,
-                        publisher: normalizedSourceRepo ?? skill.source_author ?? undefined,
-                        sourceAuthor: skill.source_author,
-                        sourceRepo: normalizedSourceRepo,
-                        sourceUrl: skill.source_url,
-                        createdAt: skill.created_at,
-                        updatedAt: skill.updated_at,
-                        tags: (skill.tags ?? []).map((tag) => ({ key: tag, label: tag })),
-                        onDetail: () => handleOpenDrawer(skill.id),
-                        onInstallTo: () => handleInstallClick(skill),
-                        onInstallToCentral: skill.is_central
-                          ? undefined
-                          : () => void handleAddToCentral(skill),
-                        installToCentralLabel: t("resource.addToCentralLabel", { name: skill.name }),
-                        onDeleteFromCentral: () => handleDeleteClick(skill),
-                        deleteFromCentralLabel: t("resource.deleteLabel", { name: skill.name }),
-                        deleteFromCentralRequiresDialog:
-                          skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0,
-                        onUpdateFromSource:
-                          skill.source_url || (normalizedSourceRepo && skill.source_path)
-                            ? () => void handleUpdateSingleSource(skill)
-                            : undefined,
-                        updateFromSourceLabel: t("central.updateSourceLabel", { name: skill.name }),
-                        isLoading: updatingSkillId === skill.id || deletingSkillId === skill.id,
-                        detailButtonRef: (node) => setDetailButtonRef(skill.id, node),
-                        platformIcons: {
-                          agents,
-                          linkedAgents: skill.linked_agents,
-                          readOnlyAgents: skill.read_only_agents ?? [],
-                          skillId: skill.id,
-                          onToggle: handleTogglePlatform,
-                          togglingAgentId,
-                        },
-                      };
-                    })}
-                  />
-                ) : (
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    {sortedSkills.map((skill) => {
-                      const normalizedSourceRepo = resourceSkillSourceRepo(skill);
-                      return (
-                        <UnifiedSkillCard
-                          key={skill.id}
-                          name={skill.name}
-                          description={skill.description}
-                          publisher={normalizedSourceRepo ?? skill.source_author ?? undefined}
-                          sourceAuthor={skill.source_author}
-                          sourceRepo={normalizedSourceRepo}
-                          sourceUrl={skill.source_url}
-                          createdAt={skill.created_at}
-                          updatedAt={skill.updated_at}
-                          tags={(skill.tags ?? []).map((tag) => ({ key: tag, label: tag }))}
-                          onDetail={() => handleOpenDrawer(skill.id)}
-                          onInstallTo={() => handleInstallClick(skill)}
-                          onInstallToCentral={
-                            skill.is_central ? undefined : () => void handleAddToCentral(skill)
-                          }
-                          installToCentralLabel={t("resource.addToCentralLabel", { name: skill.name })}
-                          onDeleteFromCentral={() => handleDeleteClick(skill)}
-                          deleteFromCentralLabel={t("resource.deleteLabel", { name: skill.name })}
-                          deleteFromCentralRequiresDialog={
-                            skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0
-                          }
-                          onUpdateFromSource={
-                            skill.source_url || (normalizedSourceRepo && skill.source_path)
-                              ? () => void handleUpdateSingleSource(skill)
-                              : undefined
-                          }
-                          updateFromSourceLabel={t("central.updateSourceLabel", { name: skill.name })}
-                          isLoading={updatingSkillId === skill.id || deletingSkillId === skill.id}
-                          detailButtonRef={(node) => setDetailButtonRef(skill.id, node)}
-                          platformIcons={{
-                            agents,
-                            linkedAgents: skill.linked_agents,
-                            readOnlyAgents: skill.read_only_agents ?? [],
-                            skillId: skill.id,
-                            onToggle: handleTogglePlatform,
-                            togglingAgentId,
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
+                <SkillBrowserTable
+                  kind="skill"
+                  visibleColumns={visibleSkillColumns}
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSortChange={(field, direction) => {
+                    setSortField(field);
+                    setSortDirection(direction);
+                  }}
+                  onToggleColumn={toggleSkillColumn}
+                  onResetColumns={resetSkillColumns}
+                  skills={sortedSkills.map((skill) => {
+                    const normalizedSourceRepo = resourceSkillSourceRepo(skill);
+                    return {
+                      rowKey: skill.id,
+                      name: skill.name,
+                      description: skill.description,
+                      notes: skill.notes,
+                      publisher: normalizedSourceRepo ?? skill.source_author ?? undefined,
+                      sourceAuthor: skill.source_author,
+                      sourceRepo: normalizedSourceRepo,
+                      sourceUrl: skill.source_url,
+                      createdAt: skill.created_at,
+                      updatedAt: skill.updated_at,
+                      tags: (skill.tags ?? []).map((tag) => ({ key: tag, label: tag })),
+                      onDetail: () => handleOpenDrawer(skill.id),
+                      onInstallTo: () => handleInstallClick(skill),
+                      onInstallToCentral: skill.is_central
+                        ? undefined
+                        : () => void handleAddToCentral(skill),
+                      installToCentralLabel: t("resource.addToCentralLabel", { name: skill.name }),
+                      onDeleteFromCentral: () => handleDeleteClick(skill),
+                      deleteFromCentralLabel: t("resource.deleteLabel", { name: skill.name }),
+                      deleteFromCentralRequiresDialog:
+                        skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0,
+                      onUpdateFromSource:
+                        skill.source_url || (normalizedSourceRepo && skill.source_path)
+                          ? () => void handleUpdateSingleSource(skill)
+                          : undefined,
+                      updateFromSourceLabel: t("central.updateSourceLabel", { name: skill.name }),
+                      isLoading: updatingSkillId === skill.id || deletingSkillId === skill.id,
+                      detailButtonRef: (node) => setDetailButtonRef(skill.id, node),
+                      platformIcons: {
+                        agents,
+                        linkedAgents: skill.linked_agents,
+                        readOnlyAgents: skill.read_only_agents ?? [],
+                        skillId: skill.id,
+                        onToggle: handleTogglePlatform,
+                        togglingAgentId,
+                      },
+                    };
+                  })}
+                />
               </section>
             ) : null}
           </div>

@@ -82,7 +82,9 @@
     "categoryObsidian": "Obsidian",
     "obsidianVaultLabel": "Obsidian 仓库 {{name}} — {{count}} 个技能 — {{path}}",
     "showAllPlatforms": "显示所有平台",
-    "hideEmptyPlatforms": "隐藏空平台"
+    "hideEmptyPlatforms": "隐藏空平台",
+    "showEmptyProjectDirectories": "显示空项目目录",
+    "hideEmptyProjectDirectories": "隐藏空项目目录"
   },
   "platform": {
     "searchPlaceholder": "搜索技能...",
@@ -248,11 +250,15 @@
     "fixedColumn": "固定",
     "resetColumns": "恢复默认列",
     "organizationLabel": "组织",
-    "organizationAll": "全部",
+    "organizationAll": "平铺",
     "organizationFolders": "目录",
     "installSummaryMixed": "已安装 {{linked}}，共享 {{shared}}",
     "folderInstallSummary": "已安装 {{linked}}，共享 {{shared}}",
     "notesCount": "{{count}} 条备注",
+    "resizeColumnLabel": "调整 {{column}} 列宽",
+    "sortedHeaderLabel": "{{label}}，{{direction}}排序",
+    "sortDirectionAsc": "升序",
+    "sortDirectionDesc": "降序",
     "columns": {
       "name": "名称",
       "source": "仓库",

@@ -116,6 +116,7 @@ function NavItem({
 
 export function Sidebar() {
   const SHOW_ALL_PLATFORMS_KEY = "skills-manage:show-all-platforms";
+  const SHOW_EMPTY_PROJECTS_KEY = "skills-manage:show-empty-project-directories";
   const SOFTWARE_COLLAPSED_KEY = "skills-manage:sidebar-software-platforms-collapsed";
   const LOBSTER_COLLAPSED_KEY = "skills-manage:sidebar-lobster-collapsed";
   const CODING_COLLAPSED_KEY = "skills-manage:sidebar-coding-collapsed";
@@ -143,6 +144,13 @@ export function Sidebar() {
   const [showAllPlatforms, setShowAllPlatforms] = useState(() => {
     try {
       return window.localStorage.getItem(SHOW_ALL_PLATFORMS_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [showEmptyProjects, setShowEmptyProjects] = useState(() => {
+    try {
+      return window.localStorage.getItem(SHOW_EMPTY_PROJECTS_KEY) === "true";
     } catch {
       return false;
     }
@@ -176,6 +184,18 @@ export function Sidebar() {
       const next = !previous;
       try {
         window.localStorage.setItem(SHOW_ALL_PLATFORMS_KEY, String(next));
+      } catch {
+        // Ignore storage failures and keep the in-memory preference.
+      }
+      return next;
+    });
+  }
+
+  function toggleShowEmptyProjects() {
+    setShowEmptyProjects((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(SHOW_EMPTY_PROJECTS_KEY, String(next));
       } catch {
         // Ignore storage failures and keep the in-memory preference.
       }
@@ -217,7 +237,7 @@ export function Sidebar() {
     (a) =>
       isEnabledInstallTargetAgent(a) &&
       isProjectAgentId(a.id) &&
-      (showAllPlatforms || (skillsByAgent[a.id] ?? 0) > 0)
+      (showEmptyProjects || (skillsByAgent[a.id] ?? 0) > 0)
   );
   const lobsterAgents = platformAgents.filter((a) => a.category === "lobster");
   const codingAgents = platformAgents.filter((a) => a.category !== "lobster");
@@ -458,6 +478,28 @@ export function Sidebar() {
                     {t("sidebar.projectDirectories")}
                   </span>
                 </button>
+                {!isLoading && (
+                  <button
+                    onClick={toggleShowEmptyProjects}
+                    title={
+                      showEmptyProjects
+                        ? t("sidebar.hideEmptyProjectDirectories")
+                        : t("sidebar.showEmptyProjectDirectories")
+                    }
+                    aria-label={
+                      showEmptyProjects
+                        ? t("sidebar.hideEmptyProjectDirectories")
+                        : t("sidebar.showEmptyProjectDirectories")
+                    }
+                    className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                  >
+                    {showEmptyProjects ? (
+                      <EyeOff className="size-4" />
+                    ) : (
+                      <Eye className="size-4" />
+                    )}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="border-t border-sidebar-border/40 my-1.5" />

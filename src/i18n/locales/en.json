@@ -82,7 +82,9 @@
     "categoryObsidian": "Obsidian",
     "obsidianVaultLabel": "Obsidian vault {{name}} — {{count}} skills — {{path}}",
     "showAllPlatforms": "Show all platforms",
-    "hideEmptyPlatforms": "Hide empty platforms"
+    "hideEmptyPlatforms": "Hide empty platforms",
+    "showEmptyProjectDirectories": "Show empty project directories",
+    "hideEmptyProjectDirectories": "Hide empty project directories"
   },
   "platform": {
     "searchPlaceholder": "Search skills...",
@@ -248,11 +250,15 @@
     "fixedColumn": "Fixed",
     "resetColumns": "Reset columns",
     "organizationLabel": "Organize",
-    "organizationAll": "All",
+    "organizationAll": "Flat",
     "organizationFolders": "Folders",
     "installSummaryMixed": "Installed {{linked}}, shared {{shared}}",
     "folderInstallSummary": "Installed {{linked}}, shared {{shared}}",
     "notesCount": "{{count}} notes",
+    "resizeColumnLabel": "Resize {{column}} column",
+    "sortedHeaderLabel": "{{label}}, sorted {{direction}}",
+    "sortDirectionAsc": "ascending",
+    "sortDirectionDesc": "descending",
     "columns": {
       "name": "Name",
       "source": "Repository",

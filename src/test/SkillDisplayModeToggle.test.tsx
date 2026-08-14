@@ -4,25 +4,25 @@ import { describe, expect, it, vi } from "vitest";
 import { SkillDisplayModeToggle } from "@/components/skill/SkillDisplayModeToggle";
 
 describe("SkillDisplayModeToggle", () => {
-  it("renders list and card buttons with pressed state", () => {
-    render(<SkillDisplayModeToggle value="card" onChange={vi.fn()} />);
+  it("renders flat and folder buttons with pressed state", () => {
+    render(<SkillDisplayModeToggle value="folders" onChange={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: "列表视图" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "平铺" })).toHaveAttribute(
       "aria-pressed",
       "false"
     );
-    expect(screen.getByRole("button", { name: "卡片视图" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "目录" })).toHaveAttribute(
       "aria-pressed",
       "true"
     );
   });
 
-  it("requests display mode changes", () => {
+  it("requests organization mode changes", () => {
     const onChange = vi.fn();
-    render(<SkillDisplayModeToggle value="card" onChange={onChange} />);
+    render(<SkillDisplayModeToggle value="folders" onChange={onChange} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "列表视图" }));
+    fireEvent.click(screen.getByRole("button", { name: "平铺" }));
 
-    expect(onChange).toHaveBeenCalledWith("list");
+    expect(onChange).toHaveBeenCalledWith("all");
   });
 });

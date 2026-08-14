@@ -23,6 +23,7 @@ export const FOLDER_COLUMN_OPTIONS: SkillColumnOption[] = [
   { key: "path", labelKey: "skillBrowser.columns.path" },
   { key: "skillCount", labelKey: "skillBrowser.columns.skillCount" },
   { key: "installSummary", labelKey: "skillBrowser.columns.installSummary" },
+  { key: "createdAt", labelKey: "skillBrowser.columns.createdAt" },
   { key: "updatedAt", labelKey: "skillBrowser.columns.updatedAt" },
   { key: "notesSummary", labelKey: "skillBrowser.columns.notesSummary" },
   { key: "actions", labelKey: "skillBrowser.columns.actions", fixed: true },
