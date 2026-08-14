@@ -250,6 +250,9 @@
     "organizationLabel": "Organize",
     "organizationAll": "All",
     "organizationFolders": "Folders",
+    "installSummaryMixed": "Installed {{linked}}, shared {{shared}}",
+    "folderInstallSummary": "Installed {{linked}}, shared {{shared}}",
+    "notesCount": "{{count}} notes",
     "columns": {
       "name": "Name",
       "source": "Repository",

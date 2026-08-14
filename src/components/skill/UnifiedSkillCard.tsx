@@ -85,6 +85,7 @@ function PlatformToggleIcon({
 
 export interface UnifiedSkillCardProps {
   /** Core data — always required. */
+  rowKey?: string;
   name: string;
   description?: string;
   className?: string;
@@ -124,6 +125,7 @@ export interface UnifiedSkillCardProps {
   sourceUrl?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  notes?: string | null;
 
   // ── actions (pass only the ones relevant to the context) ──
   onDetail?: MouseEventHandler<HTMLButtonElement>;

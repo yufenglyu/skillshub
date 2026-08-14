@@ -250,6 +250,9 @@
     "organizationLabel": "组织",
     "organizationAll": "全部",
     "organizationFolders": "目录",
+    "installSummaryMixed": "已安装 {{linked}}，共享 {{shared}}",
+    "folderInstallSummary": "已安装 {{linked}}，共享 {{shared}}",
+    "notesCount": "{{count}} 条备注",
     "columns": {
       "name": "名称",
       "source": "仓库",

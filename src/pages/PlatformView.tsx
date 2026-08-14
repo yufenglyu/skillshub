@@ -19,6 +19,7 @@ import {
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import { SkillBrowserToolbar } from "@/components/skill/SkillBrowserToolbar";
+import { SkillBrowserTable, type FolderTableItem } from "@/components/skill/SkillBrowserTable";
 import {
   SkillFolderDrawer,
   type SkillFolderDrawerSkill,
@@ -26,7 +27,9 @@ import {
 import { SkillFolderCard } from "@/components/skill/SkillFolderCard";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { InstallDialog } from "@/components/central/InstallDialog";
+import { useSkillDisplayMode } from "@/hooks/useSkillDisplayMode";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
+import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
 import { formatPathForDisplay } from "@/lib/path";
 import { getRelativePathUnderRoot, splitSkillsByTopLevel } from "@/lib/skillFolders";
 import {
@@ -37,6 +40,7 @@ import {
 } from "@/lib/skillSort";
 import { cn } from "@/lib/utils";
 import { isProjectAgentId } from "@/lib/projectTargets";
+import { useSkillBrowserUiStore } from "@/stores/skillBrowserUiStore";
 import { ScannedSkill, SkillWithLinks } from "@/types";
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
@@ -53,6 +57,15 @@ function EmptyState({ message }: { message: string }) {
 }
 
 type ClaudeSourceFilter = "all" | "user" | "plugin";
+
+function latestSkillUpdatedAt(skills: ScannedSkill[]) {
+  return skills.reduce<string | null>((latest, skill) => {
+    const value = skill.updated_at ?? null;
+    if (!value) return latest;
+    if (!latest) return value;
+    return Date.parse(value) > Date.parse(latest) ? value : latest;
+  }, null);
+}
 
 // ─── PlatformView ─────────────────────────────────────────────────────────────
 
@@ -85,6 +98,11 @@ export function PlatformView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<ClaudeSourceFilter>("all");
   const [viewMode, setViewMode] = useSkillListViewMode("platform");
+  const [displayMode] = useSkillDisplayMode();
+  const { visibleColumns: visibleSkillColumns } = useSkillTableColumns("skill");
+  const { visibleColumns: visibleFolderColumns } = useSkillTableColumns("folder");
+  const setBrowserControls = useSkillBrowserUiStore((state) => state.setControls);
+  const clearBrowserControls = useSkillBrowserUiStore((state) => state.clearControls);
   const [sortField, setSortField] = useState<SkillSortField>("name");
   const [sortDirection, setSortDirection] = useState<SkillSortDirection>("asc");
   const [installTargetSkill, setInstallTargetSkill] = useState<SkillWithLinks | null>(null);
@@ -125,6 +143,14 @@ export function PlatformView() {
   useEffect(() => {
     setSourceFilter("all");
   }, [agentId]);
+
+  useEffect(() => {
+    setBrowserControls({
+      columnKind: viewMode === "folders" ? "folder" : "skill",
+      showColumnSettings: displayMode === "list",
+    });
+    return () => clearBrowserControls();
+  }, [clearBrowserControls, displayMode, setBrowserControls, viewMode]);
 
   // Ensure central skills are loaded so we can resolve SkillWithLinks for InstallDialog.
   useEffect(() => {
@@ -658,31 +684,59 @@ export function PlatformView() {
                   <FolderOpen className="size-4 text-primary" />
                   <h2 className="text-sm font-semibold">{t("skillFolder.foldersTitle")}</h2>
                 </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {sortedFolderGroups.map((group) => (
-                    <SkillFolderCard
-                      key={group.relativePath}
-                      name={group.name}
-                      path={group.path}
-                      skillCount={group.skillCount}
-                      previewNames={group.skills.map((skill) => skill.name)}
-                      onOpen={() => handleOpenFolderDrawer(group.relativePath)}
-                      onDelete={
-                        group.skills.some(isBulkSelectable)
-                          ? () => handleUninstallFolderClick(group.relativePath)
-                          : undefined
-                      }
-                      deleteLabel={t("platform.uninstallFolderLabel", {
+                {displayMode === "list" ? (
+                  <SkillBrowserTable
+                    kind="folder"
+                    visibleColumns={visibleFolderColumns}
+                    folders={sortedFolderGroups.map(
+                      (group): FolderTableItem => ({
+                        key: group.relativePath,
                         name: group.name,
-                        platform: agent.display_name,
-                      })}
-                      isDeleting={
-                        isFolderUninstalling &&
-                        folderUninstallGroupPath === group.relativePath
-                      }
-                    />
-                  ))}
-                </div>
+                        path: group.path,
+                        skillCount: group.skillCount,
+                        previewNames: group.skills.map((skill) => skill.name),
+                        updatedAt: latestSkillUpdatedAt(group.skills),
+                        onOpen: () => handleOpenFolderDrawer(group.relativePath),
+                        onDelete: group.skills.some(isBulkSelectable)
+                          ? () => handleUninstallFolderClick(group.relativePath)
+                          : undefined,
+                        deleteLabel: t("platform.uninstallFolderLabel", {
+                          name: group.name,
+                          platform: agent.display_name,
+                        }),
+                        isDeleting:
+                          isFolderUninstalling &&
+                          folderUninstallGroupPath === group.relativePath,
+                      })
+                    )}
+                  />
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {sortedFolderGroups.map((group) => (
+                      <SkillFolderCard
+                        key={group.relativePath}
+                        name={group.name}
+                        path={group.path}
+                        skillCount={group.skillCount}
+                        previewNames={group.skills.map((skill) => skill.name)}
+                        onOpen={() => handleOpenFolderDrawer(group.relativePath)}
+                        onDelete={
+                          group.skills.some(isBulkSelectable)
+                            ? () => handleUninstallFolderClick(group.relativePath)
+                            : undefined
+                        }
+                        deleteLabel={t("platform.uninstallFolderLabel", {
+                          name: group.name,
+                          platform: agent.display_name,
+                        })}
+                        isDeleting={
+                          isFolderUninstalling &&
+                          folderUninstallGroupPath === group.relativePath
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
               </section>
             )}
 
@@ -694,59 +748,107 @@ export function PlatformView() {
                     <h2 className="text-sm font-semibold">{t("skillFolder.topLevelSkills")}</h2>
                   </div>
                 )}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {sortedSkills.map((skill) => (
-                    <UnifiedSkillCard
-                      key={getSkillRowKey(skill)}
-                      name={skill.name}
-                      description={skill.description}
-                      checkbox={
-                        isBulkSelectable(skill)
-                          ? {
-                              checked: selectedSkillKeys.has(getSkillRowKey(skill)),
-                              onChange: () => toggleSkillSelection(skill),
-                              ariaLabel: t("platform.selectSkillLabel", {
-                                name: skill.name,
-                              }),
-                            }
-                          : undefined
-                      }
-                      sourceType={skill.link_type as "symlink" | "copy" | "native"}
-                      sourceLocation={getSourceLocation(skill)}
-                      originKind={skill.source_kind ?? null}
-                      isReadOnly={skill.is_read_only ?? false}
-                      sourceAuthor={skill.source_author}
-                      sourceRepo={skill.source_repo}
-                      sourceUrl={skill.source_url}
-                      createdAt={skill.created_at}
-                      updatedAt={skill.updated_at}
-                      isLoading={
-                        agentId
-                          ? (pendingSkillActionKeys[`${agentId}::${skill.id}`] ?? false)
-                          : false
-                      }
-                      onDetail={() => handleOpenDrawer(skill)}
-                      onInstallTo={
-                        skill.is_read_only
-                          ? undefined
-                          : () => handleInstallClick(skill.id)
-                      }
-                      onUninstallFromPlatform={
-                        skill.is_read_only
-                          ? undefined
-                          : () => handleUninstall(skill.id)
-                      }
-                      uninstallFromLabel={t("platform.uninstallFromLabel", {
+                {displayMode === "list" ? (
+                  <SkillBrowserTable
+                    kind="skill"
+                    visibleColumns={visibleSkillColumns}
+                    skills={sortedSkills.map((skill) => ({
+                      rowKey: getSkillRowKey(skill),
+                      name: skill.name,
+                      description: skill.description,
+                      checkbox: isBulkSelectable(skill)
+                        ? {
+                            checked: selectedSkillKeys.has(getSkillRowKey(skill)),
+                            onChange: () => toggleSkillSelection(skill),
+                            ariaLabel: t("platform.selectSkillLabel", {
+                              name: skill.name,
+                            }),
+                          }
+                        : undefined,
+                      sourceType: skill.link_type as "symlink" | "copy" | "native",
+                      sourceLocation: getSourceLocation(skill),
+                      originKind: skill.source_kind ?? null,
+                      isReadOnly: skill.is_read_only ?? false,
+                      sourceAuthor: skill.source_author,
+                      sourceRepo: skill.source_repo,
+                      sourceUrl: skill.source_url,
+                      createdAt: skill.created_at,
+                      updatedAt: skill.updated_at,
+                      isLoading: agentId
+                        ? (pendingSkillActionKeys[`${agentId}::${skill.id}`] ?? false)
+                        : false,
+                      onDetail: () => handleOpenDrawer(skill),
+                      onInstallTo: skill.is_read_only
+                        ? undefined
+                        : () => handleInstallClick(skill.id),
+                      onUninstallFromPlatform: skill.is_read_only
+                        ? undefined
+                        : () => handleUninstall(skill.id),
+                      uninstallFromLabel: t("platform.uninstallFromLabel", {
                         skill: skill.name,
                         platform: agent.display_name,
                         defaultValue: i18n.language.startsWith("zh")
                           ? `从 ${agent.display_name} 卸载 ${skill.name}`
                           : `Uninstall ${skill.name} from ${agent.display_name}`,
-                      })}
-                      detailButtonRef={(node) => setDetailButtonRef(getSkillRowKey(skill), node)}
-                    />
-                  ))}
-                </div>
+                      }),
+                      detailButtonRef: (node) => setDetailButtonRef(getSkillRowKey(skill), node),
+                    }))}
+                  />
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {sortedSkills.map((skill) => (
+                      <UnifiedSkillCard
+                        key={getSkillRowKey(skill)}
+                        name={skill.name}
+                        description={skill.description}
+                        checkbox={
+                          isBulkSelectable(skill)
+                            ? {
+                                checked: selectedSkillKeys.has(getSkillRowKey(skill)),
+                                onChange: () => toggleSkillSelection(skill),
+                                ariaLabel: t("platform.selectSkillLabel", {
+                                  name: skill.name,
+                                }),
+                              }
+                            : undefined
+                        }
+                        sourceType={skill.link_type as "symlink" | "copy" | "native"}
+                        sourceLocation={getSourceLocation(skill)}
+                        originKind={skill.source_kind ?? null}
+                        isReadOnly={skill.is_read_only ?? false}
+                        sourceAuthor={skill.source_author}
+                        sourceRepo={skill.source_repo}
+                        sourceUrl={skill.source_url}
+                        createdAt={skill.created_at}
+                        updatedAt={skill.updated_at}
+                        isLoading={
+                          agentId
+                            ? (pendingSkillActionKeys[`${agentId}::${skill.id}`] ?? false)
+                            : false
+                        }
+                        onDetail={() => handleOpenDrawer(skill)}
+                        onInstallTo={
+                          skill.is_read_only
+                            ? undefined
+                            : () => handleInstallClick(skill.id)
+                        }
+                        onUninstallFromPlatform={
+                          skill.is_read_only
+                            ? undefined
+                            : () => handleUninstall(skill.id)
+                        }
+                        uninstallFromLabel={t("platform.uninstallFromLabel", {
+                          skill: skill.name,
+                          platform: agent.display_name,
+                          defaultValue: i18n.language.startsWith("zh")
+                            ? `从 ${agent.display_name} 卸载 ${skill.name}`
+                            : `Uninstall ${skill.name} from ${agent.display_name}`,
+                        })}
+                        detailButtonRef={(node) => setDetailButtonRef(getSkillRowKey(skill), node)}
+                      />
+                    ))}
+                  </div>
+                )}
               </section>
             )}
           </div>
