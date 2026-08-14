@@ -15,8 +15,8 @@ import { usePlatformStore } from "@/stores/platformStore";
 import { useSkillStore } from "@/stores/skillStore";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
+import { SkillBrowserToolbar } from "@/components/skill/SkillBrowserToolbar";
 import { SkillFolderCard } from "@/components/skill/SkillFolderCard";
-import { SkillListModeToggle } from "@/components/skill/SkillListModeToggle";
 import { InstallDialog } from "@/components/central/InstallDialog";
 import { CentralBundleDrawer } from "@/components/central/CentralBundleDrawer";
 import { PlatformInstallDrawer } from "@/components/central/PlatformInstallDrawer";
@@ -35,6 +35,12 @@ import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { formatPathForDisplay } from "@/lib/path";
 import { buildSearchText, normalizeSearchQuery } from "@/lib/search";
 import { dirnameFromSkillFile, splitSkillsByTopLevel } from "@/lib/skillFolders";
+import {
+  getFolderSortTimestamp,
+  sortBySkillBrowserOrder,
+  type SkillSortDirection,
+  type SkillSortField,
+} from "@/lib/skillSort";
 import { isTauriRuntime } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { isInstallTargetAgent } from "@/lib/agents";
@@ -233,6 +239,8 @@ export function CentralSkillsView() {
     useSkillStore((state) => state.getSkillsByAgent) ?? noopGetSkillsByAgent;
 
   const [viewMode, setViewMode] = useSkillListViewMode("central");
+  const [sortField, setSortField] = useState<SkillSortField>("name");
+  const [sortDirection, setSortDirection] = useState<SkillSortDirection>("asc");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedCentralSkillIds, setSelectedCentralSkillIds] = useState<Set<string>>(
@@ -369,13 +377,27 @@ export function CentralSkillsView() {
   }, [bundles, centralFolderGroupsByPath, normalizedSearchQuery, selectedTag, viewMode]);
 
   const sortedSkills = useMemo(() => {
-    return [...filteredSkills].sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, {
+    return sortBySkillBrowserOrder(filteredSkills, sortField, sortDirection);
+  }, [filteredSkills, sortDirection, sortField]);
+
+  const sortedBundles = useMemo(() => {
+    const multiplier = sortDirection === "asc" ? 1 : -1;
+    return [...filteredBundles].sort((a, b) => {
+      const nameComparison = a.name.localeCompare(b.name, undefined, {
         numeric: true,
         sensitivity: "base",
-      })
-    );
-  }, [filteredSkills]);
+      });
+      if (sortField === "name") {
+        return nameComparison * multiplier;
+      }
+      const aGroup = centralFolderGroupsByPath.get(a.relativePath);
+      const bGroup = centralFolderGroupsByPath.get(b.relativePath);
+      const timeComparison =
+        (aGroup ? getFolderSortTimestamp(aGroup, sortField) : 0) -
+        (bGroup ? getFolderSortTimestamp(bGroup, sortField) : 0);
+      return timeComparison === 0 ? nameComparison : timeComparison * multiplier;
+    });
+  }, [centralFolderGroupsByPath, filteredBundles, sortDirection, sortField]);
 
   const uninstallTargetAgents = useMemo(
     () => agents.filter(isInstallTargetAgent),
@@ -669,9 +691,16 @@ export function CentralSkillsView() {
             aria-label={t("central.searchPlaceholder")}
             containerClassName="flex-1"
           />
-          <div className="flex flex-wrap items-center gap-2">
-            <SkillListModeToggle value={viewMode} onChange={setViewMode} />
-          </div>
+          <SkillBrowserToolbar
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onSortChange={(field, direction) => {
+              setSortField(field);
+              setSortDirection(direction);
+            }}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
         </div>
         {availableTags.length > 0 && (
           <div
@@ -815,14 +844,14 @@ export function CentralSkillsView() {
           <EmptyState message={t("central.noSkills")} />
         ) : (
           <div className="space-y-6">
-            {viewMode === "folders" && filteredBundles.length > 0 && (
+            {viewMode === "folders" && sortedBundles.length > 0 && (
               <section aria-label={t("central.bundlesSectionLabel")} className="space-y-3">
                 <div className="flex items-center gap-2">
                   <FolderOpen className="size-4 text-primary" />
                   <h2 className="text-sm font-semibold">{t("central.bundlesTitle")}</h2>
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {filteredBundles.map((bundle) => {
+                  {sortedBundles.map((bundle) => {
                     const group = centralFolderGroupsByPath.get(bundle.relativePath);
                     return (
                       <SkillFolderCard
@@ -845,7 +874,7 @@ export function CentralSkillsView() {
               </section>
             )}
 
-            {filteredSkills.length === 0 && filteredBundles.length === 0 ? (
+            {filteredSkills.length === 0 && sortedBundles.length === 0 ? (
               <EmptyState message={t("central.noMatch", { query: searchQuery })} />
             ) : filteredSkills.length > 0 ? (
               <section className="space-y-3">

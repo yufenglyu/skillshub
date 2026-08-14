@@ -18,17 +18,23 @@ import {
 } from "@/components/ui/dialog";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
+import { SkillBrowserToolbar } from "@/components/skill/SkillBrowserToolbar";
 import {
   SkillFolderDrawer,
   type SkillFolderDrawerSkill,
 } from "@/components/skill/SkillFolderDrawer";
 import { SkillFolderCard } from "@/components/skill/SkillFolderCard";
-import { SkillListModeToggle } from "@/components/skill/SkillListModeToggle";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { InstallDialog } from "@/components/central/InstallDialog";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { formatPathForDisplay } from "@/lib/path";
 import { getRelativePathUnderRoot, splitSkillsByTopLevel } from "@/lib/skillFolders";
+import {
+  sortBySkillBrowserOrder,
+  sortFoldersBySkillBrowserOrder,
+  type SkillSortDirection,
+  type SkillSortField,
+} from "@/lib/skillSort";
 import { cn } from "@/lib/utils";
 import { isProjectAgentId } from "@/lib/projectTargets";
 import { ScannedSkill, SkillWithLinks } from "@/types";
@@ -79,6 +85,8 @@ export function PlatformView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<ClaudeSourceFilter>("all");
   const [viewMode, setViewMode] = useSkillListViewMode("platform");
+  const [sortField, setSortField] = useState<SkillSortField>("name");
+  const [sortDirection, setSortDirection] = useState<SkillSortDirection>("asc");
   const [installTargetSkill, setInstallTargetSkill] = useState<SkillWithLinks | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [drawerSkill, setDrawerSkill] = useState<ScannedSkill | null>(null);
@@ -233,6 +241,10 @@ export function PlatformView() {
     );
   }, [visibleSkills, searchQuery]);
 
+  const sortedSkills = useMemo(() => {
+    return sortBySkillBrowserOrder(filteredSkills, sortField, sortDirection);
+  }, [filteredSkills, sortDirection, sortField]);
+
   const filteredFolderGroups = useMemo(() => {
     if (viewMode !== "folders") return [];
     if (!searchQuery.trim()) return platformFolderSplit.groups;
@@ -250,9 +262,13 @@ export function PlatformView() {
     );
   }, [platformFolderSplit.groups, searchQuery, viewMode]);
 
+  const sortedFolderGroups = useMemo(() => {
+    return sortFoldersBySkillBrowserOrder(filteredFolderGroups, sortField, sortDirection);
+  }, [filteredFolderGroups, sortDirection, sortField]);
+
   const selectableVisibleSkills = useMemo(
-    () => filteredSkills.filter(isBulkSelectable),
-    [filteredSkills]
+    () => sortedSkills.filter(isBulkSelectable),
+    [sortedSkills]
   );
   const selectableVisibleKeys = useMemo(
     () => new Set(selectableVisibleSkills.map(getSkillRowKey)),
@@ -532,9 +548,18 @@ export function PlatformView() {
             onValueChange={setSearchQuery}
             containerClassName="flex-1"
           />
-          <SkillListModeToggle value={viewMode} onChange={setViewMode} />
+          <SkillBrowserToolbar
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onSortChange={(field, direction) => {
+              setSortField(field);
+              setSortDirection(direction);
+            }}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
         </div>
-        {(filteredSkills.length > 0 || filteredFolderGroups.length > 0) && (
+        {(sortedSkills.length > 0 || sortedFolderGroups.length > 0) && (
           <div
             className="mt-3 flex flex-wrap items-center gap-2"
             role="group"
@@ -621,20 +646,20 @@ export function PlatformView() {
                 : `No ${activeSourceLabel} skills installed for ${agent.display_name}`,
             })}
           />
-        ) : filteredSkills.length === 0 && filteredFolderGroups.length === 0 ? (
+        ) : sortedSkills.length === 0 && sortedFolderGroups.length === 0 ? (
           <EmptyState
             message={t("platform.noMatch", { query: searchQuery })}
           />
         ) : (
           <div className="space-y-6">
-            {viewMode === "folders" && filteredFolderGroups.length > 0 && (
+            {viewMode === "folders" && sortedFolderGroups.length > 0 && (
               <section className="space-y-3" aria-label={t("skillFolder.foldersTitle")}>
                 <div className="flex items-center gap-2">
                   <FolderOpen className="size-4 text-primary" />
                   <h2 className="text-sm font-semibold">{t("skillFolder.foldersTitle")}</h2>
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {filteredFolderGroups.map((group) => (
+                  {sortedFolderGroups.map((group) => (
                     <SkillFolderCard
                       key={group.relativePath}
                       name={group.name}
@@ -661,7 +686,7 @@ export function PlatformView() {
               </section>
             )}
 
-            {filteredSkills.length > 0 && (
+            {sortedSkills.length > 0 && (
               <section className="space-y-3">
                 {viewMode === "folders" && (
                   <div className="flex items-center gap-2">
@@ -670,7 +695,7 @@ export function PlatformView() {
                   </div>
                 )}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {filteredSkills.map((skill) => (
+                  {sortedSkills.map((skill) => (
                     <UnifiedSkillCard
                       key={getSkillRowKey(skill)}
                       name={skill.name}
@@ -694,6 +719,7 @@ export function PlatformView() {
                       sourceRepo={skill.source_repo}
                       sourceUrl={skill.source_url}
                       createdAt={skill.created_at}
+                      updatedAt={skill.updated_at}
                       isLoading={
                         agentId
                           ? (pendingSkillActionKeys[`${agentId}::${skill.id}`] ?? false)

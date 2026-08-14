@@ -582,6 +582,11 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
     // rows from the database once all directories have been walked.
     let mut all_found_skill_ids: HashSet<String> = HashSet::new();
 
+    let resource_root = db::get_skill_resource_library_dir(pool).await?;
+    for skill in scan_skill_root(&resource_root, false, ScanDirectoryOptions::nested()) {
+        all_found_skill_ids.insert(skill.id);
+    }
+
     // ── Per-agent scans ───────────────────────────────────────────────────────
     for agent in &agents {
         let is_central = agent.category == "central";
@@ -1326,6 +1331,74 @@ mod tests {
         assert_eq!(r.total_skills, 0);
         assert_eq!(r.agents_scanned, 1);
         assert_eq!(r.skills_by_agent.get("empty-agent").copied(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_scan_all_skills_impl_preserves_resource_library_metadata() {
+        let tmp = TempDir::new().unwrap();
+        let pool = setup_test_db().await;
+        isolate_scan_test(&pool).await;
+
+        let resource_root = tmp.path().join("library");
+        create_skill_dir(
+            &resource_root.join("owner").join("repo"),
+            "resource-only",
+            &valid_skill_md("Resource Only", "Exists only in the resource library"),
+        );
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .unwrap();
+
+        let now = Utc::now().to_rfc3339();
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "resource-only".to_string(),
+                name: "Resource Only".to_string(),
+                description: Some("Exists only in the resource library".to_string()),
+                file_path: resource_root
+                    .join("owner")
+                    .join("repo")
+                    .join("resource-only")
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(
+                    resource_root
+                        .join("owner")
+                        .join("repo")
+                        .join("resource-only")
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                is_central: false,
+                source: Some("github:owner/repo".to_string()),
+                content: None,
+                scanned_at: now,
+            },
+        )
+        .await
+        .unwrap();
+        db::upsert_skill_metadata(
+            &pool,
+            "resource-only",
+            Some("keep this note"),
+            &["important".to_string()],
+        )
+        .await
+        .unwrap();
+
+        scan_all_skills_impl(&pool).await.unwrap();
+
+        let metadata = db::get_skill_metadata(&pool, "resource-only")
+            .await
+            .unwrap()
+            .expect("resource library metadata should survive a full scan");
+        assert_eq!(metadata.notes.as_deref(), Some("keep this note"));
+        assert_eq!(
+            db::parse_skill_metadata_tags(Some(&metadata)),
+            vec!["important".to_string()]
+        );
     }
 
     #[tokio::test]

@@ -327,12 +327,29 @@ describe("CentralSkillsView", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps view switching but removes explicit sort controls", () => {
+  it("shows shared sort and view controls without separate direction buttons", () => {
     renderCentralSkillsView();
 
-    expect(screen.queryByRole("group", { name: "排序字段" })).toBeNull();
     expect(screen.queryByRole("group", { name: "排序方向" })).toBeNull();
+    expect(screen.getByRole("group", { name: "排序字段" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "名称" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建时间" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "修改时间" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /目录|Folders/i })).toBeInTheDocument();
+  });
+
+  it("cycles central skill sort direction by clicking the active sort field", async () => {
+    renderCentralSkillsView();
+
+    fireEvent.click(screen.getByRole("button", { name: "名称" }));
+
+    await waitFor(() => {
+      const detailButtons = screen.getAllByRole("button", {
+        name: /查看 .* 的详情/i,
+      });
+      expect(detailButtons[0]).toHaveTextContent("frontend-design");
+      expect(detailButtons[1]).toHaveTextContent("code-reviewer");
+    });
   });
 
   // ── Skills List ───────────────────────────────────────────────────────────

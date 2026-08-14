@@ -452,7 +452,7 @@ export function SkillDetailView({
   const [notesInput, setNotesInput] = useState("");
   const [tagsInput, setTagsInput] = useState("");
   const [isSavingMetadata, setIsSavingMetadata] = useState(false);
-  const [pendingGeneratedNote, setPendingGeneratedNote] = useState(false);
+  const [isGeneratingNoteIntoNotes, setIsGeneratingNoteIntoNotes] = useState(false);
   const [sourceTypeInput, setSourceTypeInput] = useState("github");
   const [sourceUrlInput, setSourceUrlInput] = useState("");
   const [sourceAuthorInput, setSourceAuthorInput] = useState("");
@@ -507,14 +507,22 @@ export function SkillDetailView({
   }, [detail?.id, detail?.notes, detail?.tags]);
 
   useEffect(() => {
-    if (pendingGeneratedNote && explanation) {
+    if (isGeneratingNoteIntoNotes && explanation) {
       setNotesInput(explanation);
-      setPendingGeneratedNote(false);
     }
-    if (pendingGeneratedNote && explanationError) {
-      setPendingGeneratedNote(false);
+    if (
+      isGeneratingNoteIntoNotes
+      && (explanationError || (explanation && !isExplanationLoading && !isExplanationStreaming))
+    ) {
+      setIsGeneratingNoteIntoNotes(false);
     }
-  }, [explanation, explanationError, pendingGeneratedNote]);
+  }, [
+    explanation,
+    explanationError,
+    isExplanationLoading,
+    isExplanationStreaming,
+    isGeneratingNoteIntoNotes,
+  ]);
 
   useEffect(() => {
     const source = detail?.source ?? "";
@@ -805,7 +813,7 @@ export function SkillDetailView({
       setNotesInput(explanation);
       return;
     }
-    setPendingGeneratedNote(true);
+    setIsGeneratingNoteIntoNotes(true);
     handleGenerateExplanation();
   }
 

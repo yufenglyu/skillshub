@@ -1,7 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
-  ArrowUpDown,
   Blocks,
   Database,
   Download,
@@ -19,8 +18,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { InstallDialog } from "@/components/central/InstallDialog";
 import { InstallTargetList } from "@/components/central/InstallTargetList";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
+import { SkillBrowserToolbar } from "@/components/skill/SkillBrowserToolbar";
 import { SkillFolderCard } from "@/components/skill/SkillFolderCard";
-import { SkillListModeToggle } from "@/components/skill/SkillListModeToggle";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { Button } from "@/components/ui/button";
 import { HelpIcon } from "@/components/ui/help-icon";
@@ -42,6 +41,12 @@ import {
   splitResourceLibrarySkillsByFolder,
   type SkillFolderGroup,
 } from "@/lib/skillFolders";
+import {
+  sortBySkillBrowserOrder,
+  sortFoldersBySkillBrowserOrder,
+  type SkillSortDirection,
+  type SkillSortField,
+} from "@/lib/skillSort";
 import { cn } from "@/lib/utils";
 import { useAppStatusStore, type AppStatusTaskItem } from "@/stores/appStatusStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
@@ -58,26 +63,6 @@ function EmptyState({ message }: { message: string }) {
       </div>
       <p className="text-sm font-medium text-muted-foreground">{message}</p>
     </div>
-  );
-}
-
-type ResourceSortField = "name" | "createdAt" | "updatedAt";
-type ResourceSortDirection = "asc" | "desc";
-
-function parseSortableTimestamp(value?: string | null): number {
-  if (!value) return 0;
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function getSkillSortTimestamp(
-  skill: SkillWithLinks,
-  field: "createdAt" | "updatedAt"
-): number {
-  return parseSortableTimestamp(
-    field === "createdAt"
-      ? skill.created_at ?? skill.scanned_at
-      : skill.updated_at ?? skill.scanned_at
   );
 }
 
@@ -154,8 +139,8 @@ export function ResourceLibraryView() {
   const uninstallSkillFromAgent = useSkillStore((state) => state.uninstallSkillFromAgent);
 
   const [viewMode, setViewMode] = useSkillListViewMode("resource-library");
-  const [sortField, setSortField] = useState<ResourceSortField>("name");
-  const [sortDirection, setSortDirection] = useState<ResourceSortDirection>("asc");
+  const [sortField, setSortField] = useState<SkillSortField>("name");
+  const [sortDirection, setSortDirection] = useState<SkillSortDirection>("asc");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [activeFolderKey, setActiveFolderKey] = useState<string | null>(null);
@@ -261,24 +246,20 @@ export function ResourceLibraryView() {
   }, [normalizedSearchQuery, selectedTag, visibleSkills]);
 
   const sortedSkills = useMemo(() => {
-    const direction = sortDirection === "asc" ? 1 : -1;
-    return [...filteredSkills].sort((a, b) => {
-      const nameComparison = a.name.localeCompare(b.name, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
-      if (sortField === "name") {
-        return nameComparison * direction;
-      }
-      const timeComparison =
-        getSkillSortTimestamp(a, sortField) - getSkillSortTimestamp(b, sortField);
-      return timeComparison === 0 ? nameComparison : timeComparison * direction;
-    });
+    return sortBySkillBrowserOrder(filteredSkills, sortField, sortDirection);
   }, [filteredSkills, sortDirection, sortField]);
 
   const filteredFolders = useMemo(() => {
     if (viewMode !== "folders" || activeFolder) return [];
-    return folderSplit.groups.filter((group) => {
+    const filtered = folderSplit.groups.filter((group) => {
+      if (
+        selectedTag &&
+        !group.skills.some((skill) =>
+          (skill.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag)
+        )
+      ) {
+        return false;
+      }
       if (!normalizedSearchQuery) return true;
       return buildSearchText([
         group.name,
@@ -286,7 +267,16 @@ export function ResourceLibraryView() {
         ...group.skills.map((skill) => skill.name),
       ]).includes(normalizedSearchQuery);
     });
-  }, [activeFolder, folderSplit.groups, normalizedSearchQuery, viewMode]);
+    return sortFoldersBySkillBrowserOrder(filtered, sortField, sortDirection);
+  }, [
+    activeFolder,
+    folderSplit.groups,
+    normalizedSearchQuery,
+    selectedTag,
+    sortDirection,
+    sortField,
+    viewMode,
+  ]);
 
   const availableInstallAgents = useMemo(
     () => agents.filter(isInstallTargetAgent),
@@ -308,17 +298,6 @@ export function ResourceLibraryView() {
     () => availableInstallAgents.filter((agent) => folderActionLinkedAgentIds.has(agent.id)),
     [folderActionLinkedAgentIds, availableInstallAgents]
   );
-  const sortFieldOptions: Array<{ value: ResourceSortField; label: string }> = [
-    { value: "name", label: t("central.sortByName") },
-    { value: "createdAt", label: t("central.sortByCreatedAt") },
-    { value: "updatedAt", label: t("central.sortByUpdatedAt") },
-  ];
-
-  const sortDirectionOptions: Array<{ value: ResourceSortDirection; label: string }> = [
-    { value: "asc", label: t("central.sortAscending") },
-    { value: "desc", label: t("central.sortDescending") },
-  ];
-
   async function handleRefresh() {
     await loadResourceLibrary();
   }
@@ -612,7 +591,7 @@ export function ResourceLibraryView() {
         skill: npxImportSkill.trim() || null,
         overwrite: true,
       });
-      await Promise.all([loadResourceLibrary(), refreshCounts()]);
+      await Promise.all([loadResourceLibrary(), loadCentralSkills(), refreshCounts()]);
       completeStatusTask({
         detail: t("resource.npxImportSuccessDetail", {
           count: result.localImport.addedSkills.length,
@@ -651,7 +630,7 @@ export function ResourceLibraryView() {
     setIsAddingLocal(true);
     try {
       const result = await addLocalSkills({ sourceDir, overwrite: true });
-      await loadResourceLibrary();
+      await Promise.all([loadResourceLibrary(), loadCentralSkills(), refreshCounts()]);
       toast.success(t("resource.localAddSuccess", { count: result.addedSkills.length }));
       setIsLocalAddOpen(false);
       setLocalSourceDir("");
@@ -738,59 +717,16 @@ export function ResourceLibraryView() {
             containerClassName="flex-1"
             aria-label={t("resource.searchPlaceholder")}
           />
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <ArrowUpDown className="size-3.5" />
-              <span>{t("central.sortLabel")}</span>
-            </div>
-            <div
-              role="group"
-              aria-label={t("central.sortFieldLabel")}
-              className="flex rounded-xl bg-muted/40 p-1"
-            >
-              {sortFieldOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={sortField === option.value}
-                  onClick={() => setSortField(option.value)}
-                  className={cn(
-                    "h-7 rounded-lg px-3 text-xs font-medium transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                    sortField === option.value
-                      ? "bg-background/95 text-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
-                  )}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <div
-              role="group"
-              aria-label={t("central.sortDirectionLabel")}
-              className="flex rounded-xl bg-muted/40 p-1"
-            >
-              {sortDirectionOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={sortDirection === option.value}
-                  onClick={() => setSortDirection(option.value)}
-                  className={cn(
-                    "h-7 rounded-lg px-3 text-xs font-medium transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                    sortDirection === option.value
-                      ? "bg-background/95 text-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
-                  )}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <SkillListModeToggle value={viewMode} onChange={setViewMode} />
-          </div>
+          <SkillBrowserToolbar
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onSortChange={(field, direction) => {
+              setSortField(field);
+              setSortDirection(direction);
+            }}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
         </div>
         {availableTags.length > 0 && (
           <div role="group" aria-label={t("central.tagFilter")} className="mt-3 flex flex-wrap items-center gap-1.5">

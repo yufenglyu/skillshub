@@ -1014,6 +1014,57 @@ describe("SkillDetailView", () => {
     expect(mockRefreshExplanation).not.toHaveBeenCalled();
   });
 
+  it("keeps syncing streamed AI note content until generation finishes", async () => {
+    let storeState = buildDetailStoreState();
+    vi.mocked(useSkillDetailStore).mockImplementation((selector?: unknown) => {
+      if (typeof selector === "function") return selector(storeState);
+      return storeState;
+    });
+    vi.mocked(usePlatformStore).mockImplementation((selector?: unknown) => {
+      const state = buildPlatformStoreState();
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <SkillDetailView skillId="frontend-design" variant="page" />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /AI 备注/i }));
+
+    storeState = buildDetailStoreState({
+      explanation: "一句",
+      isExplanationLoading: true,
+      isExplanationStreaming: true,
+    });
+    rerender(
+      <MemoryRouter>
+        <SkillDetailView skillId="frontend-design" variant="page" />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/记录此技能的用途/i)).toHaveValue("一句");
+    });
+
+    storeState = buildDetailStoreState({
+      explanation: "一句完整的 AI 备注。",
+      isExplanationLoading: false,
+      isExplanationStreaming: false,
+    });
+    rerender(
+      <MemoryRouter>
+        <SkillDetailView skillId="frontend-design" variant="page" />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/记录此技能的用途/i)).toHaveValue("一句完整的 AI 备注。");
+    });
+  });
+
   it("shows explanation loading state while a request is in flight", async () => {
     applyStoreMocks({
       explanation: null,

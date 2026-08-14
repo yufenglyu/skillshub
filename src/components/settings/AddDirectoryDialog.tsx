@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { FolderOpen, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import {
   Dialog,
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { normalizePathForInputDisplay } from "@/lib/path";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -72,6 +74,17 @@ export function AddDirectoryDialog({
     }
   }
 
+  async function handleBrowse() {
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      title: t("addDir.browseTitle"),
+    });
+    if (typeof selected !== "string") return;
+    setPath(normalizePathForInputDisplay(selected));
+    setValidationError(null);
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -90,18 +103,30 @@ export function AddDirectoryDialog({
             <label htmlFor="dir-path" className="text-sm font-medium">
               {t("addDir.pathLabel")} <span className="text-destructive">*</span>
             </label>
-            <Input
-              id="dir-path"
-              placeholder={t("addDir.pathPlaceholder")}
-              value={path}
-              onChange={(e) => {
-                setPath(e.target.value);
-                if (validationError) setValidationError(null);
-              }}
-              onKeyDown={handleKeyDown}
-              disabled={isSubmitting}
-              autoFocus
-            />
+            <div className="flex gap-2">
+              <Input
+                id="dir-path"
+                placeholder={t("addDir.pathPlaceholder")}
+                value={path}
+                onChange={(e) => {
+                  setPath(e.target.value);
+                  if (validationError) setValidationError(null);
+                }}
+                onKeyDown={handleKeyDown}
+                disabled={isSubmitting}
+                autoFocus
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleBrowse()}
+                disabled={isSubmitting}
+                className="shrink-0"
+              >
+                <FolderOpen className="size-4" />
+                {t("addDir.browse")}
+              </Button>
+            </div>
             {validationError && (
               <p className="text-xs text-destructive" role="alert">
                 {validationError}

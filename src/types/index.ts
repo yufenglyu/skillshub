@@ -86,6 +86,7 @@ export interface ScannedSkill {
   source_repo?: string | null;
   source_path?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
 }
 
 // ─── Skill Types ──────────────────────────────────────────────────────────────

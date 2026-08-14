@@ -676,6 +676,8 @@
     "pathLabel": "Directory Path",
     "pathPlaceholder": "e.g. ~/projects/my-project",
     "pathRequired": "Directory path cannot be empty",
+    "browse": "Browse",
+    "browseTitle": "Choose project directory",
     "cancel": "Cancel",
     "add": "Add",
     "adding": "Adding..."

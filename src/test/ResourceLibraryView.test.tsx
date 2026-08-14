@@ -376,7 +376,7 @@ describe("ResourceLibraryView delete", () => {
       expect(detailButtons[1]).toHaveTextContent("zeta-skill");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "倒排" }));
+    fireEvent.click(screen.getByRole("button", { name: "修改时间" }));
 
     await waitFor(() => {
       const detailButtons = screen.getAllByRole("button", {
@@ -384,6 +384,168 @@ describe("ResourceLibraryView delete", () => {
       });
       expect(detailButtons[0]).toHaveTextContent("zeta-skill");
       expect(detailButtons[1]).toHaveTextContent("alpha-skill");
+    });
+  });
+
+  it("sorts resource directories by modified time and direction controls", async () => {
+    resourceSkills = [
+      {
+        ...defaultSkills[0],
+        id: "old-skill",
+        name: "old-skill",
+        file_path: "~/.skillshub/library/zeta/repo/old-skill/SKILL.md",
+        canonical_path: "~/.skillshub/library/zeta/repo/old-skill",
+        created_at: "2026-07-10T00:00:00Z",
+        updated_at: "2026-07-10T00:00:00Z",
+      },
+      {
+        ...defaultSkills[0],
+        id: "new-skill",
+        name: "new-skill",
+        file_path: "~/.skillshub/library/alpha/repo/new-skill/SKILL.md",
+        canonical_path: "~/.skillshub/library/alpha/repo/new-skill",
+        created_at: "2026-07-11T00:00:00Z",
+        updated_at: "2026-07-12T00:00:00Z",
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /目录|Folders/i })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "修改时间" }));
+
+    await waitFor(() => {
+      const folderButtons = screen.getAllByRole("button", {
+        name: /打开目录/i,
+      });
+      expect(folderButtons[0]).toHaveTextContent("zeta/repo");
+      expect(folderButtons[1]).toHaveTextContent("alpha/repo");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "修改时间" }));
+
+    await waitFor(() => {
+      const folderButtons = screen.getAllByRole("button", {
+        name: /打开目录/i,
+      });
+      expect(folderButtons[0]).toHaveTextContent("alpha/repo");
+      expect(folderButtons[1]).toHaveTextContent("zeta/repo");
+    });
+  });
+
+  it("cycles sort direction from the active sort field without separate direction buttons", async () => {
+    resourceSkills = [
+      {
+        ...defaultSkills[0],
+        id: "alpha-skill",
+        name: "alpha-skill",
+        file_path: "~/.skillshub/library/example/alpha-skill/SKILL.md",
+        canonical_path: "~/.skillshub/library/example/alpha-skill",
+      },
+      {
+        ...defaultSkills[0],
+        id: "zeta-skill",
+        name: "zeta-skill",
+        file_path: "~/.skillshub/library/example/zeta-skill/SKILL.md",
+        canonical_path: "~/.skillshub/library/example/zeta-skill",
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByRole("group", { name: "排序方向" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "正排" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "倒排" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "全部" }));
+    fireEvent.click(screen.getByRole("button", { name: "名称" }));
+
+    await waitFor(() => {
+      const detailButtons = screen.getAllByRole("button", {
+        name: /查看 .* 的详情/i,
+      });
+      expect(detailButtons[0]).toHaveTextContent("zeta-skill");
+      expect(detailButtons[1]).toHaveTextContent("alpha-skill");
+    });
+  });
+
+  it("filters resource directories by selected tag in folder view", async () => {
+    resourceSkills = [
+      {
+        ...defaultSkills[0],
+        id: "design-skill",
+        name: "design-skill",
+        tags: ["design"],
+        file_path: "~/.skillshub/library/alpha/repo/design-skill/SKILL.md",
+        canonical_path: "~/.skillshub/library/alpha/repo/design-skill",
+      },
+      {
+        ...defaultSkills[0],
+        id: "backend-skill",
+        name: "backend-skill",
+        tags: ["backend"],
+        file_path: "~/.skillshub/library/zeta/repo/backend-skill/SKILL.md",
+        canonical_path: "~/.skillshub/library/zeta/repo/backend-skill",
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    fireEvent.click(screen.getByRole("button", { name: "#design" }));
+
+    await waitFor(() => {
+      const folderButtons = screen.getAllByRole("button", {
+        name: /打开目录/i,
+      });
+      expect(folderButtons).toHaveLength(1);
+      expect(folderButtons[0]).toHaveTextContent("alpha/repo");
+      expect(screen.queryByText("zeta/repo")).toBeNull();
+    });
+  });
+
+  it("refreshes resource library, central skills, and counts after npx import", async () => {
+    mockImportSkillsViaNpx.mockResolvedValue({
+      command: "npx skills add mattpocock/skills --yes",
+      stagingDir: "~/.skillshub/tmp/npx-import",
+      localImport: {
+        sourceDir: "~/.skillshub/tmp/npx-import/.agents/skills",
+        targetDir: "~/.skillshub/library/mattpocock/skills",
+        overwrite: true,
+        addedSkills: [],
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+    mockLoadResourceLibrary.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: /导入技能|Import skills/i }));
+    const dialog = screen.getByRole("dialog", { name: /导入技能|Import skills/i });
+    fireEvent.change(within(dialog).getByLabelText(/GitHub 仓库|GitHub repository/i), {
+      target: { value: "mattpocock/skills" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /导入技能|Import skills/i }));
+
+    await waitFor(() => {
+      expect(mockLoadResourceLibrary).toHaveBeenCalledTimes(1);
+      expect(mockLoadCentralSkills).toHaveBeenCalledTimes(1);
+      expect(mockRefreshCounts).toHaveBeenCalledTimes(1);
     });
   });
 

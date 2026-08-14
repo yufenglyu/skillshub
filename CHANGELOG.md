@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.20.1 - 2026-08-14
+
+This patch release tightens the shared skill browsing UI and keeps Resource Library metadata stable across scans and imports.
+
+### Improvements
+
+- Replace the separate ascending and descending sort buttons with field buttons that toggle direction for name, created time, and updated time.
+- Share the grouped Sort and View toolbar across the Resource Library, Central Skills, software platform views, and project directory views.
+- Improve selected-state contrast for sort and view controls, including the folder/list view switch.
+- Add a Browse button when adding project directories from Settings.
+- Refresh English and Chinese README content and screenshots for the current browsing, folder, platform, project-directory, and settings interfaces.
+
+### Fixes
+
+- Preserve Resource Library tags and notes when skills are rescanned, imported, or refreshed.
+- Apply Resource Library tag filters consistently in both all-skill view and folder view.
+- Apply name, created-time, and updated-time sorting to Resource Library folder view instead of only the all-skill view.
+- Refresh the Resource Library automatically after importing skills.
+- Fix AI notes so generated content is written into the notes editor immediately after a successful generation.
+
 ## 0.20.0 - 2026-08-13
 
 This release focuses on a more reliable Resource Library workflow for importing, adding, and updating skills, plus better update visibility.

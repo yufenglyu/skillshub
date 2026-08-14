@@ -29,6 +29,8 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 - The bottom status bar reports live import, update, and install progress, with update summaries for successful, skipped, and failed skills.
 - Resource Library folder view grouped by source-style paths such as `owner/repo`, matching common local layouts like `author/project/skill`.
 - Folder views in the Resource Library, Central Skills, software platforms, and project directories support folder-level management. Resource Library folders can be promoted to Central Skills or installed into software platforms and project directories, while platform and project directory folders can be uninstalled as folders.
+- Resource Library tags, notes, and source metadata are preserved across scans, imports, refreshes, and update checks.
+- Every skill browser uses the same grouped Sort and View toolbar. Sort fields toggle direction on click, and folder views use the same filtering and sorting behavior as all-skill views.
 - Single-skill cards and folder cards use the same install icon semantics: the database icon means promote to Central Skills, and the package-install icon means install into a software platform or project directory.
 - Skill cards show created and updated dates separately with labels that match the current UI language.
 - Direct installation from the Resource Library to selected software platforms or project directories without forcing the skill into Central Skills.
@@ -37,7 +39,7 @@ Application data is stored in `~/.skillshub/db.sqlite`. On first launch after up
 - Central Skills management with folder view, safe deletion previews, platform install status, and batch uninstall from selected platforms.
 - Read-only skill detail page that defaults to Markdown preview and merges time, source, and storage-path metadata into one Basic Info section.
 - Software platform management in Settings, including editable built-in platforms, custom platforms, Lobster/Coding grouping, two-column compact layout, built-in/detected group counts, and visual distinction for detected local skills directories.
-- Project directory management in Settings, now ordered below Software Platforms and treated as project-scoped install targets using `.agents/skills`.
+- Project directory management in Settings, now ordered below Software Platforms, treated as project-scoped install targets using `.agents/skills`, and supported by a directory Browse button.
 - Collapsible sidebar sections for Software Platforms, Lobster platforms, Coding platforms, and Project Directories.
 - Local ZIP backup and WebDAV backup/import, including connection testing, remote backup listing, upload, selected import, and selected delete. Backup files exclude API keys, tokens, and password-like values.
 - Update checking from the About section.
@@ -148,15 +150,15 @@ The Vite development server uses port `24200`.
 
 ## Release
 
-GitHub Actions publishes desktop packages when a version tag such as `v0.20.0` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
+GitHub Actions publishes desktop packages when a version tag such as `v0.20.1` is pushed. The release workflow reads release notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
 Local packaging scripts are still available for host-specific builds:
 
 | Platform | Command |
 |----------|---------|
-| Windows | `pnpm package:release:windows -- -Version 0.20.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.20.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.20.0` |
+| Windows | `pnpm package:release:windows -- -Version 0.20.1` |
+| macOS | `pnpm package:release:macos -- -Version 0.20.1` |
+| Linux | `pnpm package:release:linux -- -Version 0.20.1` |
 
 Use `-VersionOnly` when you only need to update version metadata before committing a release.
 

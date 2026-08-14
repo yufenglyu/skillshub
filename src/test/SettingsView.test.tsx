@@ -5,6 +5,8 @@ import { SettingsView } from "../pages/SettingsView";
 import { ScanDirectory, AgentWithStatus, AppUpdateInfo } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
+const mockOpenDialog = vi.fn();
+
 // Mock stores
 vi.mock("../stores/settingsStore", () => ({
   useSettingsStore: vi.fn(),
@@ -20,6 +22,10 @@ vi.mock("../stores/centralSkillsStore", () => ({
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: (...args: unknown[]) => mockOpenDialog(...args),
 }));
 
 vi.mock("sonner", () => ({
@@ -209,6 +215,7 @@ function renderSettingsView() {
 describe("SettingsView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockOpenDialog.mockReset();
     vi.mocked(invoke).mockResolvedValue(null);
   });
 
@@ -735,6 +742,22 @@ describe("SettingsView", () => {
     fireEvent.click(screen.getByRole("button", { name: "添加项目目录" }));
     await waitFor(() => {
       expect(screen.getByText("添加项目目录")).toBeTruthy();
+    });
+  });
+
+  it("chooses a project directory from the add directory dialog", async () => {
+    mockOpenDialog.mockResolvedValue("D:\\Projects\\demo");
+    setupMocks();
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("button", { name: "添加项目目录" }));
+    fireEvent.click(await screen.findByRole("button", { name: "浏览" }));
+
+    await waitFor(() => {
+      expect(mockOpenDialog).toHaveBeenCalledWith(
+        expect.objectContaining({ directory: true, multiple: false })
+      );
+      expect(screen.getByLabelText(/目录路径/)).toHaveValue("D:\\Projects\\demo");
     });
   });
 
