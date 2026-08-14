@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type SkillTableKind = "skill" | "folder";
 
@@ -23,6 +23,7 @@ export const DEFAULT_FOLDER_COLUMNS = [
 ] as const;
 
 const FIXED_COLUMNS = new Set<string>(FIXED_SKILL_COLUMNS);
+const CHANGE_EVENT = "skills-manage:skill-table-columns";
 
 function storageKey(kind: SkillTableKind) {
   return `skills-manage.skillTableColumns.${kind}`;
@@ -56,6 +57,9 @@ export function useSkillTableColumns(kind: SkillTableKind) {
       } catch {
         // Keep in-memory columns if localStorage is unavailable.
       }
+      window.dispatchEvent(
+        new CustomEvent(CHANGE_EVENT, { detail: { kind, columns: [...next] } })
+      );
     },
     [kind]
   );
@@ -85,6 +89,32 @@ export function useSkillTableColumns(kind: SkillTableKind) {
     setVisibleColumns(next);
     persist(next);
   }, [kind, persist]);
+
+  useEffect(() => {
+    setVisibleColumns(readColumns(kind));
+  }, [kind]);
+
+  useEffect(() => {
+    function handleChange(event: Event) {
+      if (!(event instanceof CustomEvent)) return;
+      if (event.detail?.kind !== kind) return;
+      const columns = Array.isArray(event.detail.columns) ? event.detail.columns : [];
+      setVisibleColumns(new Set<string>([...columns.map(String), ...FIXED_COLUMNS]));
+    }
+
+    function handleStorage(event: StorageEvent) {
+      if (event.key === storageKey(kind)) {
+        setVisibleColumns(readColumns(kind));
+      }
+    }
+
+    window.addEventListener(CHANGE_EVENT, handleChange);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(CHANGE_EVENT, handleChange);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [kind]);
 
   return { visibleColumns, toggleColumn, resetColumns };
 }

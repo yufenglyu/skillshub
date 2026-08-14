@@ -17,18 +17,20 @@ export function SkillListModeToggle({ value, onChange, showLabel = true }: Skill
     label: string;
     icon: typeof LayoutList;
   }> = [
-    { value: "all", label: t("skillList.viewModeAll"), icon: LayoutList },
-    { value: "folders", label: t("skillList.viewModeFolders"), icon: FolderOpen },
+    { value: "all", label: t("skillBrowser.organizationAll"), icon: LayoutList },
+    { value: "folders", label: t("skillBrowser.organizationFolders"), icon: FolderOpen },
   ];
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       {showLabel && (
-        <span className="text-xs text-muted-foreground">{t("skillList.viewModeLabel")}</span>
+        <span className="text-xs text-muted-foreground">
+          {t("skillBrowser.organizationLabel")}
+        </span>
       )}
       <div
         role="group"
-        aria-label={t("skillList.viewModeLabel")}
+        aria-label={t("skillBrowser.organizationLabel")}
         className="flex rounded-xl bg-muted/40 p-1"
       >
         {options.map((option) => {

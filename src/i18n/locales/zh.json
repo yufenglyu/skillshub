@@ -239,6 +239,33 @@
     "sortByNewest": "最新",
     "sortByOldest": "最早"
   },
+  "skillBrowser": {
+    "displayModeLabel": "显示方式",
+    "displayList": "列表视图",
+    "displayCard": "卡片视图",
+    "columnSettings": "显示列",
+    "visibleColumns": "显示列",
+    "fixedColumn": "固定",
+    "resetColumns": "恢复默认列",
+    "organizationLabel": "组织",
+    "organizationAll": "全部",
+    "organizationFolders": "目录",
+    "columns": {
+      "name": "名称",
+      "source": "仓库",
+      "createdAt": "创建时间",
+      "updatedAt": "更新时间",
+      "installStatus": "安装状态",
+      "rating": "评级",
+      "tags": "标签",
+      "notes": "备注",
+      "path": "路径",
+      "skillCount": "技能数",
+      "installSummary": "安装统计",
+      "notesSummary": "备注统计",
+      "actions": "操作"
+    }
+  },
   "resource": {
     "title": "技能资源库",
     "path": "~/.skillshub/library",

@@ -3,6 +3,7 @@ import {
   ArrowDownWideNarrow,
   ArrowUpAZ,
   Calendar,
+  FolderTree,
   ListFilter,
   type LucideIcon,
 } from "lucide-react";
@@ -88,8 +89,8 @@ export function SkillBrowserToolbar({
       </div>
       <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/25 px-2 py-1">
         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <ListFilter className="size-3.5" />
-          {t("skillList.viewModeLabel")}
+          <FolderTree className="size-3.5" />
+          {t("skillBrowser.organizationLabel")}
         </span>
         <SkillListModeToggle value={viewMode} onChange={onViewModeChange} showLabel={false} />
       </div>

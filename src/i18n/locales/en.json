@@ -239,6 +239,33 @@
     "sortByNewest": "Newest",
     "sortByOldest": "Oldest"
   },
+  "skillBrowser": {
+    "displayModeLabel": "Display mode",
+    "displayList": "List view",
+    "displayCard": "Card view",
+    "columnSettings": "Columns",
+    "visibleColumns": "Visible columns",
+    "fixedColumn": "Fixed",
+    "resetColumns": "Reset columns",
+    "organizationLabel": "Organize",
+    "organizationAll": "All",
+    "organizationFolders": "Folders",
+    "columns": {
+      "name": "Name",
+      "source": "Repository",
+      "createdAt": "Created",
+      "updatedAt": "Updated",
+      "installStatus": "Install status",
+      "rating": "Rating",
+      "tags": "Tags",
+      "notes": "Notes",
+      "path": "Path",
+      "skillCount": "Skills",
+      "installSummary": "Installs",
+      "notesSummary": "Notes",
+      "actions": "Actions"
+    }
+  },
   "resource": {
     "title": "Skill Resource Library",
     "path": "~/.skillshub/library",
