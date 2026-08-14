@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Loader2,
@@ -28,6 +28,7 @@ import { useThemeStore } from "@/stores/themeStore";
 import { cn } from "@/lib/utils";
 import { isEnabledInstallTargetAgent } from "@/lib/agents";
 import { isProjectAgentId } from "@/lib/projectTargets";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 
 const OBSIDIAN_PLATFORM_ID = "obsidian";
 
@@ -123,6 +124,8 @@ export function Sidebar() {
   const { pathname } = useLocation();
   const { t } = useTranslation();
   const { agents, skillsByAgent, isLoading } = usePlatformStore();
+  const sidebarWidth = useSidebarWidth();
+  const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const collections = useCollectionStore((s) => s.collections);
   const loadCollections = useCollectionStore((s) => s.loadCollections);
@@ -180,6 +183,29 @@ export function Sidebar() {
     });
   }
 
+  function handleResizePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    dragState.current = {
+      startX: event.clientX,
+      startWidth: sidebarWidth.width,
+    };
+
+    function handleMove(moveEvent: PointerEvent) {
+      const state = dragState.current;
+      if (!state) return;
+      sidebarWidth.setWidth(state.startWidth + moveEvent.clientX - state.startX);
+    }
+
+    function handleUp() {
+      dragState.current = null;
+      document.removeEventListener("pointermove", handleMove);
+      document.removeEventListener("pointerup", handleUp);
+    }
+
+    document.addEventListener("pointermove", handleMove);
+    document.addEventListener("pointerup", handleUp);
+  }
+
   const platformAgents = agents.filter(
     (a) =>
       isEnabledInstallTargetAgent(a) &&
@@ -211,9 +237,11 @@ export function Sidebar() {
   return (
     <nav
       className={cn(
-        "flex flex-col shrink-0 h-full border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200",
-          expanded ? "w-56" : "w-14"
+        "relative flex flex-col shrink-0 h-full border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200"
       )}
+      style={{
+        width: expanded ? sidebarWidth.width : 56,
+      }}
       aria-label={t("sidebar.mainNav")}
     >
       {/* Toggle button */}
@@ -481,6 +509,19 @@ export function Sidebar() {
         />
       </div>
 
+      {expanded && (
+        <button
+          type="button"
+          aria-label={t("sidebar.resizeSidebar", { defaultValue: "调整侧栏宽度" })}
+          title={t("sidebar.resizeSidebar", { defaultValue: "调整侧栏宽度" })}
+          onPointerDown={handleResizePointerDown}
+          onDoubleClick={sidebarWidth.resetWidth}
+          className={cn(
+            "absolute right-[-3px] top-0 bottom-0 z-10 w-1.5 cursor-col-resize bg-transparent",
+            "transition-colors hover:bg-primary/30 focus-visible:bg-primary/30 focus-visible:outline-none"
+          )}
+        />
+      )}
     </nav>
   );
 }

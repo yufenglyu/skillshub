@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { Sidebar } from "../components/layout/Sidebar";
 import { usePlatformStore } from "../stores/platformStore";
@@ -295,7 +295,21 @@ describe("Sidebar", () => {
   it("renders expanded sidebar by default", () => {
     const { container } = renderSidebar();
     const nav = container.querySelector("nav");
-    expect(nav?.className).toContain("w-56");
+    expect(nav).toHaveStyle({ width: "280px" });
+  });
+
+  it("resizes expanded sidebar by dragging the resize handle", () => {
+    const { container } = renderSidebar();
+    const nav = container.querySelector("nav");
+    const resizeHandle = screen.getByRole("button", { name: /调整侧栏宽度/ });
+
+    fireEvent.pointerDown(resizeHandle, { clientX: 280 });
+    act(() => {
+      document.dispatchEvent(new PointerEvent("pointermove", { clientX: 340 }));
+      document.dispatchEvent(new PointerEvent("pointerup"));
+    });
+
+    expect(nav).toHaveStyle({ width: "340px" });
   });
 
   it("renders platform agents as icon buttons", () => {
