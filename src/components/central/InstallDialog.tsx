@@ -78,7 +78,11 @@ export function InstallDialog({
 
   function getSelectedInstallableAgentIds() {
     if (!skill) return [];
-    return Array.from(selectedAgentIds);
+    return Array.from(selectedAgentIds).filter((agentId) => {
+      const agent = targetAgents.find((candidate) => candidate.id === agentId);
+      if (!agent) return false;
+      return !(agent.shares_central_skills && skill.is_central);
+    });
   }
 
   async function handleConfirm() {
@@ -124,8 +128,17 @@ export function InstallDialog({
             onToggleAgent={handleCheckboxChange}
             linkedAgentIds={new Set(skill.linked_agents)}
             readOnlyAgentIds={new Set(skill.read_only_agents ?? [])}
+            isCentral={skill.is_central}
             ariaLabel={t("installDialog.selectPlatforms")}
           />
+
+          {targetAgents.some(
+            (agent) => agent.shares_central_skills && selectedAgentIds.has(agent.id)
+          ) ? (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {t("installDialog.sharedPlatformHint")}
+            </p>
+          ) : null}
 
           {/* Install method selector */}
           <div className="space-y-2">

@@ -73,4 +73,133 @@ describe("InstallDialog", () => {
     expect(within(dialog).getByLabelText("temp")).toBeInTheDocument();
     expect(within(dialog).queryByLabelText("Central Skills")).not.toBeInTheDocument();
   });
+
+  it("disables a shared platform that already receives the skill through Central Skills", async () => {
+    render(
+      <InstallDialog
+        open
+        onOpenChange={vi.fn()}
+        skill={skill}
+        agents={[
+          ...agents,
+          {
+            id: "hermes",
+            display_name: "Hermes",
+            category: "coding",
+            global_skills_dir: "~/.agents/skills",
+            is_detected: true,
+            is_builtin: true,
+            is_enabled: true,
+            shares_central_skills: true,
+          },
+        ]}
+        onInstall={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: /安装 api-design|Install api-design/i });
+    expect(within(dialog).getByLabelText("Hermes")).toHaveAttribute("aria-disabled", "true");
+    expect(within(dialog).getByText("已通过中央库共享")).toBeInTheDocument();
+  });
+
+  it("labels a shared platform as a centralize action and explains the sync scope", async () => {
+    render(
+      <InstallDialog
+        open
+        onOpenChange={vi.fn()}
+        skill={{ ...skill, is_central: false }}
+        agents={[
+          ...agents,
+          {
+            id: "hermes",
+            display_name: "Hermes",
+            category: "coding",
+            global_skills_dir: "~/.agents/skills",
+            is_detected: true,
+            is_builtin: true,
+            is_enabled: true,
+            shares_central_skills: true,
+          },
+        ]}
+        onInstall={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: /安装 api-design|Install api-design/i });
+    const shared = within(dialog).getByLabelText("Hermes");
+    expect(shared).toBeEnabled();
+    expect(within(dialog).getByText("将加入中央技能库")).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText(/选中的共享平台会按中央库规则同步/)
+    ).not.toBeInTheDocument();
+
+    shared.click();
+    expect(
+      within(dialog).getByText(/选中的共享平台会按中央库规则同步/)
+    ).toBeInTheDocument();
+  });
+
+  it("treats a project directory that shares the central root as a shared target", async () => {
+    render(
+      <InstallDialog
+        open
+        onOpenChange={vi.fn()}
+        skill={{ ...skill, is_central: false }}
+        agents={[
+          ...agents,
+          {
+            id: "project:home",
+            display_name: "Home",
+            category: "project",
+            global_skills_dir: "~/.agents/skills",
+            project_skills_dir: ".agents/skills",
+            is_detected: true,
+            is_builtin: false,
+            is_enabled: true,
+            shares_central_skills: true,
+          },
+        ]}
+        onInstall={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: /安装 api-design|Install api-design/i });
+    const sharedProject = within(dialog).getByLabelText("Home");
+    expect(sharedProject).toBeEnabled();
+    expect(within(dialog).getByText("将加入中央技能库")).toBeInTheDocument();
+
+    sharedProject.click();
+    expect(
+      within(dialog).getByText(/选中的共享平台会按中央库规则同步/)
+    ).toBeInTheDocument();
+  });
+
+  it("disables a shared project directory when the skill is already central", async () => {
+    render(
+      <InstallDialog
+        open
+        onOpenChange={vi.fn()}
+        skill={skill}
+        agents={[
+          ...agents,
+          {
+            id: "project:home",
+            display_name: "Home",
+            category: "project",
+            global_skills_dir: "~/.agents/skills",
+            project_skills_dir: ".agents/skills",
+            is_detected: true,
+            is_builtin: false,
+            is_enabled: true,
+            shares_central_skills: true,
+          },
+        ]}
+        onInstall={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: /安装 api-design|Install api-design/i });
+    expect(within(dialog).getByLabelText("Home")).toHaveAttribute("aria-disabled", "true");
+    expect(within(dialog).getByText("已通过中央库共享")).toBeInTheDocument();
+  });
 });

@@ -43,7 +43,6 @@ import {
 import { isTauriRuntime } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { isInstallTargetAgent } from "@/lib/agents";
-import { useSkillBrowserUiStore } from "@/stores/skillBrowserUiStore";
 
 const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
@@ -169,11 +168,6 @@ function earliestSkillCreatedAt(skills: SkillWithLinks[]) {
   }, null);
 }
 
-function notesCount(skills: SkillWithLinks[]) {
-  const count = skills.filter((skill) => skill.notes?.trim()).length;
-  return count;
-}
-
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
 function EmptyState({ message }: { message: string }) {
@@ -272,8 +266,6 @@ export function CentralSkillsView() {
     toggleColumn: toggleFolderColumn,
     resetColumns: resetFolderColumns,
   } = useSkillTableColumns("folder");
-  const setBrowserControls = useSkillBrowserUiStore((state) => state.setControls);
-  const clearBrowserControls = useSkillBrowserUiStore((state) => state.clearControls);
   const [sortField, setSortField] = useState<SkillSortField>("name");
   const [sortDirection, setSortDirection] = useState<SkillSortDirection>("asc");
   const [searchQuery, setSearchQuery] = useState("");
@@ -370,15 +362,6 @@ export function CentralSkillsView() {
   useEffect(() => {
     loadCentralBundles();
   }, [loadCentralBundles]);
-
-  useEffect(() => {
-    setBrowserControls({
-      columnKind: viewMode === "folders" ? "folder" : "skill",
-      viewMode,
-      onViewModeChange: setViewMode,
-    });
-    return () => clearBrowserControls();
-  }, [clearBrowserControls, setBrowserControls, setViewMode, viewMode]);
 
   // Filter skills by search query.
   const filteredSkills = useMemo(() => {
@@ -493,11 +476,6 @@ export function CentralSkillsView() {
     if (!isSearchActive || !contentRef.current) return;
     contentRef.current.scrollTop = 0;
   }, [isSearchActive, normalizedSearchQuery]);
-
-  function handleInstallClick(skill: SkillWithLinks) {
-    setInstallTargetSkill(skill);
-    setIsDialogOpen(true);
-  }
 
   function agentDisplayNames(agentIds: string[]): string[] {
     const namesById = new Map(agents.map((agent) => [agent.id, agent.display_name]));
@@ -730,13 +708,20 @@ export function CentralSkillsView() {
 
       {/* Search bar */}
       <div className="px-6 py-3 border-b border-border">
-        <SearchInput
-          placeholder={t("central.searchPlaceholder")}
-          value={searchQuery}
-          onValueChange={setSearchQuery}
-          aria-label={t("central.searchPlaceholder")}
-          containerClassName="w-full"
-        />
+        <div className="flex items-center gap-3">
+          <SearchInput
+            placeholder={t("central.searchPlaceholder")}
+            value={searchQuery}
+            onValueChange={setSearchQuery}
+            aria-label={t("central.searchPlaceholder")}
+            containerClassName="min-w-0 flex-1"
+          />
+          <SkillBrowserViewHeading
+            value={viewMode}
+            onChange={setViewMode}
+            className="shrink-0"
+          />
+        </div>
         {availableTags.length > 0 && (
           <div
             role="group"
@@ -879,8 +864,6 @@ export function CentralSkillsView() {
           <EmptyState message={t("central.noSkills")} />
         ) : (
           <div className="space-y-6">
-            <SkillBrowserViewHeading value={viewMode} onChange={setViewMode} />
-
             {viewMode === "folders" && sortedBundles.length > 0 && (
               <section aria-label={t("central.bundlesSectionLabel")} className="space-y-3">
                 <SkillBrowserTable
@@ -902,18 +885,15 @@ export function CentralSkillsView() {
                       name: bundle.name,
                       path: bundle.path,
                       skillCount: bundle.skillCount,
-                      linkedAgentCount: bundle.linkedAgentCount,
-                      readOnlyAgentCount: bundle.readOnlyAgentCount,
+                      installAgents: agents,
+                      installLinkedAgentIds: group?.linkedAgentIds ?? [],
+                      installReadOnlyAgentIds: group?.readOnlyAgentIds ?? [],
                       previewNames: groupSkills.map((skill) => skill.name),
                       createdAt: earliestSkillCreatedAt(groupSkills),
                       updatedAt: latestSkillUpdatedAt(groupSkills),
-                      notesSummary:
-                        notesCount(groupSkills) > 0
-                          ? t("skillBrowser.notesCount", { count: notesCount(groupSkills) })
-                          : null,
                       onOpen: () => void handleOpenBundleDrawer(bundle),
                       onDelete: () => void handleDeleteBundleClick(bundle),
-                      deleteLabel: t("central.deleteBundleLabel", { name: bundle.name }),
+                      deleteLabel: t("resource.deleteAction"),
                       isDeleting: deletingBundlePath === bundle.relativePath,
                     };
                   })}
@@ -965,15 +945,15 @@ export function CentralSkillsView() {
                     updatedAt: skill.updated_at,
                     tags: (skill.tags ?? []).map((tag) => ({ key: tag, label: tag })),
                     onDetail: () => handleOpenDrawer(skill.id),
-                    onInstallTo: () => handleInstallClick(skill),
                     onDeleteFromCentral: () => handleDeleteClick(skill),
-                    deleteFromCentralLabel: t("central.deleteFromCentralLabel", {
-                      name: skill.name,
-                    }),
+                    deleteFromCentralLabel: t("resource.deleteAction"),
                     deleteFromCentralRequiresDialog:
                       skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0,
                     isLoading: deletingSkillId === skill.id,
                     detailButtonRef: (node) => setDetailButtonRef(skill.id, node),
+                    installAgents: agents,
+                    installLinkedAgentIds: skill.linked_agents,
+                    installReadOnlyAgentIds: skill.read_only_agents ?? [],
                     platformIcons: {
                       agents,
                       linkedAgents: skill.linked_agents,

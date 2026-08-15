@@ -11,7 +11,14 @@ export function formatPathForDisplay(path: string): string {
   if (!path) {
     return path;
   }
-  return isWindowsPath(path) ? path.replace(/\//g, "\\") : path;
+  const withoutVerbatimPrefix = path
+    .replace(/^\\\\\?\\UNC\\/i, "\\\\")
+    .replace(/^\\\\\?\\/i, "")
+    .replace(/^\/\/\?\/UNC\//i, "//")
+    .replace(/^\/\/\?\//i, "");
+  return isWindowsPath(withoutVerbatimPrefix)
+    ? withoutVerbatimPrefix.replace(/\//g, "\\")
+    : withoutVerbatimPrefix;
 }
 
 export function normalizePathForInputDisplay(path: string): string {
@@ -92,4 +99,18 @@ export function getPathBasename(path: string): string | undefined {
 export function describeSkillsPattern(path: string): string {
   const compact = compactHomePath(path);
   return compact.startsWith("~/") ? compact.slice(2) : compact;
+}
+
+export function normalizePathForComparison(path: string): string {
+  return compactHomePath(normalizePathSeparators(path))
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+
+export function pathsShareSkillsRoot(
+  left?: string | null,
+  right?: string | null
+): boolean {
+  if (!left || !right) return false;
+  return normalizePathForComparison(left) === normalizePathForComparison(right);
 }

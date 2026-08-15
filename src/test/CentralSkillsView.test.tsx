@@ -327,28 +327,29 @@ describe("CentralSkillsView", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows shared sort and view controls without separate direction buttons", () => {
+  it("shows sortable table headers and view controls", () => {
     renderCentralSkillsView();
 
     expect(screen.queryByRole("group", { name: "排序方向" })).toBeNull();
-    expect(screen.getByRole("group", { name: "排序字段" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "名称" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "创建时间" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "修改时间" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "排序字段" })).toBeNull();
+    expect(screen.getByRole("columnheader", { name: "名称" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "创建时间" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "更新时间" })).toBeInTheDocument();
+    const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
+    const organization = screen.getByRole("group", { name: /组织|Organize/i });
+    expect(searchInput.closest(".flex.items-center")).toContainElement(organization);
     expect(screen.getByRole("button", { name: /目录|Folders/i })).toBeInTheDocument();
   });
 
   it("cycles central skill sort direction by clicking the active sort field", async () => {
     renderCentralSkillsView();
 
-    fireEvent.click(screen.getByRole("button", { name: "名称" }));
+    fireEvent.click(screen.getByRole("button", { name: "名称，升序排序" }));
 
     await waitFor(() => {
-      const detailButtons = screen.getAllByRole("button", {
-        name: /查看 .* 的详情/i,
-      });
-      expect(detailButtons[0]).toHaveTextContent("frontend-design");
-      expect(detailButtons[1]).toHaveTextContent("code-reviewer");
+      const rows = screen.getAllByRole("row").slice(1);
+      expect(rows[0]).toHaveTextContent("frontend-design");
+      expect(rows[1]).toHaveTextContent("code-reviewer");
     });
   });
 
@@ -381,7 +382,7 @@ describe("CentralSkillsView", () => {
       skills: [...mockSkills, nestedSkill],
     });
 
-    expect(screen.getByText("套件 / 文件夹")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "路径" })).toBeInTheDocument();
     expect(screen.getByText("Superpowers")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /查看 frontend-design 的详情/i })
@@ -391,19 +392,21 @@ describe("CentralSkillsView", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("renders skill descriptions", () => {
+  it("keeps descriptions out of the name column", () => {
     renderCentralSkillsView();
     expect(
-      screen.getByText(/Build distinctive, production-grade frontend interfaces/)
-    ).toBeInTheDocument();
+      screen.queryByText(/Build distinctive, production-grade frontend interfaces/)
+    ).not.toBeInTheDocument();
   });
 
-  it("shows Install to... button for each skill", () => {
+  it("keeps only delete actions in the central flat table", () => {
     renderCentralSkillsView();
-    const installButtons = screen.getAllByRole("button", {
-      name: /将 .* 安装到平台/i,
-    });
-    expect(installButtons).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", { name: /将 .* 安装到平台/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: /^删除$|^Delete$/i })
+    ).toHaveLength(2);
   });
 
   it("does not show source-backed update actions on central cards", async () => {
@@ -433,11 +436,8 @@ describe("CentralSkillsView", () => {
 
     renderCentralSkillsView();
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /从中央技能库删除 code-reviewer/i,
-      })
-    );
+    const codeReviewerRow = screen.getByRole("row", { name: /code-reviewer/i });
+    fireEvent.click(within(codeReviewerRow).getByRole("button", { name: /^删除$|^Delete$/i }));
     fireEvent.click(screen.getByRole("button", { name: /确认删除/i }));
 
     await waitFor(() => {
@@ -458,11 +458,8 @@ describe("CentralSkillsView", () => {
 
     renderCentralSkillsView();
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /从中央技能库删除 frontend-design/i,
-      })
-    );
+    const frontendRow = screen.getByRole("row", { name: /frontend-design/i });
+    fireEvent.click(within(frontendRow).getByRole("button", { name: /^删除$|^Delete$/i }));
 
     const deleteDialog = await screen.findByRole("dialog", {
       name: /删除 frontend-design/i,
@@ -483,11 +480,12 @@ describe("CentralSkillsView", () => {
     window.localStorage.setItem("skills-manage.skillListViewMode.central", "folders");
     renderCentralSkillsView({ bundles: mockBundles });
 
-    expect(screen.getByText("套件 / 文件夹")).toBeInTheDocument();
-    expect(screen.getByText("Superpowers")).toBeInTheDocument();
-    expect(screen.getByText(/2 个技能/)).toBeInTheDocument();
+    const folderButton = screen.getByRole("button", { name: "Superpowers" });
+    const folderRow = folderButton.closest("tr");
+    expect(folderRow).not.toBeNull();
+    expect(within(folderRow as HTMLElement).getByText("2")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /删除套件 Superpowers/i })
+      within(folderRow as HTMLElement).getByRole("button", { name: /^删除$|^Delete$/i })
     ).toBeInTheDocument();
   });
 
@@ -499,9 +497,7 @@ describe("CentralSkillsView", () => {
       bundleDetail: mockBundleDetail,
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /打开目录 Superpowers/i })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Superpowers" }));
 
     expect(mockLoadCentralBundleDetail).toHaveBeenCalledWith("Superpowers");
     expect(
@@ -526,7 +522,10 @@ describe("CentralSkillsView", () => {
     });
     renderCentralSkillsView({ bundles: mockBundles });
 
-    fireEvent.click(screen.getByRole("button", { name: /删除套件 Superpowers/i }));
+    const bundleRow = screen.getByRole("row", { name: /Superpowers/i });
+    fireEvent.click(
+      within(bundleRow).getByRole("button", { name: /^删除$|^Delete$/i })
+    );
 
     expect(
       await screen.findByRole("dialog", { name: /删除套件 Superpowers/i })
@@ -603,7 +602,10 @@ describe("CentralSkillsView", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /删除套件 Superpowers/i }));
+    const bundleRow = screen.getByRole("row", { name: /Superpowers/i });
+    fireEvent.click(
+      within(bundleRow).getByRole("button", { name: /^删除$|^Delete$/i })
+    );
 
     expect(mockPreviewDeleteCentralBundle).toHaveBeenCalledWith("Superpowers");
     const deleteBundleDialog = await screen.findByRole("dialog", {
@@ -648,57 +650,20 @@ describe("CentralSkillsView", () => {
     expect(detailBtns.length).toBeGreaterThanOrEqual(1);
   });
 
-  // ── Per-platform link status ──────────────────────────────────────────────
+  // ── Aggregate install summary ─────────────────────────────────────────────
 
-  it("shows lobster toggles and featured coding toggles on central cards", () => {
+  it("shows aggregate install counts without platform category details", () => {
     renderCentralSkillsView();
 
-    expect(screen.getAllByText("龙虾类").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText("编程类").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByRole("button", { name: /管理 .* 的平台安装/i })).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "切换 frontend-design 在 Claude Code 的链接状态" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "切换 frontend-design 在 Cursor 的链接状态" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "切换 frontend-design 在 OpenClaw 的链接状态" })).toBeInTheDocument();
-  });
-
-  it("toggles featured coding platforms directly from the card", async () => {
-    mockTogglePlatformLink.mockResolvedValue(undefined);
-    renderCentralSkillsView();
-
-    fireEvent.click(screen.getByRole("button", { name: "切换 frontend-design 在 Cursor 的链接状态" }));
-
-    await waitFor(() => {
-      expect(mockTogglePlatformLink).toHaveBeenCalledWith("frontend-design", "cursor");
-      expect(mockRescan).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it("opens the platform manager drawer and toggles a platform", async () => {
-    mockTogglePlatformLink.mockResolvedValue(undefined);
-    renderCentralSkillsView();
-
-    fireEvent.click(screen.getByRole("button", { name: "管理 frontend-design 的平台安装" }));
-
+    expect(screen.getByText("直接安装 1（平台 1 / 项目 0）")).toBeInTheDocument();
+    expect(screen.getAllByText("共享可用 0").length).toBeGreaterThan(0);
+    expect(screen.queryByText("龙虾类")).not.toBeInTheDocument();
+    expect(screen.queryByText("编程类")).not.toBeInTheDocument();
     expect(
-      await screen.findByRole("dialog", { name: /管理 frontend-design 的平台安装/i })
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("tab", { name: "编程类" }));
-    fireEvent.click(screen.getByRole("button", { name: "安装 frontend-design 到 Cursor" }));
-
-    await waitFor(() => {
-      expect(mockTogglePlatformLink).toHaveBeenCalledWith("frontend-design", "cursor");
-      expect(mockRescan).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  it("keeps the full install dialog available from the platform drawer", async () => {
-    renderCentralSkillsView();
-
-    fireEvent.click(screen.getByRole("button", { name: "管理 frontend-design 的平台安装" }));
-    fireEvent.click(await screen.findByRole("button", { name: "打开完整安装面板" }));
-
-    expect(await screen.findByRole("dialog", { name: /安装 frontend-design/i })).toBeInTheDocument();
+      screen.queryByRole("button", {
+        name: "切换 frontend-design 在 Claude Code 的链接状态",
+      })
+    ).not.toBeInTheDocument();
   });
 
   // ── Empty State ───────────────────────────────────────────────────────────
@@ -749,29 +714,15 @@ describe("CentralSkillsView", () => {
     });
   });
 
-  it("keeps filtered search results in the central card grid", async () => {
+  it("keeps filtered search results in the central table", async () => {
     renderCentralSkillsView();
     const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
     fireEvent.change(searchInput, { target: { value: "frontend" } });
 
     const resultButton = await screen.findByText("frontend-design");
 
-    let current: HTMLElement | null = resultButton;
-    let gridContainer: HTMLElement | null = null;
-    while (current) {
-      if (
-        current.classList.contains("grid") &&
-        current.classList.contains("grid-cols-1") &&
-        current.className.includes("lg:grid-cols-2") &&
-        current.classList.contains("gap-4")
-      ) {
-        gridContainer = current;
-        break;
-      }
-      current = current.parentElement;
-    }
-
-    expect(gridContainer).not.toBeNull();
+    expect(resultButton.closest("tr")).not.toBeNull();
+    expect(resultButton.closest("table")).not.toBeNull();
   });
 
   it("filters skills by description when searching", async () => {
@@ -916,21 +867,6 @@ describe("CentralSkillsView", () => {
       expect(mockRescan).toHaveBeenCalledTimes(1);
       // loadCentralSkills is called twice: once on mount, once on refresh
       expect(mockLoadCentralSkills).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  // ── Install Dialog ────────────────────────────────────────────────────────
-
-  it("opens install dialog when 'Install to...' is clicked", async () => {
-    renderCentralSkillsView();
-    const installBtn = screen.getAllByRole("button", {
-      name: /将 .* 安装到平台/i,
-    })[0];
-    fireEvent.click(installBtn);
-
-    // Dialog should open (skill name should appear in dialog title)
-    await waitFor(() => {
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
   });
 

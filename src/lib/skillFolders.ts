@@ -7,6 +7,8 @@ export interface SkillFolderGroup<TSkill> {
   relativePath: string;
   path: string;
   skillCount: number;
+  linkedAgentIds: string[];
+  readOnlyAgentIds: string[];
   linkedAgentCount: number;
   readOnlyAgentCount: number;
   skills: TSkill[];
@@ -48,8 +50,15 @@ function candidatePaths(value: string | null | undefined | Array<string | null |
   return Array.isArray(value) ? value : [value];
 }
 
-function uniqueCount(values: Iterable<string>) {
-  return new Set(values).size;
+function uniqueIds(values: Iterable<string>) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
 }
 
 export function splitSkillsByTopLevel<TSkill>({
@@ -97,6 +106,8 @@ export function splitSkillsByTopLevel<TSkill>({
         relativePath: groupKey,
         path: `${normalizedRoot}/${folderName}`,
         skillCount: 0,
+        linkedAgentIds: [],
+        readOnlyAgentIds: [],
         linkedAgentCount: 0,
         readOnlyAgentCount: 0,
         skills: [],
@@ -104,12 +115,14 @@ export function splitSkillsByTopLevel<TSkill>({
 
     group.skills.push(skill);
     group.skillCount = group.skills.length;
-    group.linkedAgentCount = uniqueCount(
+    group.linkedAgentIds = uniqueIds(
       group.skills.flatMap((item) => [...(getLinkedAgentIds?.(item) ?? [])])
     );
-    group.readOnlyAgentCount = uniqueCount(
+    group.readOnlyAgentIds = uniqueIds(
       group.skills.flatMap((item) => [...(getReadOnlyAgentIds?.(item) ?? [])])
     );
+    group.linkedAgentCount = group.linkedAgentIds.length;
+    group.readOnlyAgentCount = group.readOnlyAgentIds.length;
     groups.set(groupKey, group);
   }
 
@@ -210,6 +223,8 @@ export function splitResourceLibrarySkillsByFolder(
         relativePath: bundleKey,
         path: bundlePath,
         skillCount: 0,
+        linkedAgentIds: [],
+        readOnlyAgentIds: [],
         linkedAgentCount: 0,
         readOnlyAgentCount: 0,
         skills: [],
@@ -218,12 +233,12 @@ export function splitResourceLibrarySkillsByFolder(
     group.skills.push(skill);
     group.skills = sortSkillsByName(group.skills);
     group.skillCount = group.skills.length;
-    group.linkedAgentCount = uniqueCount(
-      group.skills.flatMap((item) => item.linked_agents)
-    );
-    group.readOnlyAgentCount = uniqueCount(
+    group.linkedAgentIds = uniqueIds(group.skills.flatMap((item) => item.linked_agents));
+    group.readOnlyAgentIds = uniqueIds(
       group.skills.flatMap((item) => item.read_only_agents ?? [])
     );
+    group.linkedAgentCount = group.linkedAgentIds.length;
+    group.readOnlyAgentCount = group.readOnlyAgentIds.length;
     groups.set(bundleKey, group);
   }
 

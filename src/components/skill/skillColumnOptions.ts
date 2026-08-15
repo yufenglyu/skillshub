@@ -11,8 +11,7 @@ export const SKILL_COLUMN_OPTIONS: SkillColumnOption[] = [
   { key: "source", labelKey: "skillBrowser.columns.source" },
   { key: "createdAt", labelKey: "skillBrowser.columns.createdAt" },
   { key: "updatedAt", labelKey: "skillBrowser.columns.updatedAt" },
-  { key: "installStatus", labelKey: "skillBrowser.columns.installStatus" },
-  { key: "rating", labelKey: "skillBrowser.columns.rating" },
+  { key: "installSummary", labelKey: "skillBrowser.columns.installSummary" },
   { key: "tags", labelKey: "skillBrowser.columns.tags" },
   { key: "notes", labelKey: "skillBrowser.columns.notes" },
   { key: "actions", labelKey: "skillBrowser.columns.actions", fixed: true },
@@ -25,7 +24,6 @@ export const FOLDER_COLUMN_OPTIONS: SkillColumnOption[] = [
   { key: "installSummary", labelKey: "skillBrowser.columns.installSummary" },
   { key: "createdAt", labelKey: "skillBrowser.columns.createdAt" },
   { key: "updatedAt", labelKey: "skillBrowser.columns.updatedAt" },
-  { key: "notesSummary", labelKey: "skillBrowser.columns.notesSummary" },
   { key: "actions", labelKey: "skillBrowser.columns.actions", fixed: true },
 ];
 

@@ -3,7 +3,6 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { SkillDisplayModeToggle } from "@/components/skill/SkillDisplayModeToggle";
 import {
   Dialog,
   DialogBody,
@@ -14,7 +13,6 @@ import {
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useAppStatusStore, type AppStatusTask } from "@/stores/appStatusStore";
-import { useSkillBrowserUiStore } from "@/stores/skillBrowserUiStore";
 import { cn } from "@/lib/utils";
 
 function statusIcon(task: AppStatusTask | null) {
@@ -37,9 +35,6 @@ export function AppStatusBar() {
   const task = useAppStatusStore((state) => state.task);
   const resourceSkills = useResourceLibraryStore((state) => state.skills?.length ?? 0);
   const centralSkills = useCentralSkillsStore((state) => state.skills?.length ?? 0);
-  const browserControlsActive = useSkillBrowserUiStore((state) => state.active);
-  const browserViewMode = useSkillBrowserUiStore((state) => state.viewMode);
-  const onBrowserViewModeChange = useSkillBrowserUiStore((state) => state.onViewModeChange);
 
   const label = task?.label ?? t("status.ready");
   const detail = task?.detail ?? t("status.summary", {
@@ -98,14 +93,6 @@ export function AppStatusBar() {
                 </span>
               ) : null}
             </Button>
-          ) : null}
-          {browserControlsActive ? (
-            <div className="flex items-center gap-1 border-l border-border pl-2">
-              <SkillDisplayModeToggle
-                value={browserViewMode}
-                onChange={onBrowserViewModeChange ?? (() => undefined)}
-              />
-            </div>
           ) : null}
         </div>
       </footer>

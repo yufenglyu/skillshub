@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SkillBrowserTable } from "@/components/skill/SkillBrowserTable";
@@ -27,6 +27,7 @@ describe("SkillBrowserTable", () => {
     expect(screen.queryByRole("columnheader", { name: "创建时间" })).not.toBeInTheDocument();
     expect(screen.getByText("owner/repo")).toBeInTheDocument();
     expect(screen.getByText("Important internal note")).toBeInTheDocument();
+    expect(screen.queryByText("Design APIs")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "查看 api-skill 的详情" }));
     expect(onDetail).toHaveBeenCalled();
@@ -90,12 +91,12 @@ describe("SkillBrowserTable", () => {
     expect(onToggleColumn).toHaveBeenCalledWith("path");
   });
 
-  it("keeps platform install toggles in the install status column", () => {
+  it("shows only aggregate counts in the install summary column", () => {
     const onToggle = vi.fn();
     render(
       <SkillBrowserTable
         kind="skill"
-        visibleColumns={new Set(["name", "installStatus"])}
+        visibleColumns={new Set(["name", "installSummary"])}
         skills={[
           {
             rowKey: "one",
@@ -112,7 +113,7 @@ describe("SkillBrowserTable", () => {
                   is_enabled: true,
                 },
               ],
-              linkedAgents: [],
+              linkedAgents: ["claude-code"],
               readOnlyAgents: [],
               skillId: "skill-1",
               onToggle,
@@ -123,16 +124,73 @@ describe("SkillBrowserTable", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "切换 api-skill 在 Claude Code 的链接状态" }));
-
-    expect(onToggle).toHaveBeenCalledWith("skill-1", "claude-code");
+    expect(screen.getByText("直接安装 1（平台 1 / 项目 0）")).toBeInTheDocument();
+    expect(screen.getByText("共享可用 0")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "切换 api-skill 在 Claude Code 的链接状态" })
+    ).not.toBeInTheDocument();
+    expect(onToggle).not.toHaveBeenCalled();
   });
 
-  it("shows platform source location and install type together", () => {
+  it("splits install summary into platforms, projects, and shared targets", () => {
     render(
       <SkillBrowserTable
         kind="skill"
-        visibleColumns={new Set(["name", "installStatus"])}
+        visibleColumns={new Set(["name", "installSummary"])}
+        skills={[
+          {
+            rowKey: "one",
+            name: "api-skill",
+            installAgents: [
+              {
+                id: "claude-code",
+                display_name: "Claude Code",
+                global_skills_dir: "C:/Users/LYF/.claude/skills",
+                category: "coding",
+                is_detected: true,
+                is_builtin: true,
+                is_enabled: true,
+              },
+              {
+                id: "project:1",
+                display_name: "Demo",
+                global_skills_dir: "C:/Projects/Demo/.agents/skills",
+                category: "project",
+                is_detected: true,
+                is_builtin: false,
+                is_enabled: true,
+              },
+              {
+                id: "hermes",
+                display_name: "Hermes",
+                global_skills_dir: "C:/Users/LYF/.agents/skills",
+                category: "coding",
+                is_detected: true,
+                is_builtin: true,
+                is_enabled: true,
+                shares_central_skills: true,
+              },
+            ],
+            installLinkedAgentIds: ["claude-code", "project:1"],
+            installReadOnlyAgentIds: ["hermes"],
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("直接安装 2（平台 1 / 项目 1）")).toBeInTheDocument();
+    expect(screen.getByText("共享可用 1")).toBeInTheDocument();
+    expect(screen.getByLabelText(/平台：Claude Code/)).toHaveAttribute(
+      "title",
+      expect.stringContaining("项目：Demo")
+    );
+  });
+
+  it("keeps platform source details out of the installation summary column", () => {
+    render(
+      <SkillBrowserTable
+        kind="skill"
+        visibleColumns={new Set(["name", "installSummary"])}
         skills={[
           {
             rowKey: "one",
@@ -144,8 +202,59 @@ describe("SkillBrowserTable", () => {
       />
     );
 
-    expect(screen.getByText("中央技能库")).toBeInTheDocument();
-    expect(screen.getByText("符号链接")).toBeInTheDocument();
+    expect(screen.getByText("直接安装 0（平台 0 / 项目 0）")).toBeInTheDocument();
+    expect(screen.getByText("共享可用 0")).toBeInTheDocument();
+    expect(screen.queryByText("中央技能库")).not.toBeInTheDocument();
+    expect(screen.queryByText("符号链接")).not.toBeInTheDocument();
+  });
+
+  it("renders the four resource actions with paired plus and minus icons", () => {
+    render(
+      <SkillBrowserTable
+        kind="skill"
+        visibleColumns={new Set(["name", "actions"])}
+        skills={[
+          {
+            rowKey: "available",
+            name: "available",
+            isCentral: false,
+            onInstallToCentral: vi.fn(),
+            installToCentralLabel: "加入中央技能库",
+            onInstallTo: vi.fn(),
+            installToLabel: "安装到平台或项目",
+            onUpdateFromSource: vi.fn(),
+            updateFromSourceLabel: "更新",
+            onDeleteFromCentral: vi.fn(),
+            deleteFromCentralLabel: "删除",
+          },
+          {
+            rowKey: "installed",
+            name: "installed",
+            isCentral: true,
+            onRemoveFromCentral: vi.fn(),
+            removeFromCentralLabel: "从中央技能库移除",
+            onUninstallFromPlatform: vi.fn(),
+            uninstallFromLabel: "从平台或项目卸载",
+            onUpdateFromSource: vi.fn(),
+            updateFromSourceLabel: "更新",
+            onDeleteFromCentral: vi.fn(),
+            deleteFromCentralLabel: "删除",
+          },
+        ]}
+      />
+    );
+
+    const availableRow = screen.getByRole("row", { name: /^available/ });
+    expect(within(availableRow).getByRole("button", { name: "加入中央技能库" })).toBeInTheDocument();
+    expect(within(availableRow).getByRole("button", { name: "安装到平台或项目" })).toBeInTheDocument();
+    expect(availableRow.querySelector(".lucide-plus")).toBeInTheDocument();
+    expect(availableRow.querySelector(".lucide-package-plus")).toBeInTheDocument();
+
+    const installedRow = screen.getByRole("row", { name: /^installed/ });
+    expect(within(installedRow).getByRole("button", { name: "从中央技能库移除" })).toBeInTheDocument();
+    expect(within(installedRow).getByRole("button", { name: "从平台或项目卸载" })).toBeInTheDocument();
+    expect(installedRow.querySelector(".lucide-minus")).toBeInTheDocument();
+    expect(installedRow.querySelector(".lucide-package-minus")).toBeInTheDocument();
   });
 
   it("resizes a column from the header resize handle", () => {
@@ -164,9 +273,18 @@ describe("SkillBrowserTable", () => {
       document.dispatchEvent(new PointerEvent("pointerup"));
     });
 
-    expect(screen.getByRole("columnheader", { name: "名称" })).toHaveStyle({
+    const nameColumn = document.querySelector("colgroup col");
+    expect(nameColumn).toHaveStyle({
       width: "444px",
     });
+
+    const nameCellContent = screen.getByText("api-skill").closest("td")?.firstElementChild;
+    Object.defineProperty(nameCellContent, "scrollWidth", {
+      configurable: true,
+      value: 520,
+    });
+    fireEvent.doubleClick(handle);
+    expect(nameColumn).toHaveStyle({ width: "520px" });
   });
 
   it("renders folder rows and invokes folder actions", () => {
@@ -197,11 +315,48 @@ describe("SkillBrowserTable", () => {
     expect(onDelete).toHaveBeenCalled();
   });
 
+  it("uses paired folder install and uninstall actions", () => {
+    render(
+      <SkillBrowserTable
+        kind="folder"
+        visibleColumns={new Set(["name", "actions"])}
+        folders={[
+          {
+            key: "owner/repo",
+            name: "owner/repo",
+            path: "D:/Skills/owner/repo",
+            skillCount: 3,
+            onOpen: vi.fn(),
+            onUninstall: vi.fn(),
+            uninstallLabel: "卸载目录",
+            onInstall: vi.fn(),
+            installLabel: "安装到平台/项目",
+            onDelete: vi.fn(),
+            deleteLabel: "删除目录",
+          },
+        ]}
+      />
+    );
+
+    const row = screen.getByRole("row", { name: /owner\/repo/ });
+    const actionLabels = within(row)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"))
+      .filter(Boolean);
+
+    expect(actionLabels).toEqual([
+      "卸载目录",
+      "删除目录",
+    ]);
+    expect(row.querySelector(".lucide-package-minus")).toBeInTheDocument();
+    expect(row.querySelector(".lucide-package-plus")).not.toBeInTheDocument();
+  });
+
   it("renders folder created and updated columns as sortable headers", () => {
     render(
       <SkillBrowserTable
         kind="folder"
-        visibleColumns={new Set(["name", "createdAt", "updatedAt", "actions"])}
+        visibleColumns={new Set(["name", "createdAt", "updatedAt", "installSummary", "actions"])}
         sortField="name"
         sortDirection="asc"
         onSortChange={vi.fn()}
@@ -223,5 +378,65 @@ describe("SkillBrowserTable", () => {
     expect(screen.getByRole("button", { name: "更新时间" })).toHaveTextContent("↕");
     expect(screen.getByText("2026-07-14")).toBeInTheDocument();
     expect(screen.getByText("2026-08-14")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("columnheader").map((header) => header.getAttribute("aria-label"))
+    ).toEqual(["名称", "创建时间", "更新时间", "安装统计", "操作"]);
+  });
+
+  it("splits folder install summary into platforms, projects, and shared targets", () => {
+    render(
+      <SkillBrowserTable
+        kind="folder"
+        visibleColumns={new Set(["name", "installSummary"])}
+        folders={[
+          {
+            key: "owner/repo",
+            name: "owner/repo",
+            path: "D:/Skills/owner/repo",
+            skillCount: 3,
+            installAgents: [
+              {
+                id: "claude-code",
+                display_name: "Claude Code",
+                global_skills_dir: "C:/Users/LYF/.claude/skills",
+                category: "coding",
+                is_detected: true,
+                is_builtin: true,
+                is_enabled: true,
+              },
+              {
+                id: "project:1",
+                display_name: "Demo",
+                global_skills_dir: "C:/Projects/Demo/.agents/skills",
+                category: "project",
+                is_detected: true,
+                is_builtin: false,
+                is_enabled: true,
+              },
+              {
+                id: "hermes",
+                display_name: "Hermes",
+                global_skills_dir: "C:/Users/LYF/.agents/skills",
+                category: "coding",
+                is_detected: true,
+                is_builtin: true,
+                is_enabled: true,
+                shares_central_skills: true,
+              },
+            ],
+            installLinkedAgentIds: ["claude-code", "project:1"],
+            installReadOnlyAgentIds: ["hermes"],
+            onOpen: vi.fn(),
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("直接安装 2（平台 1 / 项目 1）")).toBeInTheDocument();
+    expect(screen.getByText("共享可用 1")).toBeInTheDocument();
+    expect(screen.getByLabelText(/平台：Claude Code/)).toHaveAttribute(
+      "title",
+      expect.stringContaining("项目：Demo")
+    );
   });
 });

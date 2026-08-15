@@ -10,6 +10,7 @@ export interface AgentWithStatus {
   is_detected: boolean;
   is_builtin: boolean;
   is_enabled: boolean;
+  shares_central_skills?: boolean;
 }
 
 export interface CustomAgentConfig {

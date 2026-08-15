@@ -82,6 +82,7 @@ vi.mock("../stores/resourceLibraryStore", () => ({
       updateSourceBackedSkills: vi.fn(),
       updateSourceBackedSkill: vi.fn(),
       addToCentral: vi.fn(),
+      removeFromCentral: vi.fn(),
     };
     if (typeof selector === "function") {
       return selector(state);

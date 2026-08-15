@@ -48,6 +48,7 @@ function buildResourceStoreState(overrides = {}) {
     deleteResourceBundle: vi.fn(),
     deleteResourceSkill: vi.fn(),
     addToCentral: vi.fn(),
+    removeFromCentral: vi.fn(),
     ...overrides,
   };
 }

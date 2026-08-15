@@ -13,7 +13,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { InstallTargetList } from "@/components/central/InstallTargetList";
 import { AgentWithStatus, CollectionBatchInstallResult } from "@/types";
 import { isInstallTargetAgent } from "@/lib/agents";
 
@@ -25,6 +25,7 @@ interface CollectionInstallDialogProps {
   collectionName: string;
   skillCount: number;
   agents: AgentWithStatus[];
+  isCentral?: boolean;
   onInstall: (agentIds: string[]) => Promise<CollectionBatchInstallResult>;
 }
 
@@ -36,6 +37,7 @@ export function CollectionInstallDialog({
   collectionName,
   skillCount,
   agents,
+  isCentral = false,
   onInstall,
 }: CollectionInstallDialogProps) {
   const { t } = useTranslation();
@@ -46,12 +48,14 @@ export function CollectionInstallDialog({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CollectionBatchInstallResult | null>(null);
 
-  // Reset when dialog opens.
+  // Reset when dialog opens. Shared `.agents/skills` targets are opt-in because
+  // they centralize rather than install to a single platform.
   useEffect(() => {
     if (open) {
-      // Default: select all detected agents.
       const initial = new Set<string>(
-        targetAgents.filter((a) => a.is_detected).map((a) => a.id)
+        targetAgents
+          .filter((agent) => agent.is_detected && !agent.shares_central_skills)
+          .map((agent) => agent.id)
       );
       setSelectedAgentIds(initial);
       setError(null);
@@ -69,8 +73,16 @@ export function CollectionInstallDialog({
     });
   }
 
+  function getSelectedInstallableAgentIds() {
+    return Array.from(selectedAgentIds).filter((agentId) => {
+      const agent = targetAgents.find((candidate) => candidate.id === agentId);
+      if (!agent) return false;
+      return !(agent.shares_central_skills && isCentral);
+    });
+  }
+
   async function handleInstall() {
-    const agentIds = Array.from(selectedAgentIds);
+    const agentIds = getSelectedInstallableAgentIds();
     if (agentIds.length === 0) {
       setError(t("batchInstall.selectPlatform"));
       return;
@@ -82,7 +94,6 @@ export function CollectionInstallDialog({
       const installResult = await onInstall(agentIds);
       setResult(installResult);
       if (installResult.failed.length === 0) {
-        // All succeeded — close dialog.
         onOpenChange(false);
       }
     } catch (err) {
@@ -91,6 +102,11 @@ export function CollectionInstallDialog({
       setIsLoading(false);
     }
   }
+
+  const selectedInstallableCount = getSelectedInstallableAgentIds().length;
+  const hasSharedSelection = targetAgents.some(
+    (agent) => agent.shares_central_skills && selectedAgentIds.has(agent.id)
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -105,42 +121,21 @@ export function CollectionInstallDialog({
             {t("batchInstall.desc", { count: skillCount })}
           </DialogDescription>
 
-          {/* Platform checkboxes */}
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2" role="group" aria-label={t("batchInstall.selectPlatforms")}>
-            {targetAgents.length === 0 ? (
-              <p className="col-span-2 text-sm text-muted-foreground">
-                {t("batchInstall.noPlatforms")}
-              </p>
-            ) : (
-              targetAgents.map((agent) => {
-                const isChecked = selectedAgentIds.has(agent.id);
-                return (
-                  <div key={agent.id} className="flex items-center gap-2">
-                    <Checkbox
-                      checked={isChecked}
-                      onCheckedChange={(checked) =>
-                        handleToggle(agent.id, !!checked)
-                      }
-                      aria-label={agent.display_name}
-                    />
-                    <span
-                      className="text-sm text-foreground flex-1 cursor-pointer select-none truncate"
-                      onClick={() => handleToggle(agent.id, !isChecked)}
-                    >
-                      {agent.display_name}
-                    </span>
-                    {!agent.is_detected && (
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        {t("batchInstall.notDetected")}
-                      </span>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
+          <InstallTargetList
+            agents={targetAgents}
+            selectedAgentIds={selectedAgentIds}
+            onToggleAgent={handleToggle}
+            isCentral={isCentral}
+            emptyMessage={t("batchInstall.noPlatforms")}
+            ariaLabel={t("batchInstall.selectPlatforms")}
+          />
 
-          {/* Result summary if partial failure */}
+          {hasSharedSelection ? (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {t("installDialog.sharedPlatformHint")}
+            </p>
+          ) : null}
+
           {result && result.failed.length > 0 && (
             <div className="space-y-1">
               <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
@@ -185,7 +180,7 @@ export function CollectionInstallDialog({
             </Button>
             <Button
               onClick={handleInstall}
-              disabled={isLoading || selectedAgentIds.size === 0}
+              disabled={isLoading || selectedInstallableCount === 0}
             >
               {isLoading ? (
                 <>
@@ -193,7 +188,7 @@ export function CollectionInstallDialog({
                   {t("batchInstall.installing")}
                 </>
               ) : (
-                t("batchInstall.install", { count: selectedAgentIds.size })
+                t("batchInstall.install", { count: selectedInstallableCount })
               )}
             </Button>
           </DialogFooter>

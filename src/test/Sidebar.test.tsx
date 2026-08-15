@@ -144,6 +144,7 @@ const defaultResourceLibraryState = {
   updateSourceBackedSkills: vi.fn(),
   updateSourceBackedSkill: vi.fn(),
   addToCentral: vi.fn(),
+  removeFromCentral: vi.fn(),
 };
 
 const defaultCentralSkillsState = {

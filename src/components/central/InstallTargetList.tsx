@@ -11,6 +11,7 @@ interface InstallTargetListProps {
   onToggleAgent: (agentId: string, checked: boolean) => void;
   linkedAgentIds?: Set<string>;
   readOnlyAgentIds?: Set<string>;
+  isCentral?: boolean;
   emptyMessage?: string;
   ariaLabel: string;
 }
@@ -28,6 +29,7 @@ export function InstallTargetList({
   onToggleAgent,
   linkedAgentIds = new Set(),
   readOnlyAgentIds = new Set(),
+  isCentral = false,
   emptyMessage,
   ariaLabel,
 }: InstallTargetListProps) {
@@ -81,22 +83,40 @@ export function InstallTargetList({
             {section.agents.map((agent) => {
               const isLinked = linkedAgentIds.has(agent.id);
               const isReadOnly = readOnlyAgentIds.has(agent.id);
+              const isSharedPlatform = !!agent.shares_central_skills;
+              const isSharedThroughCentral = isSharedPlatform && isCentral;
+              const isDisabled = isReadOnly || isSharedThroughCentral;
               const isChecked = selectedAgentIds.has(agent.id);
 
               return (
                 <div key={agent.id} className="flex items-center gap-2">
                   <Checkbox
                     checked={isChecked}
+                    disabled={isDisabled}
                     onCheckedChange={(checked) => onToggleAgent(agent.id, !!checked)}
                     aria-label={agent.display_name}
                   />
                   <span
-                    className="min-w-0 flex-1 cursor-pointer select-none truncate text-sm text-foreground"
-                    onClick={() => onToggleAgent(agent.id, !isChecked)}
+                    className={
+                      isDisabled
+                        ? "min-w-0 flex-1 select-none truncate text-sm text-muted-foreground"
+                        : "min-w-0 flex-1 cursor-pointer select-none truncate text-sm text-foreground"
+                    }
+                    onClick={() => {
+                      if (!isDisabled) onToggleAgent(agent.id, !isChecked);
+                    }}
                   >
                     {agent.display_name}
                   </span>
-                  {isReadOnly ? (
+                  {isSharedThroughCentral ? (
+                    <span className="shrink-0 text-xs text-primary">
+                      {t("installDialog.sharedViaCentral")}
+                    </span>
+                  ) : isSharedPlatform ? (
+                    <span className="shrink-0 text-xs text-amber-600 dark:text-amber-400">
+                      {t("installDialog.sharedPlatformCentralize")}
+                    </span>
+                  ) : isReadOnly ? (
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {t("installDialog.sharedAvailable")}
                     </span>

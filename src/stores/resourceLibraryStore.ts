@@ -71,6 +71,7 @@ interface ResourceLibraryState {
     options: DeleteResourceSkillOptions
   ) => Promise<DeleteResourceSkillResult>;
   addToCentral: (skillId: string) => Promise<void>;
+  removeFromCentral: (skillId: string) => Promise<void>;
 }
 
 export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) => ({
@@ -409,6 +410,35 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
 
     try {
       await invoke("add_resource_skill_to_central", { skillId });
+      const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
+      set({ skills: skills ?? [], isInstalling: false });
+    } catch (err) {
+      set({ error: String(err), isInstalling: false });
+      throw err;
+    }
+  },
+
+  removeFromCentral: async (skillId) => {
+    set({ isInstalling: true, error: null });
+    if (!isTauriRuntime()) {
+      set((state) => ({
+        skills: state.skills.map((skill) =>
+          skill.id === skillId
+            ? {
+                ...skill,
+                is_central: false,
+                linked_agents: [],
+                read_only_agents: [],
+              }
+            : skill
+        ),
+        isInstalling: false,
+      }));
+      return;
+    }
+
+    try {
+      await invoke("remove_resource_skill_from_central", { skillId });
       const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
       set({ skills: skills ?? [], isInstalling: false });
     } catch (err) {

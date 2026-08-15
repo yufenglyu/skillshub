@@ -976,7 +976,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.20.0")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.30.0")).toBeTruthy();
   });
 
   it("shows the database path in the about section", () => {

@@ -27,6 +27,7 @@ pub struct AgentWithStatus {
     pub is_detected: bool,
     pub is_builtin: bool,
     pub is_enabled: bool,
+    pub shares_central_skills: bool,
 }
 
 /// Payload for registering a new user-defined agent.
@@ -71,8 +72,30 @@ pub fn is_agent_detected(global_skills_dir: &str) -> bool {
 }
 
 /// Convert a `db::Agent` into `AgentWithStatus` using a live filesystem check.
-fn agent_to_with_status(agent: Agent) -> AgentWithStatus {
+fn paths_share_skills_root(left: &str, right: Option<&str>) -> bool {
+    let Some(right) = right else {
+        return false;
+    };
+    let left = expand_home_path(left);
+    let right = expand_home_path(right);
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => {
+            let normalize = |path: &Path| {
+                let value = path.to_string_lossy().replace('\\', "/");
+                #[cfg(windows)]
+                let value = value.to_lowercase();
+                value.trim_end_matches('/').to_string()
+            };
+            normalize(&left) == normalize(&right)
+        }
+    }
+}
+
+fn agent_to_with_status(agent: Agent, central_root: Option<&str>) -> AgentWithStatus {
     let is_detected = is_agent_detected(&agent.global_skills_dir);
+    let shares_central_skills =
+        agent.id != "central" && paths_share_skills_root(&agent.global_skills_dir, central_root);
     AgentWithStatus {
         id: agent.id,
         display_name: agent.display_name,
@@ -83,6 +106,7 @@ fn agent_to_with_status(agent: Agent) -> AgentWithStatus {
         is_detected,
         is_builtin: agent.is_builtin,
         is_enabled: agent.is_enabled,
+        shares_central_skills,
     }
 }
 
@@ -91,7 +115,14 @@ fn agent_to_with_status(agent: Agent) -> AgentWithStatus {
 /// Return all agents from the DB with live detection status.
 pub async fn get_agents_impl(pool: &DbPool) -> Result<Vec<AgentWithStatus>, String> {
     let agents = db::get_all_agents(pool).await?;
-    Ok(agents.into_iter().map(agent_to_with_status).collect())
+    let central_root = agents
+        .iter()
+        .find(|agent| agent.id == "central")
+        .map(|agent| agent.global_skills_dir.clone());
+    Ok(agents
+        .into_iter()
+        .map(|agent| agent_to_with_status(agent, central_root.as_deref()))
+        .collect())
 }
 
 /// Scan the filesystem to update each agent's `is_detected` flag, then return
@@ -99,9 +130,15 @@ pub async fn get_agents_impl(pool: &DbPool) -> Result<Vec<AgentWithStatus>, Stri
 pub async fn detect_agents_impl(pool: &DbPool) -> Result<Vec<AgentWithStatus>, String> {
     let agents = db::get_all_agents(pool).await?;
     let mut result = Vec::with_capacity(agents.len());
+    let central_root = agents
+        .iter()
+        .find(|agent| agent.id == "central")
+        .map(|agent| agent.global_skills_dir.clone());
 
     for agent in agents {
         let is_detected = is_agent_detected(&agent.global_skills_dir);
+        let shares_central_skills = agent.id != "central"
+            && paths_share_skills_root(&agent.global_skills_dir, central_root.as_deref());
         // Best-effort update; ignore errors (e.g., read-only DB in tests).
         let _ = db::update_agent_detected(pool, &agent.id, is_detected).await;
 
@@ -115,6 +152,7 @@ pub async fn detect_agents_impl(pool: &DbPool) -> Result<Vec<AgentWithStatus>, S
             is_detected,
             is_builtin: agent.is_builtin,
             is_enabled: agent.is_enabled,
+            shares_central_skills,
         });
     }
 
@@ -173,7 +211,10 @@ pub async fn add_custom_agent_impl(
         .await?
         .ok_or_else(|| "Failed to retrieve newly created agent".to_string())?;
 
-    Ok(agent_to_with_status(persisted))
+    let central_root = db::get_agent_by_id(pool, "central")
+        .await?
+        .map(|agent| agent.global_skills_dir);
+    Ok(agent_to_with_status(persisted, central_root.as_deref()))
 }
 
 /// Update an existing agent and return its updated representation.
@@ -201,7 +242,10 @@ pub async fn update_custom_agent_impl(
     )
     .await?;
 
-    Ok(agent_to_with_status(updated))
+    let central_root = db::get_agent_by_id(pool, "central")
+        .await?
+        .map(|agent| agent.global_skills_dir);
+    Ok(agent_to_with_status(updated, central_root.as_deref()))
 }
 
 /// Remove an agent by ID.
@@ -347,6 +391,36 @@ mod tests {
             !claude.is_detected,
             "claude-code should not be detected when dir and parent both missing"
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_agents_marks_shared_central_skills_dir() {
+        let tmp = TempDir::new().unwrap();
+        let central = tmp.path().join("central");
+        fs::create_dir_all(&central).unwrap();
+        let pool = setup_test_db().await;
+
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
+            .bind(central.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'cursor'")
+            .bind(central.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let agents = get_agents_impl(&pool).await.unwrap();
+        let cursor = agents.iter().find(|agent| agent.id == "cursor").unwrap();
+        let claude = agents
+            .iter()
+            .find(|agent| agent.id == "claude-code")
+            .unwrap();
+        let central_agent = agents.iter().find(|agent| agent.id == "central").unwrap();
+        assert!(cursor.shares_central_skills);
+        assert!(!claude.shares_central_skills);
+        assert!(!central_agent.shares_central_skills);
     }
 
     // ── detect_agents_impl ────────────────────────────────────────────────────

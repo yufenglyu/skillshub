@@ -36,6 +36,15 @@ pub struct AddResourceSkillToCentralResult {
     pub central_path: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveResourceSkillFromCentralResult {
+    pub skill_id: String,
+    pub removed_central_path: String,
+    pub resource_path: String,
+    pub uninstalled_agents: Vec<String>,
+}
+
 pub(crate) const PROJECT_AGENT_PREFIX: &str = "project:";
 pub(crate) const PROJECT_SKILLS_SUBDIR: &str = ".agents/skills";
 
@@ -112,6 +121,18 @@ async fn install_target_for_agent_id(
         skills_dir: PathBuf::from(agent.global_skills_dir),
         supports_universal_availability: true,
     })
+}
+
+pub(crate) async fn agent_skills_dir_shares_central(
+    pool: &DbPool,
+    agent_id: &str,
+) -> Result<bool, String> {
+    let target = install_target_for_agent_id(pool, agent_id).await?;
+    let central_root = db::get_agent_by_id(pool, "central")
+        .await?
+        .ok_or_else(|| "Central agent not found in database".to_string())?
+        .global_skills_dir;
+    Ok(resolved_path(&target.skills_dir) == resolved_path(Path::new(&central_root)))
 }
 
 // ─── Path Utilities ───────────────────────────────────────────────────────────
@@ -385,6 +406,91 @@ pub async fn add_resource_skill_to_central_impl(
     })
 }
 
+pub async fn remove_resource_skill_from_central_impl(
+    pool: &DbPool,
+    skill_id: &str,
+) -> Result<RemoveResourceSkillFromCentralResult, String> {
+    let mut skill = db::get_skill_by_id(pool, skill_id)
+        .await?
+        .ok_or_else(|| format!("Skill '{}' not found in database", skill_id))?;
+    if !skill.is_central {
+        return Err(format!("Skill '{}' is not central", skill_id));
+    }
+
+    let central_root = PathBuf::from(
+        db::get_agent_by_id(pool, "central")
+            .await?
+            .ok_or_else(|| "Central Skills agent not found".to_string())?
+            .global_skills_dir,
+    )
+    .canonicalize()
+    .map_err(|error| format!("Failed to resolve Central Skills root: {}", error))?;
+    let resource_root = db::get_skill_resource_library_dir(pool).await?;
+    resource_root
+        .canonicalize()
+        .map_err(|error| format!("Failed to resolve resource library root: {}", error))?;
+    let central_dir = PathBuf::from(
+        skill
+            .canonical_path
+            .clone()
+            .unwrap_or_else(|| skill_dir_from_file_path(&skill.file_path)),
+    )
+    .canonicalize()
+    .map_err(|error| format!("Failed to resolve central skill path: {}", error))?;
+    let relative_path = central_dir
+        .strip_prefix(&central_root)
+        .map_err(|_| "Central skill path is outside the Central Skills root".to_string())?;
+    if relative_path.as_os_str().is_empty()
+        || !relative_path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return Err("Central skill relative path is invalid".to_string());
+    }
+
+    let resource_dir = resource_root.join(relative_path);
+    if !resource_dir.join("SKILL.md").exists() {
+        return Err(format!(
+            "Original resource skill '{}' no longer exists",
+            resource_dir.display()
+        ));
+    }
+    if resolved_path(&resource_dir) == resolved_path(&central_dir) {
+        return Err(
+            "Resource library and Central Skills paths resolve to the same directory".to_string(),
+        );
+    }
+
+    let installations = db::get_skill_installations(pool, skill_id).await?;
+    let mut uninstalled_agents = Vec::with_capacity(installations.len());
+    for installation in installations {
+        uninstall_skill_from_agent_impl(pool, skill_id, &installation.agent_id).await?;
+        uninstalled_agents.push(installation.agent_id);
+    }
+
+    std::fs::remove_dir_all(&central_dir).map_err(|error| {
+        format!(
+            "Failed to remove central skill directory '{}': {}",
+            central_dir.display(),
+            error
+        )
+    })?;
+
+    skill.file_path = resource_dir.join("SKILL.md").to_string_lossy().into_owned();
+    skill.canonical_path = Some(resource_dir.to_string_lossy().into_owned());
+    skill.is_central = false;
+    skill.scanned_at = chrono::Utc::now().to_rfc3339();
+    db::repair_legacy_centralized_resource_skill(pool, &skill, &central_dir.to_string_lossy())
+        .await?;
+
+    Ok(RemoveResourceSkillFromCentralResult {
+        skill_id: skill_id.to_string(),
+        removed_central_path: central_dir.to_string_lossy().into_owned(),
+        resource_path: resource_dir.to_string_lossy().into_owned(),
+        uninstalled_agents,
+    })
+}
+
 async fn sync_central_skill_to_platforms(
     pool: &DbPool,
     skill_id: &str,
@@ -490,7 +596,18 @@ async fn install_source_dir_for_skill(
 }
 
 fn resolved_path(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    #[cfg(windows)]
+    {
+        let display = resolved.to_string_lossy();
+        if let Some(path) = display.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{path}"));
+        }
+        if let Some(path) = display.strip_prefix(r"\\?\") {
+            return PathBuf::from(path);
+        }
+    }
+    resolved
 }
 
 pub(crate) fn validate_platform_install_target(
@@ -759,8 +876,11 @@ async fn resource_source_dir_for_skill(pool: &DbPool, skill_id: &str) -> Result<
         candidates.push(file_parent.to_path_buf());
     }
 
+    let resolved_resource_root = resolved_path(&resource_root);
     for candidate in &candidates {
-        if candidate.starts_with(&resource_root) && candidate.join("SKILL.md").exists() {
+        if resolved_path(candidate).starts_with(&resolved_resource_root)
+            && candidate.join("SKILL.md").exists()
+        {
             return Ok(candidate.clone());
         }
     }
@@ -769,9 +889,10 @@ async fn resource_source_dir_for_skill(pool: &DbPool, skill_id: &str) -> Result<
         .await?
         .ok_or_else(|| "Central agent not found in database".to_string())?
         .global_skills_dir;
-    let central_root = PathBuf::from(central_root);
+    let central_root = resolved_path(Path::new(&central_root));
     for candidate in candidates {
-        let Ok(relative_path) = candidate.strip_prefix(&central_root) else {
+        let resolved_candidate = resolved_path(&candidate);
+        let Ok(relative_path) = resolved_candidate.strip_prefix(&central_root) else {
             continue;
         };
         let resource_candidate = resource_root.join(relative_path);
@@ -792,6 +913,13 @@ pub async fn install_resource_skill_to_agent_impl(
     agent_id: &str,
     method: &str,
 ) -> Result<InstallResult, String> {
+    if agent_skills_dir_shares_central(pool, agent_id).await? {
+        let result = add_resource_skill_to_central_impl(pool, skill_id).await?;
+        return Ok(InstallResult {
+            symlink_path: result.central_path,
+        });
+    }
+
     let source_dir = resource_source_dir_for_skill(pool, skill_id).await?;
 
     match method {
@@ -1097,6 +1225,14 @@ pub async fn add_resource_skill_to_central(
     add_resource_skill_to_central_impl(&state.db, &skill_id).await
 }
 
+#[tauri::command]
+pub async fn remove_resource_skill_from_central(
+    state: State<'_, AppState>,
+    skill_id: String,
+) -> Result<RemoveResourceSkillFromCentralResult, String> {
+    remove_resource_skill_from_central_impl(&state.db, &skill_id).await
+}
+
 /// Tauri command: remove a skill's symlink from an agent.
 #[tauri::command]
 pub async fn uninstall_skill_from_agent(
@@ -1178,6 +1314,15 @@ mod tests {
     use sqlx::SqlitePool;
     use std::fs;
     use tempfile::TempDir;
+
+    #[cfg(windows)]
+    #[test]
+    fn test_resolved_path_removes_windows_verbatim_prefix() {
+        assert_eq!(
+            resolved_path(Path::new(r"\\?\C:\Users\alice\.agents\skills")),
+            PathBuf::from(r"C:\Users\alice\.agents\skills")
+        );
+    }
 
     // ── Test helpers ──────────────────────────────────────────────────────────
 
@@ -1481,6 +1626,152 @@ mod tests {
             !skill.is_central,
             "resource library installs must not mark the skill as central"
         );
+    }
+
+    #[tokio::test]
+    async fn test_install_resource_skill_to_shared_root_adds_to_central_without_self_symlink() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join(".agents").join("skills");
+        let resource_dir = tmp.path().join("resource-library");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&resource_dir).unwrap();
+
+        let pool = setup_db(&central_dir, &tmp.path().join("claude")).await;
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+        sqlx::query("UPDATE agents SET is_enabled = 0 WHERE id != 'central'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'cursor'")
+            .bind(central_dir.to_string_lossy().into_owned())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        create_resource_skill(&pool, &resource_dir, "shared-root").await;
+
+        install_resource_skill_to_agent_impl(&pool, "shared-root", "cursor", "symlink")
+            .await
+            .unwrap();
+
+        let skill = db::get_skill_by_id(&pool, "shared-root")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            skill.is_central,
+            "installing onto a shared .agents/skills root should add the skill to Central Skills"
+        );
+
+        let central_skill_dir = central_dir.join("shared-root");
+        assert!(
+            central_skill_dir.join("SKILL.md").exists(),
+            "the skill should exist in the central library"
+        );
+        let metadata = fs::symlink_metadata(&central_skill_dir).unwrap();
+        assert!(
+            !metadata.file_type().is_symlink(),
+            "shared-root install must not create a self-referencing symlink"
+        );
+
+        let installations = db::get_skill_installations(&pool, "shared-root")
+            .await
+            .unwrap();
+        assert!(
+            !installations
+                .iter()
+                .any(|installation| installation.agent_id == "cursor"),
+            "shared-root install should not record a platform installation against the shared agent"
+        );
+
+        install_resource_skill_to_agent_impl(&pool, "shared-root", "cursor", "symlink")
+            .await
+            .expect(
+                "installing an already-central skill onto the shared root should be idempotent",
+            );
+        let skill_again = db::get_skill_by_id(&pool, "shared-root")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(skill_again.is_central);
+        assert!(!fs::symlink_metadata(&central_skill_dir)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[tokio::test]
+    async fn test_install_resource_skill_to_shared_project_root_adds_to_central_without_self_symlink(
+    ) {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join(".agents").join("skills");
+        let resource_dir = tmp.path().join("resource-library");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&resource_dir).unwrap();
+
+        let pool = setup_db(&central_dir, &tmp.path().join("claude")).await;
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+        sqlx::query("UPDATE agents SET is_enabled = 0 WHERE id != 'central'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let scan_dir = db::add_scan_directory(&pool, &tmp.path().to_string_lossy(), Some("Home"))
+            .await
+            .unwrap();
+        let project_id = project_agent_id(scan_dir.id);
+
+        create_resource_skill(&pool, &resource_dir, "shared-project").await;
+
+        install_resource_skill_to_agent_impl(&pool, "shared-project", &project_id, "symlink")
+            .await
+            .unwrap();
+
+        let skill = db::get_skill_by_id(&pool, "shared-project")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            skill.is_central,
+            "installing onto a project .agents/skills root that matches Central Skills should add the skill to Central Skills"
+        );
+
+        let central_skill_dir = central_dir.join("shared-project");
+        assert!(
+            central_skill_dir.join("SKILL.md").exists(),
+            "the skill should exist in the central library"
+        );
+        let metadata = fs::symlink_metadata(&central_skill_dir).unwrap();
+        assert!(
+            !metadata.file_type().is_symlink(),
+            "shared project-root install must not create a self-referencing symlink"
+        );
+
+        let installations = db::get_skill_installations(&pool, "shared-project")
+            .await
+            .unwrap();
+        assert!(
+            !installations
+                .iter()
+                .any(|installation| installation.agent_id == project_id),
+            "shared project-root install should not record a platform installation against the project agent"
+        );
+
+        install_resource_skill_to_agent_impl(&pool, "shared-project", &project_id, "symlink")
+            .await
+            .expect("installing an already-central skill onto the shared project root should be idempotent");
+        let skill_again = db::get_skill_by_id(&pool, "shared-project")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(skill_again.is_central);
+        assert!(!fs::symlink_metadata(&central_skill_dir)
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 
     #[tokio::test]
@@ -2537,6 +2828,53 @@ mod tests {
             skill.canonical_path.as_deref(),
             Some(expected_dir.to_string_lossy().as_ref())
         );
+    }
+
+    #[tokio::test]
+    async fn test_remove_resource_skill_from_central_restores_resource_source() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let agent_dir = tmp.path().join("claude");
+        let resource_dir = tmp.path().join("resource");
+        let grouped_resource_dir = resource_dir.join("owner").join("repo");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::create_dir_all(&grouped_resource_dir).unwrap();
+
+        let pool = setup_db(&central_dir, &agent_dir).await;
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+        create_resource_skill(&pool, &grouped_resource_dir, "resource-only").await;
+        add_resource_skill_to_central_impl(&pool, "resource-only")
+            .await
+            .unwrap();
+
+        let central_skill = central_dir.join("owner").join("repo").join("resource-only");
+        let resource_skill = grouped_resource_dir.join("resource-only");
+        assert!(central_skill.join("SKILL.md").exists());
+        assert!(resource_skill.join("SKILL.md").exists());
+
+        let result = remove_resource_skill_from_central_impl(&pool, "resource-only")
+            .await
+            .unwrap();
+
+        assert_eq!(PathBuf::from(result.resource_path), resource_skill);
+        assert!(!central_skill.exists());
+        assert!(resource_skill.join("SKILL.md").exists());
+        let restored = db::get_skill_by_id(&pool, "resource-only")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!restored.is_central);
+        assert_eq!(
+            restored.canonical_path.as_deref(),
+            Some(resource_skill.to_string_lossy().as_ref())
+        );
+        assert!(db::get_skill_installations(&pool, "resource-only")
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

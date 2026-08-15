@@ -507,38 +507,42 @@ describe("PlatformView", () => {
       screen.queryByRole("button", { name: /查看 nested-helper 的详情/i })
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /^全部$|^All$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^平铺$|^Flat$/i }));
 
     expect(screen.getByText("nested-helper")).toBeInTheDocument();
   });
 
-  it("shows shared sort and view controls without separate direction buttons", () => {
+  it("shows sortable table headers and view controls", () => {
     renderPlatformView();
 
     expect(screen.queryByRole("group", { name: "排序方向" })).toBeNull();
-    expect(screen.getByRole("group", { name: "排序字段" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "名称" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "创建时间" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "修改时间" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "排序字段" })).toBeNull();
+    expect(screen.getByRole("columnheader", { name: "名称" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "创建时间" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "更新时间" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "安装统计" })).toBeInTheDocument();
+    expect(screen.getAllByText("直接安装 1（平台 1 / 项目 0）").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("共享可用 0").length).toBeGreaterThan(0);
+    const searchInput = screen.getByPlaceholderText(/搜索技能/);
+    const organization = screen.getByRole("group", { name: /组织|Organize/i });
+    expect(searchInput.closest(".flex.items-center")).toContainElement(organization);
     expect(screen.getByRole("button", { name: /目录|Folders/i })).toBeInTheDocument();
   });
 
   it("cycles platform skill sort direction by clicking the active sort field", async () => {
     renderPlatformView();
 
-    fireEvent.click(screen.getByRole("button", { name: "名称" }));
+    fireEvent.click(screen.getByRole("button", { name: "名称，升序排序" }));
 
     await waitFor(() => {
-      const detailButtons = screen.getAllByRole("button", {
-        name: /查看 .* 的详情/i,
-      });
-      expect(detailButtons[0]).toHaveTextContent("resource-linked-skill");
-      expect(detailButtons[1]).toHaveTextContent("frontend-design");
-      expect(detailButtons[2]).toHaveTextContent("code-reviewer");
+      const rows = screen.getAllByRole("row").slice(1);
+      expect(rows[0]).toHaveTextContent("resource-linked-skill");
+      expect(rows[1]).toHaveTextContent("frontend-design");
+      expect(rows[2]).toHaveTextContent("code-reviewer");
     });
   });
 
-  it("opens a platform folder drawer for nested skills", () => {
+  it("drills into a platform folder with the shared table layout", () => {
     window.localStorage.setItem("skills-manage.skillListViewMode.platform", "folders");
     mockUseSkillStore.mockImplementation((selector?: unknown) => {
       const state = buildSkillStoreState({
@@ -550,11 +554,11 @@ describe("PlatformView", () => {
 
     renderPlatformView();
 
-    fireEvent.click(screen.getByRole("button", { name: /打开目录 toolkit|Open folder toolkit/i }));
+    fireEvent.click(screen.getByRole("button", { name: "toolkit" }));
 
-    expect(screen.getByTestId("skill-folder-drawer")).toBeInTheDocument();
-    expect(screen.getByText("folder-title:toolkit")).toBeInTheDocument();
-    expect(screen.getByText("folder-skill:nested-helper")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回目录" })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /nested-helper/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("skill-folder-drawer")).not.toBeInTheDocument();
   });
 
   it("shows source indicator on skill cards", () => {
@@ -788,25 +792,25 @@ describe("PlatformView", () => {
     expect(userBadge).toBeDefined();
     expect(pluginBadge).toBeDefined();
     expect(readOnlyBadge).toBeDefined();
-    const userCard = userBadge.closest(".rounded-xl");
-    const pluginCard = pluginBadge.closest(".rounded-xl");
+    const userCard = userBadge.closest("tr");
+    const pluginCard = pluginBadge.closest("tr");
 
     expect(userCard).not.toBeNull();
     expect(pluginCard).not.toBeNull();
-    expect(readOnlyBadge.closest(".rounded-xl")).toBe(pluginCard);
+    expect(readOnlyBadge.closest("tr")).toBe(pluginCard);
 
     if (!userCard || !pluginCard) {
       return;
     }
 
     expect(
-      within(userCard as HTMLElement).getByRole("button", {
+      within(userCard as HTMLElement).queryByRole("button", {
         name: /将 shared-skill 安装到平台/i,
       })
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     expect(
       within(userCard as HTMLElement).getByRole("button", {
-        name: /从 Claude Code 卸载 shared-skill/i,
+        name: /从平台或项目卸载/i,
       })
     ).toBeInTheDocument();
     expect(
@@ -816,7 +820,7 @@ describe("PlatformView", () => {
     ).not.toBeInTheDocument();
     expect(
       within(pluginCard as HTMLElement).queryByRole("button", {
-        name: /从 Claude Code 卸载 shared-skill/i,
+        name: /从平台或项目卸载/i,
       })
     ).not.toBeInTheDocument();
   });
@@ -824,19 +828,26 @@ describe("PlatformView", () => {
   it("renders uninstall actions for writable platform skills", () => {
     renderPlatformView();
 
+    const frontendRow = screen.getByRole("row", { name: /frontend-design/i });
+    const deleteButton = within(frontendRow).getByRole("button", {
+      name: /从平台或项目卸载/i,
+    });
+    const actionCell = deleteButton.closest("td");
+    expect(actionCell).not.toBeNull();
+    expect(within(actionCell as HTMLElement).getAllByRole("button")).toHaveLength(1);
+    expect(actionCell?.querySelector(".lucide-package-minus")).toBeInTheDocument();
+    const codeReviewerRow = screen.getByRole("row", { name: /code-reviewer/i });
     expect(
-      screen.getByRole("button", { name: /从 Claude Code 卸载 frontend-design/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /从 Claude Code 卸载 code-reviewer/i })
+      within(codeReviewerRow).getByRole("button", { name: /从平台或项目卸载/i })
     ).toBeInTheDocument();
   });
 
   it("uninstalls a skill from the current platform and refreshes counts", async () => {
     renderPlatformView();
 
+    const frontendRow = screen.getByRole("row", { name: /frontend-design/i });
     fireEvent.click(
-      screen.getByRole("button", { name: /从 Claude Code 卸载 frontend-design/i })
+      within(frontendRow).getByRole("button", { name: /从平台或项目卸载/i })
     );
     expect(mockUninstallSkillFromAgent).not.toHaveBeenCalled();
 
@@ -854,8 +865,9 @@ describe("PlatformView", () => {
   it("cancels the armed uninstall state when clicking outside the card actions", async () => {
     renderPlatformView();
 
+    const frontendRow = screen.getByRole("row", { name: /frontend-design/i });
     fireEvent.click(
-      screen.getByRole("button", { name: /从 Claude Code 卸载 frontend-design/i })
+      within(frontendRow).getByRole("button", { name: /从平台或项目卸载/i })
     );
     expect(screen.getByRole("button", { name: /确认删除/i })).toBeInTheDocument();
 
@@ -906,8 +918,9 @@ describe("PlatformView", () => {
       screen.getByRole("checkbox", { name: /选择 shared-skill/i })
     ).toBeInTheDocument();
     const pluginCard = screen
-      .getByText("Plugin copy")
-      .closest(".rounded-xl");
+      .getAllByText(/插件来源|Plugin source/i)
+      .map((element) => element.closest("tr"))
+      .find((row): row is HTMLTableRowElement => row !== null);
     expect(
       within(pluginCard as HTMLElement).queryByRole("checkbox", {
         name: /选择 shared-skill/i,

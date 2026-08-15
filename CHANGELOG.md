@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.30.0 - 2026-08-15
+
+This release replaces card browsing with a shared skill table, simplifies Collections, and makes shared `.agents/skills` installs follow Central Skills instead of failing.
+
+### Features
+
+- Browse the Resource Library, Central Skills, software platforms, and project directories in a shared table with resizable columns and double-click auto-fit.
+- Move the flat/folder view switch next to the search box on those pages.
+- Show two-line install stats: direct installs split into platforms and projects, plus shared availability, with hover details.
+- Treat a platform or project whose skills directory is the shared `.agents/skills` path as Add to Central Skills, and disable already-shared targets.
+- Keep Collections as a compact flat table with create, edit, delete, batch install, and add-skill actions.
+
+### Improvements
+
+- Use paired Central Skills and platform/project action icons, with short tooltips that do not include skill names.
+- Hide Windows `\\?\` prefixes from displayed paths.
+- Fall back from symlink to copy when installing a Resource Library folder if the host cannot create a symlink.
+- Remove collection import/export and the collection folder view to avoid fragmented layout and mixed install states.
+- Refresh English and Chinese README content and screenshots for the current table, collection, platform, and settings interfaces.
+
+### Fixes
+
+- Fix Resource Library folder installs that targeted a shared `.agents/skills` platform or project.
+- Keep collection and table action order stable after a skill is added to Central Skills or installed to a target.
+
 ## 0.20.1 - 2026-08-14
 
 This patch release tightens the shared skill browsing UI and keeps Resource Library metadata stable across scans and imports.

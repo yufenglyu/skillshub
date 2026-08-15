@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEffect } from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation, type Location } from "react-router-dom";
 import { CollectionsListView } from "../pages/CollectionsListView";
 import {
@@ -240,6 +240,7 @@ function buildResourceLibraryStoreState() {
     deleteResourceBundle: vi.fn(),
     deleteResourceSkill: vi.fn(),
     addToCentral: vi.fn(),
+    removeFromCentral: vi.fn(),
   };
 }
 
@@ -329,13 +330,29 @@ describe("CollectionsListView", () => {
     expect(mockLoadCollectionDetail).toHaveBeenCalledWith("col-1");
   });
 
+  it("keeps the selected collection in a compact toolbar without import, export, or folder views", () => {
+    renderList();
+
+    expect(screen.queryByRole("button", { name: /导入技能集/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^导出$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "平铺" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "目录" })).not.toBeInTheDocument();
+    const heading = screen.getByRole("heading", { name: /Frontend · 2/ });
+    const toolbar = heading.closest(".flex.items-center.justify-between");
+    expect(toolbar).not.toBeNull();
+    expect(screen.getByRole("button", { name: /新建技能集/i })).toBeInTheDocument();
+    expect(within(toolbar as HTMLElement).getByRole("button", { name: /^编辑$/ })).toBeInTheDocument();
+    expect(within(toolbar as HTMLElement).getByRole("button", { name: /^删除$/ })).toBeInTheDocument();
+    expect(within(toolbar as HTMLElement).getByRole("button", { name: /批量安装/i })).toBeInTheDocument();
+    expect(within(toolbar as HTMLElement).getByRole("button", { name: /添加技能/i })).toBeInTheDocument();
+  });
+
   it("requires a second confirmation click before removing a skill from the selected collection", async () => {
     mockRemoveSkill.mockResolvedValueOnce(undefined);
     renderList();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /从技能集中移除 frontend-design/i })
-    );
+    const skillRow = screen.getByRole("row", { name: /frontend-design/i });
+    fireEvent.click(within(skillRow).getByRole("button", { name: "删除" }));
     expect(mockRemoveSkill).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /确认删除/i }));

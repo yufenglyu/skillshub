@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useEffect } from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import {
   MemoryRouter,
   Route,
@@ -199,6 +199,7 @@ function buildResourceLibraryStoreState(overrides = {}) {
     deleteResourceBundle: vi.fn(),
     deleteResourceSkill: vi.fn(),
     addToCentral: vi.fn(),
+    removeFromCentral: vi.fn(),
     ...overrides,
   };
 }
@@ -240,7 +241,7 @@ describe("CollectionView", () => {
 
   it("renders collection name and description", () => {
     renderCollectionView();
-    expect(screen.getByText("Frontend")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Frontend · 2/ })).toBeInTheDocument();
     expect(screen.getByText("Frontend skills collection")).toBeInTheDocument();
   });
 
@@ -250,6 +251,14 @@ describe("CollectionView", () => {
     expect(screen.getByText("code-reviewer")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "名称" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "仓库" })).toBeInTheDocument();
+    expect(screen.getAllByText("直接安装 0（平台 0 / 项目 0）").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("共享可用 0").length).toBeGreaterThan(0);
+  });
+
+  it("does not show a folder view toggle for collections", () => {
+    renderCollectionView();
+    expect(screen.queryByRole("button", { name: "平铺" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "目录" })).not.toBeInTheDocument();
   });
 
   it("shows loading state when isLoadingDetail is true", () => {
@@ -270,8 +279,8 @@ describe("CollectionView", () => {
     mockRemoveSkillFromCollection.mockResolvedValueOnce(undefined);
     renderCollectionView();
 
-    const removeButtons = screen.getAllByRole("button", { name: /从技能集中移除/i });
-    fireEvent.click(removeButtons[0]);
+    const skillRow = screen.getByRole("row", { name: /code-reviewer/i });
+    fireEvent.click(within(skillRow).getByRole("button", { name: "删除" }));
     expect(mockRemoveSkillFromCollection).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /确认删除/i }));
@@ -281,39 +290,32 @@ describe("CollectionView", () => {
     });
   });
 
-  // ── Action Buttons ─────────────────────────────────────────────────────────
-
-  it("renders Edit, Delete, Export, Add Skill, and Batch Install buttons", () => {
+  it("shows central, target, and trash actions for collection skills", () => {
     renderCollectionView();
-    expect(screen.getByRole("button", { name: /编辑技能集/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /删除技能集/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /导出技能集/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /添加技能到技能集/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /批量安装技能集/i })).toBeInTheDocument();
+
+    const skillRow = screen.getByRole("row", { name: /code-reviewer/i });
+    expect(
+      within(skillRow).getByRole("button", { name: "加入中央技能库" })
+    ).toBeInTheDocument();
+    expect(
+      within(skillRow).getByRole("button", { name: "安装到平台或项目" })
+    ).toBeInTheDocument();
+    expect(
+      within(skillRow).getByRole("button", { name: "删除" }).querySelector(".lucide-trash-2")
+    ).toBeInTheDocument();
   });
 
-  // ── Export ────────────────────────────────────────────────────────────────
+  // ── Action Buttons ─────────────────────────────────────────────────────────
 
-  it("calls exportCollection when Export button is clicked", async () => {
-    mockExportCollection.mockResolvedValueOnce(
-      JSON.stringify({ version: 1, name: "Frontend", skills: ["frontend-design"] })
-    );
-
-    // Mock URL.createObjectURL and anchor click
-    const createObjectURL = vi.fn().mockReturnValue("blob:mock");
-    const revokeObjectURL = vi.fn();
-    Object.defineProperty(window, "URL", {
-      value: { createObjectURL, revokeObjectURL },
-      writable: true,
-    });
-
+  it("renders Edit, Delete, Add Skill, and Batch Install buttons", () => {
     renderCollectionView();
-    const exportButton = screen.getByRole("button", { name: /导出技能集/i });
-    fireEvent.click(exportButton);
-
-    await waitFor(() => {
-      expect(mockExportCollection).toHaveBeenCalledWith("col-1");
-    });
+    expect(screen.getByRole("heading", { name: /Frontend · 2/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /编辑技能集/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /删除技能集/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /导出技能集/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /导入技能集/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /添加技能到技能集/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /批量安装技能集/i })).toBeInTheDocument();
   });
 
   // ── Error State ───────────────────────────────────────────────────────────

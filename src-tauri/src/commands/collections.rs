@@ -7,7 +7,10 @@ use tauri::State;
 use crate::db::{self, Collection, DbPool, Skill};
 use crate::AppState;
 
-use super::linker::{install_skill_to_agent_impl, BatchInstallResult, FailedInstall};
+use super::linker::{
+    add_resource_skill_to_central_impl, agent_skills_dir_shares_central,
+    install_skill_to_agent_impl, BatchInstallResult, FailedInstall,
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -282,7 +285,16 @@ pub async fn batch_install_collection_impl(
 
     for skill in &skills {
         for agent_id in agent_ids {
-            match install_skill_to_agent_impl(pool, &skill.id, agent_id).await {
+            let outcome = match agent_skills_dir_shares_central(pool, agent_id).await {
+                Ok(true) => add_resource_skill_to_central_impl(pool, &skill.id)
+                    .await
+                    .map(|_| ()),
+                Ok(false) => install_skill_to_agent_impl(pool, &skill.id, agent_id)
+                    .await
+                    .map(|_| ()),
+                Err(error) => Err(error),
+            };
+            match outcome {
                 Ok(_) => succeeded.push(format!("{}:{}", skill.id, agent_id)),
                 Err(e) => failed.push(FailedInstall {
                     agent_id: format!("{}:{}", skill.id, agent_id),
@@ -1120,5 +1132,94 @@ mod tests {
 
         assert!(result.succeeded.is_empty());
         assert!(result.failed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_batch_install_collection_to_shared_root_adds_to_central() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join(".agents").join("skills");
+        let resource_dir = tmp.path().join("resource-library");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&resource_dir).unwrap();
+
+        let pool = setup_test_db().await;
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
+            .bind(central_dir.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE agents SET is_enabled = 0 WHERE id != 'central'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'cursor'")
+            .bind(central_dir.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+
+        let skill_dir = resource_dir.join("shared-col");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: shared-col\ndescription: Test\n---\n",
+        )
+        .unwrap();
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "shared-col".to_string(),
+                name: "shared-col".to_string(),
+                description: Some("Test".to_string()),
+                file_path: skill_dir.join("SKILL.md").to_string_lossy().into_owned(),
+                canonical_path: Some(skill_dir.to_string_lossy().into_owned()),
+                is_central: false,
+                source: Some("resource-library".to_string()),
+                content: None,
+                scanned_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let col = create_collection_impl(&pool, "Shared Root Col", None)
+            .await
+            .unwrap();
+        add_skill_to_collection_impl(&pool, &col.id, "shared-col")
+            .await
+            .unwrap();
+
+        let result = batch_install_collection_impl(&pool, &col.id, &["cursor".to_string()])
+            .await
+            .unwrap();
+
+        assert!(
+            result.failed.is_empty(),
+            "shared-root collection install should succeed: {:?}",
+            result.failed
+        );
+        assert_eq!(result.succeeded.len(), 1);
+
+        let skill = db::get_skill_by_id(&pool, "shared-col")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            skill.is_central,
+            "installing a collection onto a shared .agents/skills root should add skills to Central Skills"
+        );
+
+        let central_skill_dir = central_dir.join("shared-col");
+        assert!(central_skill_dir.join("SKILL.md").exists());
+        assert!(
+            !fs::symlink_metadata(&central_skill_dir)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "shared-root collection install must not create a self-referencing symlink"
+        );
     }
 }

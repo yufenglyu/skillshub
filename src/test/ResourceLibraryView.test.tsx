@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { AgentWithStatus, SkillWithLinks } from "@/types";
-import { useSkillBrowserUiStore } from "@/stores/skillBrowserUiStore";
 
 const mockLoadResourceLibrary = vi.fn();
 const mockInstallSkill = vi.fn();
 const mockAddToCentral = vi.fn();
+const mockRemoveFromCentral = vi.fn();
+const mockUninstallSkillFromAgent = vi.fn();
 const mockTogglePlatformLink = vi.fn();
 const mockUpdateSourceBackedSkills = vi.fn();
 const mockUpdateSourceBackedSkill = vi.fn();
@@ -42,6 +43,27 @@ const agents: AgentWithStatus[] = [
     is_detected: true,
     is_builtin: false,
     is_enabled: true,
+  },
+  {
+    id: "hermes",
+    display_name: "Hermes",
+    category: "coding",
+    global_skills_dir: "~/.agents/skills/",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+    shares_central_skills: true,
+  },
+  {
+    id: "project:home",
+    display_name: "Home",
+    category: "project",
+    global_skills_dir: "~/.agents/skills/",
+    project_skills_dir: ".agents/skills",
+    is_detected: true,
+    is_builtin: false,
+    is_enabled: true,
+    shares_central_skills: true,
   },
 ];
 
@@ -82,6 +104,7 @@ vi.mock("@/stores/resourceLibraryStore", () => ({
       loadResourceLibrary: mockLoadResourceLibrary,
       installSkill: mockInstallSkill,
       addToCentral: mockAddToCentral,
+      removeFromCentral: mockRemoveFromCentral,
       togglePlatformLink: mockTogglePlatformLink,
       updateSourceBackedSkills: mockUpdateSourceBackedSkills,
       updateSourceBackedSkill: mockUpdateSourceBackedSkill,
@@ -106,7 +129,11 @@ vi.mock("@/stores/centralSkillsStore", () => ({
 
 vi.mock("@/stores/skillStore", () => ({
   useSkillStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ skillsByAgent: {}, getSkillsByAgent: mockGetSkillsByAgent }),
+    selector({
+      skillsByAgent: {},
+      getSkillsByAgent: mockGetSkillsByAgent,
+      uninstallSkillFromAgent: mockUninstallSkillFromAgent,
+    }),
 }));
 
 vi.mock("@/stores/appStatusStore", () => ({
@@ -122,12 +149,8 @@ import { ResourceLibraryView } from "@/pages/ResourceLibraryView";
 
 describe("ResourceLibraryView delete", () => {
   async function switchBrowserViewMode(mode: "all" | "folders") {
-    await waitFor(() => {
-      expect(useSkillBrowserUiStore.getState().onViewModeChange).toBeTruthy();
-    });
-    await act(async () => {
-      useSkillBrowserUiStore.getState().onViewModeChange?.(mode);
-    });
+    const name = mode === "folders" ? /^目录$|^Folders$/i : /^平铺$|^Flat$/i;
+    fireEvent.click(await screen.findByRole("button", { name }));
   }
 
   function tableDataRows() {
@@ -185,7 +208,6 @@ describe("ResourceLibraryView delete", () => {
     mockCompleteTask.mockReset();
     mockFailTask.mockReset();
     window.localStorage.removeItem("skills-manage.skillListViewMode.resource-library");
-    useSkillBrowserUiStore.getState().clearControls();
   });
 
   it("opens a cascade confirmation for installed resource skills", async () => {
@@ -197,7 +219,7 @@ describe("ResourceLibraryView delete", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Delete resource-demo from Skill Resource Library|从技能资源库删除 resource-demo/i,
+        name: /^删除$|^Delete$/i,
       })
     );
 
@@ -307,7 +329,7 @@ describe("ResourceLibraryView delete", () => {
 
     expect(
       screen.getByRole("button", {
-        name: /更新技能 resource-demo|Update skill resource-demo/i,
+        name: /^更新$|^Update$/i,
       })
     ).toBeInTheDocument();
   });
@@ -333,7 +355,7 @@ describe("ResourceLibraryView delete", () => {
     expect(screen.getAllByText("example/skills").length).toBeGreaterThan(0);
     expect(
       screen.getByRole("button", {
-        name: /更新技能 resource-demo|Update skill resource-demo/i,
+        name: /^更新$|^Update$/i,
       })
     ).toBeInTheDocument();
   });
@@ -554,12 +576,16 @@ describe("ResourceLibraryView delete", () => {
     });
   });
 
-  it("switches between flat and folder views from the content heading", async () => {
+  it("switches between flat and folder views from the search toolbar", async () => {
     render(
       <MemoryRouter>
         <ResourceLibraryView />
       </MemoryRouter>
     );
+
+    const searchInput = screen.getByPlaceholderText(/搜索技能资源库|Search resource library/i);
+    const organization = screen.getByRole("group", { name: /组织|Organize/i });
+    expect(searchInput.closest(".flex.items-center")).toContainElement(organization);
 
     expect(screen.getByRole("button", { name: /^平铺$|^Flat$/i })).toHaveAttribute(
       "aria-pressed",
@@ -587,7 +613,7 @@ describe("ResourceLibraryView delete", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /加入中央技能库：resource-demo|Add resource-demo to Central Skills/i,
+        name: /^加入中央技能库$|^Add to Central Skills$/i,
       })
     );
 
@@ -600,6 +626,36 @@ describe("ResourceLibraryView delete", () => {
     expect(mockGetSkillsByAgent).toHaveBeenCalledWith("project:1");
   });
 
+  it("removes the central copy while preserving the resource skill", async () => {
+    resourceSkills = [
+      {
+        ...defaultSkills[0],
+        is_central: true,
+        linked_agents: ["cursor"],
+      },
+    ];
+    mockRemoveFromCentral.mockResolvedValue(undefined);
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /^从中央技能库移除$|^Remove from Central Skills$/i,
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: /确认删除|Confirm/i }));
+
+    await waitFor(() => {
+      expect(mockRemoveFromCentral).toHaveBeenCalledWith("resource-demo");
+    });
+    expect(mockLoadCentralSkills).toHaveBeenCalled();
+    expect(mockGetSkillsByAgent).toHaveBeenCalledWith("cursor");
+  });
+
   it("previews and confirms deleting a resource directory", async () => {
     render(
       <MemoryRouter>
@@ -608,11 +664,8 @@ describe("ResourceLibraryView delete", () => {
     );
 
     await switchBrowserViewMode("folders");
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: /删除资源库目录 example|Delete resource directory example/i,
-      })
-    );
+    const folderRow = await screen.findByRole("row", { name: /example/i });
+    fireEvent.click(within(folderRow).getByRole("button", { name: /删除|Delete/i }));
 
     await waitFor(() => {
       expect(mockPreviewDeleteResourceBundle).toHaveBeenCalledWith("example");
@@ -628,6 +681,7 @@ describe("ResourceLibraryView delete", () => {
   });
 
   it("groups folder install targets by software platform and project directory", async () => {
+    resourceSkills = defaultSkills.map((skill) => ({ ...skill, linked_agents: [] }));
     render(
       <MemoryRouter>
         <ResourceLibraryView />
@@ -635,9 +689,10 @@ describe("ResourceLibraryView delete", () => {
     );
 
     await switchBrowserViewMode("folders");
+    const folderRow = await screen.findByRole("row", { name: /example/i });
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: /安装目录 example|Install folder example/i,
+      within(folderRow).getByRole("button", {
+        name: /安装到平台或项目|Install to platform or project/i,
       })
     );
 
@@ -653,5 +708,51 @@ describe("ResourceLibraryView delete", () => {
     ).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Cursor")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("temp")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Hermes")).toBeEnabled();
+    expect(within(dialog).getByLabelText("Home")).toBeEnabled();
+    expect(within(dialog).getAllByText("将加入中央技能库")).toHaveLength(2);
+    fireEvent.click(within(dialog).getByLabelText("Home"));
+    expect(
+      within(dialog).getByText(/选中的共享平台会按中央库规则同步/)
+    ).toBeInTheDocument();
+  });
+
+  it("disables the shared folder install target when every skill is already central", async () => {
+    resourceSkills = defaultSkills.map((skill) => ({
+      ...skill,
+      is_central: true,
+      linked_agents: [],
+    }));
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    await switchBrowserViewMode("folders");
+    const folderRow = await screen.findByRole("row", { name: /example/i });
+    fireEvent.click(
+      within(folderRow).getByRole("button", {
+        name: /安装到平台或项目|Install to platform or project/i,
+      })
+    );
+
+    const dialog = await screen.findByRole("dialog", {
+      name: /安装目录 example|Install folder example/i,
+    });
+    expect(within(dialog).getByLabelText("Hermes")).toHaveAttribute("aria-disabled", "true");
+    expect(within(dialog).getByLabelText("Home")).toHaveAttribute("aria-disabled", "true");
+    expect(within(dialog).getAllByText("已通过中央库共享")).toHaveLength(2);
+  });
+
+  it("shows two-line install summary counts for resource skills", () => {
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("直接安装 1（平台 1 / 项目 0）")).toBeInTheDocument();
+    expect(screen.getByText("共享可用 0")).toBeInTheDocument();
   });
 });

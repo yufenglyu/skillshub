@@ -1,16 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import {
   Pencil,
   Trash2,
-  Download,
   PackagePlus,
   Plus,
   Loader2,
   BookOpen,
-  FileInput,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -55,18 +53,18 @@ export function CollectionView() {
   const removeSkillFromCollection = useCollectionStore((s) => s.removeSkillFromCollection);
   const deleteCollection = useCollectionStore((s) => s.deleteCollection);
   const batchInstallCollection = useCollectionStore((s) => s.batchInstallCollection);
-  const exportCollection = useCollectionStore((s) => s.exportCollection);
   const addSkillToCollection = useCollectionStore((s) => s.addSkillToCollection);
 
-  const agents = usePlatformStore((s) => s.agents);
   const refreshCounts = usePlatformStore((s) => s.refreshCounts);
 
   const resourceSkills = useResourceLibraryStore((s) => s.skills);
   const resourceAgents = useResourceLibraryStore((s) => s.agents);
+  const togglingAgentId = useResourceLibraryStore((s) => s.togglingAgentId);
   const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
   const installResourceSkill = useResourceLibraryStore((s) => s.installSkill);
-
-  const importCollection = useCollectionStore((s) => s.importCollection);
+  const togglePlatformLink = useResourceLibraryStore((s) => s.togglePlatformLink);
+  const addToCentral = useResourceLibraryStore((s) => s.addToCentral);
+  const removeFromCentral = useResourceLibraryStore((s) => s.removeFromCentral);
 
   // Dialog open states.
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -84,7 +82,6 @@ export function CollectionView() {
     toggleColumn,
     resetColumns,
   } = useSkillTableColumns("skill");
-  const importInputRef = useRef<HTMLInputElement>(null);
   const skillsContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Restoration state carried through navigation when returning from a skill
@@ -102,20 +99,6 @@ export function CollectionView() {
   const restorationState: { key?: string; scrollTop?: number } | undefined =
     locationRestorationState ??
     (collectionId ? { key: collectionScrollKey(collectionId) } : undefined);
-
-  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const collection = await importCollection(text);
-      navigate(`/collection/${collection.id}`);
-    } catch (err) {
-      toast.error(String(err));
-    } finally {
-      if (importInputRef.current) importInputRef.current.value = "";
-    }
-  }
 
   // Load collection detail on mount and when collectionId changes.
   useEffect(() => {
@@ -163,6 +146,33 @@ export function CollectionView() {
     location.pathname,
   ]);
 
+  const collectionSkillsWithLinks = useMemo(
+    () =>
+      (currentDetail?.skills ?? []).map((skill): SkillWithLinks => {
+        const resourceSkill = resourceSkills.find((candidate) => candidate.id === skill.id);
+        return {
+          ...resourceSkill,
+          ...skill,
+          canonical_path: skill.canonical_path ?? resourceSkill?.canonical_path,
+          source: skill.source ?? resourceSkill?.source,
+          source_url: skill.source_url ?? resourceSkill?.source_url,
+          source_author: skill.source_author ?? resourceSkill?.source_author,
+          source_repo: skill.source_repo ?? resourceSkill?.source_repo,
+          source_path: skill.source_path ?? resourceSkill?.source_path,
+          notes: skill.notes ?? resourceSkill?.notes,
+          tags: skill.tags ?? resourceSkill?.tags,
+          is_central: resourceSkill?.is_central ?? skill.is_central,
+          linked_agents: resourceSkill?.linked_agents ?? [],
+          read_only_agents: resourceSkill?.read_only_agents ?? [],
+        };
+      }),
+    [currentDetail?.skills, resourceSkills]
+  );
+  const sortedCollectionSkills = useMemo(
+    () => sortBySkillBrowserOrder(collectionSkillsWithLinks, sortField, sortDirection),
+    [collectionSkillsWithLinks, sortDirection, sortField]
+  );
+
   function handleInstallSingleSkillClick(skillId: string) {
     const targetFromResource = resourceSkills.find((s) => s.id === skillId);
     const targetFromCollection = currentDetail?.skills.find((s) => s.id === skillId);
@@ -196,6 +206,44 @@ export function CollectionView() {
     }
   }
 
+  async function handleTogglePlatform(skillId: string, agentId: string) {
+    try {
+      await togglePlatformLink(skillId, agentId);
+      await refreshCounts();
+    } catch (err) {
+      toast.error(t("central.installError", { error: String(err) }));
+    }
+  }
+
+  async function handleAddSkillToCentral(skillId: string) {
+    try {
+      await addToCentral(skillId);
+      await refreshCounts();
+    } catch (err) {
+      toast.error(t("resource.addToCentralError", { error: String(err) }));
+    }
+  }
+
+  async function handleRemoveSkillFromCentral(skillId: string) {
+    try {
+      await removeFromCentral(skillId);
+      await refreshCounts();
+    } catch (err) {
+      toast.error(t("resource.removeFromCentralError", { error: String(err) }));
+    }
+  }
+
+  async function handleUninstallSkillFromTargets(skill: SkillWithLinks) {
+    try {
+      for (const agentId of skill.linked_agents) {
+        await togglePlatformLink(skill.id, agentId);
+      }
+      await refreshCounts();
+    } catch (err) {
+      toast.error(t("detail.uninstallError", { error: String(err) }));
+    }
+  }
+
   async function handleRemoveSkill(skillId: string) {
     if (!collectionId) return;
     try {
@@ -220,25 +268,6 @@ export function CollectionView() {
       toast.error(t("collection.deleteError", { error: String(err) }));
     } finally {
       setIsDeleting(false);
-    }
-  }
-
-  async function handleExport() {
-    if (!collectionId || !currentDetail) return;
-    try {
-      const json = await exportCollection(collectionId);
-      // Trigger browser download.
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${currentDetail.name.replace(/\s+/g, "-").toLowerCase()}-collection.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      toast.error(t("collection.exportError", { error: String(err) }));
     }
   }
 
@@ -282,12 +311,6 @@ export function CollectionView() {
     return null;
   }
 
-  const sortedCollectionSkills = sortBySkillBrowserOrder(
-    currentDetail.skills,
-    sortField,
-    sortDirection
-  );
-
   // ── Main View ────────────────────────────────────────────────────────────
 
   return (
@@ -296,7 +319,12 @@ export function CollectionView() {
       <div className="border-b border-border px-6 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-semibold truncate">{currentDetail.name}</h1>
+            <h1 className="text-xl font-semibold truncate">
+              {currentDetail.name}
+              <span className="font-normal text-muted-foreground">
+                {" "}· {currentDetail.skills.length}
+              </span>
+            </h1>
             {currentDetail.description && (
               <p className="text-sm text-muted-foreground mt-0.5">
                 {currentDetail.description}
@@ -304,7 +332,6 @@ export function CollectionView() {
             )}
           </div>
 
-          {/* Action buttons */}
           <div className="flex items-center gap-2 shrink-0">
             <Button
               variant="outline"
@@ -317,29 +344,11 @@ export function CollectionView() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => importInputRef.current?.click()}
-            >
-              <FileInput className="size-3.5" />
-              <span>{t("sidebar.importCollection")}</span>
-            </Button>
-            <div className="w-px h-5 bg-border" />
-            <Button
-              variant="outline"
-              size="sm"
               onClick={() => setIsEditorOpen(true)}
               aria-label={t("collection.editLabel")}
             >
               <Pencil className="size-3.5" />
               <span>{t("collection.edit")}</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExport}
-              aria-label={t("collection.exportLabel")}
-            >
-              <Download className="size-3.5" />
-              <span>{t("collection.export")}</span>
             </Button>
             <Button
               variant="outline"
@@ -356,6 +365,25 @@ export function CollectionView() {
               )}
               <span>{t("collection.delete")}</span>
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsInstallOpen(true)}
+              disabled={currentDetail.skills.length === 0}
+              aria-label={t("collection.batchInstallLabel")}
+            >
+              <PackagePlus className="size-3.5" />
+              <span>{t("collection.batchInstall")}</span>
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setIsPickerOpen(true)}
+              aria-label={t("collection.addSkillLabel")}
+            >
+              <Plus className="size-3.5" />
+              <span>{t("collection.addSkill")}</span>
+            </Button>
           </div>
         </div>
 
@@ -364,34 +392,6 @@ export function CollectionView() {
             {deleteError}
           </p>
         )}
-      </div>
-
-      {/* Skills section header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border">
-        <span className="text-sm font-medium text-muted-foreground">
-          {t("collection.skills", { count: currentDetail.skills.length })}
-        </span>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsInstallOpen(true)}
-            disabled={currentDetail.skills.length === 0}
-            aria-label={t("collection.batchInstallLabel")}
-          >
-            <PackagePlus className="size-3.5" />
-            <span>{t("collection.batchInstall")}</span>
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setIsPickerOpen(true)}
-            aria-label={t("collection.addSkillLabel")}
-          >
-            <Plus className="size-3.5" />
-            <span>{t("collection.addSkill")}</span>
-          </Button>
-        </div>
       </div>
 
       {/* Skills list */}
@@ -415,43 +415,70 @@ export function CollectionView() {
             </Button>
           </div>
         ) : (
-          <div className="mx-6 my-3">
-            <SkillBrowserTable
-              kind="skill"
-              visibleColumns={visibleColumns}
-              sortField={sortField}
-              sortDirection={sortDirection}
-              onSortChange={(field, direction) => {
-                setSortField(field);
-                setSortDirection(direction);
-              }}
-              onToggleColumn={toggleColumn}
-              onResetColumns={resetColumns}
-              skills={sortedCollectionSkills.map((skill) => ({
-                rowKey: skill.id,
-                name: skill.name,
-                description: skill.description,
-                sourceAuthor: skill.source_author,
-                sourceRepo: skill.source_repo,
-                sourceUrl: skill.source_url,
-                createdAt: skill.created_at,
-                updatedAt: skill.updated_at,
-                onDetail: () =>
-                  navigate(`/skill/${skill.id}`, {
-                    state: {
-                      collectionContext: {
-                        collectionId: currentDetail.id,
+          <div className="mx-6 my-3 space-y-6">
+            {sortedCollectionSkills.length > 0 && (
+              <SkillBrowserTable
+                kind="skill"
+                visibleColumns={visibleColumns}
+                sortField={sortField}
+                sortDirection={sortDirection}
+                onSortChange={(field, direction) => {
+                  setSortField(field);
+                  setSortDirection(direction);
+                }}
+                onToggleColumn={toggleColumn}
+                onResetColumns={resetColumns}
+                skills={sortedCollectionSkills.map((skill) => ({
+                  rowKey: skill.id,
+                  name: skill.name,
+                  description: skill.description,
+                  notes: skill.notes,
+                  sourceAuthor: skill.source_author,
+                  sourceRepo: skill.source_repo,
+                  sourceUrl: skill.source_url,
+                  createdAt: skill.created_at,
+                  updatedAt: skill.updated_at,
+                  isCentral: skill.is_central,
+                  tags: (skill.tags ?? []).map((tag) => ({ key: tag, label: tag })),
+                  onDetail: () =>
+                    navigate(`/skill/${skill.id}`, {
+                      state: {
+                        collectionContext: {
+                          collectionId: currentDetail.id,
+                        },
+                        scrollRestoration: createScrollRestorationState(
+                          collectionScrollKey(currentDetail.id),
+                          skillsContainerRef.current?.scrollTop ?? 0
+                        ),
                       },
-                      scrollRestoration: createScrollRestorationState(
-                        collectionScrollKey(currentDetail.id),
-                        skillsContainerRef.current?.scrollTop ?? 0
-                      ),
-                    },
-                  }),
-                onInstallTo: () => handleInstallSingleSkillClick(skill.id),
-                onRemove: () => handleRemoveSkill(skill.id),
-              }))}
-            />
+                    }),
+                  onInstallTo: () => handleInstallSingleSkillClick(skill.id),
+                  onUninstallFromPlatform:
+                    skill.linked_agents.length > 0
+                      ? () => void handleUninstallSkillFromTargets(skill)
+                      : undefined,
+                  onInstallToCentral: skill.is_central
+                    ? undefined
+                    : () => void handleAddSkillToCentral(skill.id),
+                  onRemoveFromCentral: skill.is_central
+                    ? () => void handleRemoveSkillFromCentral(skill.id)
+                    : undefined,
+                  onRemove: () => handleRemoveSkill(skill.id),
+                  removeLabel: t("resource.deleteAction"),
+                  installAgents: resourceAgents,
+                  installLinkedAgentIds: skill.linked_agents,
+                  installReadOnlyAgentIds: skill.read_only_agents ?? [],
+                  platformIcons: {
+                    agents: resourceAgents,
+                    linkedAgents: skill.linked_agents,
+                    readOnlyAgents: skill.read_only_agents ?? [],
+                    skillId: skill.id,
+                    onToggle: handleTogglePlatform,
+                    togglingAgentId,
+                  },
+                }))}
+              />
+            )}
           </div>
         )}
       </div>
@@ -482,20 +509,13 @@ export function CollectionView() {
         collection={null}
       />
 
-      <input
-        ref={importInputRef}
-        type="file"
-        accept=".json"
-        className="hidden"
-        onChange={handleImportFile}
-      />
-
       <CollectionInstallDialog
         open={isInstallOpen}
         onOpenChange={setIsInstallOpen}
         collectionName={currentDetail.name}
         skillCount={currentDetail.skills.length}
-        agents={agents}
+        agents={resourceAgents}
+        isCentral={collectionSkillsWithLinks.every((skill) => skill.is_central)}
         onInstall={(agentIds) => batchInstallCollection(currentDetail.id, agentIds)}
       />
 
@@ -506,6 +526,7 @@ export function CollectionView() {
         agents={resourceAgents}
         onInstall={handleInstallSingleSkill}
       />
+
     </div>
   );
 }

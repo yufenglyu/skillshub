@@ -1,17 +1,16 @@
 import {
   Check,
   Database,
-  ExternalLink,
   FolderOpen,
   Link2,
   Lock,
   Loader2,
   PackageMinus,
   PackagePlus,
+  Minus,
+  Plus,
   RefreshCw,
-  Star,
   Trash2,
-  X,
 } from "lucide-react";
 import {
   useCallback,
@@ -22,18 +21,15 @@ import {
   type MouseEvent as ReactMouseEvent,
   type MouseEventHandler,
   type PointerEvent as ReactPointerEvent,
-  type Ref,
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 
 import { InlineConfirmAction } from "@/components/ui/inline-confirm-action";
-import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import type { SkillTableKind } from "@/hooks/useSkillTableColumns";
 import { FIXED_SKILL_COLUMNS } from "@/hooks/useSkillTableColumns";
 import { optionsForSkillTable } from "@/components/skill/skillColumnOptions";
 import { formatPathForDisplay } from "@/lib/path";
-import { isInstallTargetAgent } from "@/lib/agents";
 import {
   nextSkillSortDirection,
   type SkillSortDirection,
@@ -42,6 +38,10 @@ import {
 import { cn } from "@/lib/utils";
 import type { AgentWithStatus, ClaudeSourceKind } from "@/types";
 import type { UnifiedSkillCardProps } from "@/components/skill/UnifiedSkillCard";
+import {
+  buildInstallSummary,
+  formatInstallSummaryTooltip,
+} from "@/lib/installSummary";
 
 export interface FolderTableItem {
   key: string;
@@ -50,14 +50,19 @@ export interface FolderTableItem {
   skillCount: number;
   linkedAgentCount?: number;
   readOnlyAgentCount?: number;
+  installAgents?: AgentWithStatus[];
+  installLinkedAgentIds?: string[];
+  installReadOnlyAgentIds?: string[];
   previewNames?: string[];
   createdAt?: string | null;
   updatedAt?: string | null;
-  notesSummary?: string | null;
   onOpen: () => void;
   onAddToCentral?: () => void;
   addToCentralLabel?: string;
   isAddingToCentral?: boolean;
+  onRemoveFromCentral?: () => void;
+  removeFromCentralLabel?: string;
+  isRemovingFromCentral?: boolean;
   onInstall?: () => void;
   installLabel?: string;
   isInstalling?: boolean;
@@ -67,12 +72,25 @@ export interface FolderTableItem {
   onDelete?: () => void;
   deleteLabel?: string;
   isDeleting?: boolean;
+  deleteRequiresConfirmation?: boolean;
+}
+
+export interface SkillTableItem extends UnifiedSkillCardProps {
+  installLinkedCount?: number;
+  installReadOnlyCount?: number;
+  installAgents?: AgentWithStatus[];
+  installLinkedAgentIds?: string[];
+  installReadOnlyAgentIds?: string[];
+  onRemoveFromCentral?: () => void;
+  removeFromCentralLabel?: string;
+  installToLabel?: string;
+  removeLabel?: string;
 }
 
 interface SkillBrowserTableProps {
   kind: SkillTableKind;
   visibleColumns: Set<string>;
-  skills?: UnifiedSkillCardProps[];
+  skills?: SkillTableItem[];
   folders?: FolderTableItem[];
   sortField?: SkillSortField;
   sortDirection?: SkillSortDirection;
@@ -88,27 +106,16 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   source: 180,
   createdAt: 140,
   updatedAt: 140,
-  installStatus: 190,
-  rating: 90,
+  installSummary: 240,
   tags: 180,
   notes: 256,
   path: 448,
   skillCount: 100,
-  installSummary: 180,
-  notesSummary: 160,
   actions: 120,
 };
 const MIN_COLUMN_WIDTH = 80;
+const MAX_AUTO_COLUMN_WIDTH = 640;
 const COLUMN_WIDTH_EVENT = "skills-manage:skill-table-widths";
-const FEATURED_CODING_AGENT_IDS = [
-  "cursor",
-  "trae",
-  "claude-code",
-  "windsurf",
-  "codex",
-  "qwen",
-];
-
 function formatDate(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -120,27 +127,65 @@ function sourceLabel(skill: UnifiedSkillCardProps) {
   return skill.sourceRepo ?? skill.sourceAuthor ?? skill.publisher ?? "-";
 }
 
-function installStatusLabel(
-  t: ReturnType<typeof useTranslation>["t"],
-  skill: UnifiedSkillCardProps
+function installSummaryFromIds(
+  linkedAgentIds: readonly string[] | null | undefined,
+  readOnlyAgentIds: readonly string[] | null | undefined,
+  agents: readonly AgentWithStatus[] | null | undefined
 ) {
-  if (skill.sourceType) {
-    return skill.sourceType === "symlink"
-      ? t("platform.sourceSymlinkLabel")
-      : skill.sourceType === "native"
-        ? t("platform.sourceNativeLabel", { defaultValue: "native" })
-        : t("platform.sourceCopyLabel");
-  }
-  const linkedCount = skill.platformIcons?.linkedAgents.length ?? 0;
-  const readOnlyCount = skill.platformIcons?.readOnlyAgents?.length ?? 0;
-  if (linkedCount === 0 && readOnlyCount === 0) return t("central.platformSummaryNotInstalled");
-  if (readOnlyCount > 0) {
-    return t("skillBrowser.installSummaryMixed", {
-      linked: linkedCount,
-      shared: readOnlyCount,
-    });
-  }
-  return t("central.platformSummaryShared", { count: linkedCount });
+  return buildInstallSummary(linkedAgentIds, readOnlyAgentIds, agents);
+}
+
+function InstallSummaryCell({
+  linkedAgentIds,
+  readOnlyAgentIds,
+  agents,
+}: {
+  linkedAgentIds: readonly string[];
+  readOnlyAgentIds: readonly string[];
+  agents: readonly AgentWithStatus[];
+}) {
+  const { t } = useTranslation();
+  const summary = installSummaryFromIds(linkedAgentIds, readOnlyAgentIds, agents);
+  const tooltip = formatInstallSummaryTooltip(t, summary);
+  const directTotal = summary.directPlatforms.length + summary.directProjects.length;
+  const directLabel = t("skillBrowser.installSummaryDirect", {
+    total: directTotal,
+    platforms: summary.directPlatforms.length,
+    projects: summary.directProjects.length,
+  });
+  const sharedLabel = t("skillBrowser.installSummaryShared", {
+    total: summary.shared.length,
+  });
+
+  return (
+    <div
+      className="flex flex-col gap-0.5 text-xs leading-5 text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      title={tooltip}
+      tabIndex={0}
+      aria-label={`${directLabel}. ${sharedLabel}. ${tooltip}`}
+    >
+      <span>{directLabel}</span>
+      <span>{sharedLabel}</span>
+    </div>
+  );
+}
+
+function skillInstallSummaryProps(skill: SkillTableItem) {
+  return {
+    linkedAgentIds:
+      skill.installLinkedAgentIds ?? skill.platformIcons?.linkedAgents ?? [],
+    readOnlyAgentIds:
+      skill.installReadOnlyAgentIds ?? skill.platformIcons?.readOnlyAgents ?? [],
+    agents: skill.installAgents ?? skill.platformIcons?.agents ?? [],
+  };
+}
+
+function folderInstallSummaryProps(folder: FolderTableItem) {
+  return {
+    linkedAgentIds: folder.installLinkedAgentIds ?? [],
+    readOnlyAgentIds: folder.installReadOnlyAgentIds ?? [],
+    agents: folder.installAgents ?? [],
+  };
 }
 
 function ActionButton({
@@ -149,18 +194,15 @@ function ActionButton({
   disabled,
   children,
   destructive = false,
-  buttonRef,
 }: {
   label: string;
   onClick: MouseEventHandler<HTMLButtonElement>;
   disabled?: boolean;
   children: ReactNode;
   destructive?: boolean;
-  buttonRef?: Ref<HTMLButtonElement>;
 }) {
   return (
     <button
-      ref={buttonRef}
       type="button"
       className={cn(
         "inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors",
@@ -179,7 +221,17 @@ function ActionButton({
   );
 }
 
-function SkillActions({ skill }: { skill: UnifiedSkillCardProps }) {
+function DatabaseActionIcon({ installed }: { installed: boolean }) {
+  const Badge = installed ? Minus : Plus;
+  return (
+    <span className="relative inline-flex size-4">
+      <Database className="size-4" />
+      <Badge className="absolute -bottom-1 -right-1 size-2.5 rounded-full bg-card stroke-[3]" />
+    </span>
+  );
+}
+
+function SkillActions({ skill }: { skill: SkillTableItem }) {
   const { t } = useTranslation();
   const busy = !!skill.isLoading;
   const actions = [];
@@ -188,20 +240,46 @@ function SkillActions({ skill }: { skill: UnifiedSkillCardProps }) {
     actions.push(
       <ActionButton
         key="central"
-        label={skill.installToCentralLabel ?? t("discover.installToCentral")}
+        label={skill.installToCentralLabel ?? t("resource.addToCentralAction")}
         disabled={busy}
         onClick={skill.onInstallToCentral}
       >
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <Database className="size-4" />}
+        {busy ? <Loader2 className="size-4 animate-spin" /> : <DatabaseActionIcon installed={false} />}
       </ActionButton>
     );
   }
 
-  if (skill.onInstallTo) {
+  if (skill.onRemoveFromCentral && skill.isCentral) {
+    actions.push(
+      <InlineConfirmAction
+        key="central"
+        onConfirm={skill.onRemoveFromCentral}
+        isLoading={busy}
+        idleTitle={skill.removeFromCentralLabel ?? t("resource.removeFromCentralAction")}
+        idleAriaLabel={skill.removeFromCentralLabel ?? t("resource.removeFromCentralAction")}
+        confirmLabel={t("common.confirmDelete")}
+        icon={<DatabaseActionIcon installed />}
+      />
+    );
+  }
+
+  if (skill.onUninstallFromPlatform) {
+    actions.push(
+      <InlineConfirmAction
+        key="install-to"
+        onConfirm={skill.onUninstallFromPlatform}
+        isLoading={busy}
+        idleTitle={skill.uninstallFromLabel ?? t("resource.uninstallFromTargetsAction")}
+        idleAriaLabel={skill.uninstallFromLabel ?? t("resource.uninstallFromTargetsAction")}
+        confirmLabel={t("common.confirmDelete")}
+        icon={<PackageMinus className="size-4" />}
+      />
+    );
+  } else if (skill.onInstallTo) {
     actions.push(
       <ActionButton
         key="install-to"
-        label={t("central.installLabel", { name: skill.name })}
+        label={skill.installToLabel ?? t("resource.installToTargetsAction")}
         disabled={busy}
         onClick={skill.onInstallTo}
       >
@@ -210,43 +288,16 @@ function SkillActions({ skill }: { skill: UnifiedSkillCardProps }) {
     );
   }
 
-  if (skill.onDetail) {
-    actions.push(
-      <ActionButton
-        key="detail"
-        label={t("central.viewDetailsLabel", { name: skill.name })}
-        onClick={(event) => skill.onDetail?.(event)}
-        buttonRef={skill.detailButtonRef}
-      >
-        <ExternalLink className="size-4" />
-      </ActionButton>
-    );
-  }
-
-  if (skill.onUpdateFromSource) {
+  if (skill.onUpdateFromSource || skill.updateFromSourceLabel) {
     actions.push(
       <ActionButton
         key="update"
-        label={skill.updateFromSourceLabel ?? t("central.updateFromSource")}
-        disabled={busy}
-        onClick={skill.onUpdateFromSource}
+        label={skill.updateFromSourceLabel ?? t("resource.updateAction")}
+        disabled={busy || !skill.onUpdateFromSource}
+        onClick={() => skill.onUpdateFromSource?.()}
       >
         {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
       </ActionButton>
-    );
-  }
-
-  if (skill.onUninstallFromPlatform) {
-    actions.push(
-      <InlineConfirmAction
-        key="uninstall"
-        onConfirm={skill.onUninstallFromPlatform}
-        isLoading={busy}
-        idleTitle={skill.uninstallFromLabel ?? t("common.uninstall")}
-        idleAriaLabel={skill.uninstallFromLabel ?? t("common.uninstall")}
-        confirmLabel={t("common.confirmDelete")}
-        icon={<X className="size-4" />}
-      />
     );
   }
 
@@ -255,7 +306,7 @@ function SkillActions({ skill }: { skill: UnifiedSkillCardProps }) {
       skill.deleteFromCentralRequiresDialog ? (
         <ActionButton
           key="delete"
-          label={skill.deleteFromCentralLabel ?? t("common.delete")}
+          label={skill.deleteFromCentralLabel ?? t("resource.deleteAction")}
           disabled={busy}
           destructive
           onClick={skill.onDeleteFromCentral}
@@ -267,8 +318,8 @@ function SkillActions({ skill }: { skill: UnifiedSkillCardProps }) {
           key="delete"
           onConfirm={skill.onDeleteFromCentral}
           isLoading={busy}
-          idleTitle={skill.deleteFromCentralLabel ?? t("common.delete")}
-          idleAriaLabel={skill.deleteFromCentralLabel ?? t("common.delete")}
+          idleTitle={skill.deleteFromCentralLabel ?? t("resource.deleteAction")}
+          idleAriaLabel={skill.deleteFromCentralLabel ?? t("resource.deleteAction")}
           confirmLabel={t("common.confirmDelete")}
           icon={<Trash2 className="size-4" />}
         />
@@ -294,152 +345,15 @@ function SkillActions({ skill }: { skill: UnifiedSkillCardProps }) {
         key="remove"
         onConfirm={skill.onRemove}
         isLoading={busy}
-        idleTitle={t("collection.removeSkillLabel", { name: skill.name })}
-        idleAriaLabel={t("collection.removeSkillLabel", { name: skill.name })}
+        idleTitle={skill.removeLabel ?? t("resource.deleteAction")}
+        idleAriaLabel={skill.removeLabel ?? t("resource.deleteAction")}
         confirmLabel={t("common.confirmDelete")}
-        icon={<X className="size-4" />}
+        icon={<Trash2 className="size-4" />}
       />
     );
   }
 
   return <div className="flex justify-start gap-1">{actions}</div>;
-}
-
-function PlatformToggleIcon({
-  agent,
-  skillName,
-  isLinked,
-  isReadOnly,
-  isToggling,
-  onToggle,
-}: {
-  agent: AgentWithStatus;
-  skillName: string;
-  isLinked: boolean;
-  isReadOnly: boolean;
-  isToggling: boolean;
-  onToggle: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <button
-      type="button"
-      className={cn(
-        "inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors",
-        isLinked
-          ? "text-primary hover:bg-primary/10"
-          : "text-muted-foreground/40 hover:bg-muted/60 hover:text-muted-foreground",
-        isReadOnly && "cursor-default hover:bg-transparent",
-        isToggling && "pointer-events-none animate-pulse"
-      )}
-      title={agent.display_name}
-      aria-label={t("central.toggleInstallLabel", {
-        platform: agent.display_name,
-        skill: skillName,
-      })}
-      aria-pressed={isLinked}
-      disabled={isToggling || isReadOnly}
-      onClick={onToggle}
-    >
-      <PlatformIcon
-        agentId={agent.id}
-        className={cn(
-          "size-4 shrink-0 transition-all",
-          isLinked ? "opacity-100 grayscale-0" : "opacity-40 grayscale"
-        )}
-        size={16}
-      />
-    </button>
-  );
-}
-
-function InstallStatusIcons({ skill }: { skill: UnifiedSkillCardProps }) {
-  const { t } = useTranslation();
-  const platformIcons = skill.platformIcons;
-  if (!platformIcons) return null;
-  const icons = platformIcons;
-
-  const targetPlatformAgents = icons.agents.filter(isInstallTargetAgent);
-  const lobsterAgents = targetPlatformAgents.filter((agent) => agent.category === "lobster");
-  const codingAgents = targetPlatformAgents.filter((agent) => agent.category !== "lobster");
-  const linkedAgentIds = new Set(icons.linkedAgents);
-  const readOnlyAgentIds = new Set(icons.readOnlyAgents ?? []);
-  const featuredCodingAgents = FEATURED_CODING_AGENT_IDS
-    .map((agentId) => codingAgents.find((agent) => agent.id === agentId))
-    .filter((agent): agent is AgentWithStatus => !!agent);
-  const featuredCodingAgentIds = new Set(featuredCodingAgents.map((agent) => agent.id));
-  const hiddenCodingCount = codingAgents.filter(
-    (agent) => !featuredCodingAgentIds.has(agent.id)
-  ).length;
-
-  if (lobsterAgents.length === 0 && codingAgents.length === 0) return null;
-
-  function renderAgent(agent: AgentWithStatus) {
-    const isReadOnlyAgent = readOnlyAgentIds.has(agent.id);
-    return (
-      <PlatformToggleIcon
-        key={agent.id}
-        agent={agent}
-        skillName={skill.name}
-        isLinked={linkedAgentIds.has(agent.id) || isReadOnlyAgent}
-        isReadOnly={isReadOnlyAgent}
-        isToggling={icons.togglingAgentId === agent.id}
-        onToggle={() => icons.onToggle(icons.skillId, agent.id)}
-      />
-    );
-  }
-
-  return (
-    <div className="space-y-1">
-      {lobsterAgents.length > 0 ? (
-        <div className="flex items-center gap-1.5">
-          <span className="w-12 shrink-0 text-[10px] font-medium text-muted-foreground/70">
-            {t("sidebar.categoryLobster")}
-          </span>
-          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
-            {lobsterAgents.map(renderAgent)}
-          </div>
-        </div>
-      ) : null}
-      {codingAgents.length > 0 ? (
-        <div className="flex items-center gap-1.5">
-          <span className="w-12 shrink-0 text-[10px] font-medium text-muted-foreground/70">
-            {t("sidebar.categoryCoding")}
-          </span>
-          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
-            {featuredCodingAgents.map(renderAgent)}
-            {hiddenCodingCount > 0 ? (
-              <span className="ml-0.5 rounded-md bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                +{hiddenCodingCount}
-              </span>
-            ) : null}
-          </div>
-          {platformIcons.onManage ? (
-            <button
-              type="button"
-              onClick={platformIcons.onManage}
-              className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label={t("central.managePlatformsLabel", { skill: skill.name })}
-            >
-              {t("central.managePlatforms")}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {codingAgents.length === 0 && platformIcons.onManage ? (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={platformIcons.onManage}
-            className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={t("central.managePlatformsLabel", { skill: skill.name })}
-          >
-            {t("central.managePlatforms")}
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 function SourceIndicator({
@@ -467,19 +381,9 @@ function SourceIndicator({
       : t("platform.sourceCopyLabel");
 
   return (
-    <div
-      className={cn(
-        "inline-flex items-center gap-1 text-xs font-medium",
-        isSymlink ? "text-primary/80" : "text-muted-foreground"
-      )}
-    >
+    <div className={cn("inline-flex items-center gap-1 text-xs font-medium", isSymlink ? "text-primary/80" : "text-muted-foreground")}>
       {isSymlink ? <Link2 className="size-3 shrink-0" /> : <FolderOpen className="size-3 shrink-0" />}
-      <div className="inline-flex items-center gap-1">
-        <span>{primaryLabel}</span>
-        <span aria-hidden="true" className="h-px w-3 shrink-0 rounded-full bg-current opacity-40" />
-        <span className="sr-only"> - </span>
-        <span>{secondaryLabel}</span>
-      </div>
+      <span>{primaryLabel} - {secondaryLabel}</span>
     </div>
   );
 }
@@ -488,31 +392,20 @@ function SourceOriginBadge({ originKind }: { originKind: ClaudeSourceKind }) {
   const { t, i18n } = useTranslation();
   const isPlugin = originKind === "plugin";
   const isCompatibility = originKind === "compatibility";
-
   return (
-    <span
-      className={cn(
-        "inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1",
-        isPlugin
-          ? "bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300"
-          : isCompatibility
-            ? "bg-violet-500/10 text-violet-700 ring-violet-500/20 dark:text-violet-300"
-            : "bg-sky-500/10 text-sky-700 ring-sky-500/20 dark:text-sky-300"
-      )}
-    >
-      {isPlugin
-        ? t("platform.originPlugin", {
-            defaultValue: i18n.language.startsWith("zh") ? "插件来源" : "Plugin source",
-          })
+    <span className={cn(
+      "inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1",
+      isPlugin
+        ? "bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300"
         : isCompatibility
-          ? t("platform.originCompatibility", {
-              defaultValue: i18n.language.startsWith("zh")
-                ? "中央库兼容可见"
-                : "Visible from Central",
-            })
-          : t("platform.originUser", {
-              defaultValue: i18n.language.startsWith("zh") ? "用户来源" : "User source",
-            })}
+          ? "bg-violet-500/10 text-violet-700 ring-violet-500/20 dark:text-violet-300"
+          : "bg-sky-500/10 text-sky-700 ring-sky-500/20 dark:text-sky-300"
+    )}>
+      {isPlugin
+        ? t("platform.originPlugin", { defaultValue: i18n.language.startsWith("zh") ? "插件来源" : "Plugin source" })
+        : isCompatibility
+          ? t("platform.originCompatibility", { defaultValue: i18n.language.startsWith("zh") ? "中央库兼容可见" : "Visible from Central" })
+          : t("platform.originUser", { defaultValue: i18n.language.startsWith("zh") ? "用户来源" : "User source" })}
     </span>
   );
 }
@@ -522,18 +415,8 @@ function ReadOnlyBadge() {
   const label = t("platform.readOnly", {
     defaultValue: i18n.language.startsWith("zh") ? "只读" : "Read-only",
   });
-  const description = t("platform.readOnlyHint", {
-    defaultValue: i18n.language.startsWith("zh")
-      ? "来自中央库或插件缓存的只读可见项，不是当前平台的可删除安装。"
-      : "Visible from Central or a plugin cache; this is not a removable install in the current platform.",
-  });
-
   return (
-    <span
-      className="inline-flex w-fit items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/70"
-      title={description}
-      aria-label={`${label}: ${description}`}
-    >
+    <span className="inline-flex w-fit items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/70">
       <Lock className="size-3 shrink-0" />
       {label}
     </span>
@@ -612,12 +495,27 @@ export function SkillBrowserTable({
     startX: number;
     startWidth: number;
   } | null>(null);
+  const tableRef = useRef<HTMLTableElement | null>(null);
   const columns =
     kind === "skill"
-      ? ["name", "source", "createdAt", "updatedAt", "installStatus", "rating", "tags", "notes", "actions"]
-      : ["name", "path", "skillCount", "installSummary", "createdAt", "updatedAt", "notesSummary", "actions"];
+      ? ["name", "source", "createdAt", "updatedAt", "installSummary", "tags", "notes", "actions"]
+      : ["name", "path", "skillCount", "createdAt", "updatedAt", "installSummary", "actions"];
   const activeColumns = columns.filter((column) => visibleColumns.has(column));
   const columnOptions = useMemo(() => optionsForSkillTable(kind), [kind]);
+  const resolvedColumnWidths = useMemo(
+    () =>
+      Object.fromEntries(
+        activeColumns.map((column) => [
+          column,
+          columnWidths[column] ?? DEFAULT_COLUMN_WIDTHS[column] ?? 140,
+        ])
+      ),
+    [activeColumns, columnWidths]
+  );
+  const tableWidth = activeColumns.reduce(
+    (total, column) => total + resolvedColumnWidths[column],
+    0
+  );
 
   useEffect(() => {
     setColumnWidths(readColumnWidths(kind));
@@ -680,6 +578,33 @@ export function SkillBrowserTable({
     document.addEventListener("pointerup", handleUp);
   }
 
+  function handleAutoSizeColumn(
+    event: ReactMouseEvent<HTMLSpanElement>,
+    column: string
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    const columnIndex = activeColumns.indexOf(column);
+    if (columnIndex < 0 || !tableRef.current) return;
+
+    const measuredWidth = Array.from(tableRef.current.rows).reduce((maximum, row) => {
+      const cell = row.cells.item(columnIndex);
+      if (!cell) return maximum;
+      const content = cell.firstElementChild as HTMLElement | null;
+      const textEstimate = (cell.textContent?.trim().length ?? 0) * 8 + 32;
+      return Math.max(maximum, content?.scrollWidth ?? 0, textEstimate);
+    }, MIN_COLUMN_WIDTH);
+    const width = Math.min(
+      MAX_AUTO_COLUMN_WIDTH,
+      Math.max(MIN_COLUMN_WIDTH, measuredWidth)
+    );
+    setColumnWidths((previous) => {
+      const next = { ...previous, [column]: width };
+      persistColumnWidths(next);
+      return next;
+    });
+  }
+
   function handleHeaderContextMenu(event: ReactMouseEvent<HTMLTableCellElement>) {
     if (!onToggleColumn && !onResetColumns) return;
     event.preventDefault();
@@ -722,7 +647,19 @@ export function SkillBrowserTable({
   return (
     <div className={cn("relative overflow-hidden rounded-xl border border-border bg-card shadow-sm", className)}>
       <div className="overflow-x-auto">
-        <table className="min-w-full table-fixed text-left text-sm">
+        <table
+          ref={tableRef}
+          className="table-fixed text-left text-sm"
+          style={{ width: `max(100%, ${tableWidth}px)` }}
+        >
+          <colgroup>
+            {activeColumns.map((column) => (
+              <col
+                key={column}
+                style={{ width: `${resolvedColumnWidths[column]}px` }}
+              />
+            ))}
+          </colgroup>
           <thead className="border-b border-border bg-muted/35 text-xs font-medium text-muted-foreground">
             <tr>
               {activeColumns.map((column) => (
@@ -731,13 +668,7 @@ export function SkillBrowserTable({
                   scope="col"
                   aria-label={t(`skillBrowser.columns.${column}`)}
                   onContextMenu={handleHeaderContextMenu}
-                  style={{
-                    width: `${columnWidths[column] ?? DEFAULT_COLUMN_WIDTHS[column] ?? 140}px`,
-                  }}
-                  className={cn(
-                    "relative px-3 py-2 font-medium",
-                    column === "actions" && "w-36"
-                  )}
+                  className="relative px-3 py-2 font-medium"
                 >
                   {renderHeaderContent(column)}
                   {column !== "actions" ? (
@@ -748,8 +679,11 @@ export function SkillBrowserTable({
                       })}
                       tabIndex={0}
                       onPointerDown={(event) => handleResizePointerDown(event, column)}
-                      className="absolute right-0 top-1 bottom-1 w-1 cursor-col-resize rounded-full bg-transparent transition-colors hover:bg-primary/40 focus-visible:bg-primary/40 focus-visible:outline-none"
-                    />
+                      onDoubleClick={(event) => handleAutoSizeColumn(event, column)}
+                      className="group/resize absolute inset-y-0 right-0 w-2 translate-x-1/2 cursor-col-resize focus-visible:outline-none"
+                    >
+                      <span className="absolute inset-y-1 left-1/2 w-px -translate-x-1/2 bg-border transition-all group-hover/resize:w-0.5 group-hover/resize:bg-primary/60 group-focus-visible/resize:w-0.5 group-focus-visible/resize:bg-primary/60" />
+                    </span>
                   ) : null}
                 </th>
               ))}
@@ -776,8 +710,12 @@ export function SkillBrowserTable({
                               <div className="min-w-0">
                                 {skill.onDetail ? (
                                   <button
+                                    ref={skill.detailButtonRef}
                                     type="button"
                                     className="block max-w-full truncate text-left font-medium text-foreground hover:text-primary hover:underline"
+                                    aria-label={t("central.viewDetailsLabel", {
+                                      name: skill.name,
+                                    })}
                                     onClick={skill.onDetail}
                                   >
                                     {skill.name}
@@ -785,18 +723,29 @@ export function SkillBrowserTable({
                                 ) : (
                                   <div className="truncate font-medium text-foreground">{skill.name}</div>
                                 )}
-                                {skill.description ? (
-                                  <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                                    {skill.description}
-                                  </p>
-                                ) : null}
                               </div>
                             </div>
                           </td>
                         );
                       }
                       if (column === "source") {
-                        return <td key={column} className="px-3 py-2 text-muted-foreground">{sourceLabel(skill)}</td>;
+                        return (
+                          <td key={column} className="px-3 py-2 text-muted-foreground">
+                            <div className="flex flex-col gap-1">
+                              <span>{sourceLabel(skill)}</span>
+                              {skill.sourceType ? (
+                                <SourceIndicator
+                                  sourceType={skill.sourceType}
+                                  sourceLocation={skill.sourceLocation}
+                                />
+                              ) : null}
+                              {skill.originKind ? (
+                                <SourceOriginBadge originKind={skill.originKind} />
+                              ) : null}
+                              {skill.isReadOnly ? <ReadOnlyBadge /> : null}
+                            </div>
+                          </td>
+                        );
                       }
                       if (column === "createdAt") {
                         return <td key={column} className="px-3 py-2 text-muted-foreground">{formatDate(skill.createdAt)}</td>;
@@ -804,34 +753,11 @@ export function SkillBrowserTable({
                       if (column === "updatedAt") {
                         return <td key={column} className="px-3 py-2 text-muted-foreground">{formatDate(skill.updatedAt)}</td>;
                       }
-                      if (column === "installStatus") {
+                      if (column === "installSummary") {
+                        const summaryProps = skillInstallSummaryProps(skill);
                         return (
-                          <td key={column} className="px-3 py-2 text-muted-foreground">
-                            <div className="flex flex-col gap-1">
-                              {skill.sourceType ? (
-                                <SourceIndicator
-                                  sourceType={skill.sourceType}
-                                  sourceLocation={skill.sourceLocation}
-                                />
-                              ) : (
-                                <span>{installStatusLabel(t, skill)}</span>
-                              )}
-                              {skill.originKind ? (
-                                <SourceOriginBadge originKind={skill.originKind} />
-                              ) : null}
-                              {skill.isReadOnly ? <ReadOnlyBadge /> : null}
-                              <InstallStatusIcons skill={skill} />
-                            </div>
-                          </td>
-                        );
-                      }
-                      if (column === "rating") {
-                        return (
-                          <td key={column} className="px-3 py-2 text-muted-foreground">
-                            <span className="inline-flex items-center gap-1">
-                              <Star className="size-3.5" />
-                              -
-                            </span>
+                          <td key={column} className="px-3 py-2">
+                            <InstallSummaryCell {...summaryProps} />
                           </td>
                         );
                       }
@@ -871,11 +797,6 @@ export function SkillBrowserTable({
                             >
                               {folder.name}
                             </button>
-                            {folder.previewNames?.length ? (
-                              <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-                                {folder.previewNames.slice(0, 3).join(", ")}
-                              </p>
-                            ) : null}
                           </td>
                         );
                       }
@@ -890,12 +811,10 @@ export function SkillBrowserTable({
                         return <td key={column} className="px-3 py-2 text-muted-foreground">{folder.skillCount}</td>;
                       }
                       if (column === "installSummary") {
+                        const summaryProps = folderInstallSummaryProps(folder);
                         return (
-                          <td key={column} className="px-3 py-2 text-muted-foreground">
-                            {t("skillBrowser.folderInstallSummary", {
-                              linked: folder.linkedAgentCount ?? 0,
-                              shared: folder.readOnlyAgentCount ?? 0,
-                            })}
+                          <td key={column} className="px-3 py-2">
+                            <InstallSummaryCell {...summaryProps} />
                           </td>
                         );
                       }
@@ -905,41 +824,41 @@ export function SkillBrowserTable({
                       if (column === "updatedAt") {
                         return <td key={column} className="px-3 py-2 text-muted-foreground">{formatDate(folder.updatedAt)}</td>;
                       }
-                      if (column === "notesSummary") {
-                        return <td key={column} className="px-3 py-2 text-muted-foreground"><NotesCell notes={folder.notesSummary} /></td>;
-                      }
                       return (
                         <td key={column} className="px-3 py-2">
                           <div className="flex justify-start gap-1">
                             {folder.onAddToCentral ? (
                               <ActionButton
-                                label={folder.addToCentralLabel ?? t("discover.installToCentral")}
+                                label={folder.addToCentralLabel ?? t("resource.addToCentralAction")}
                                 disabled={folder.isAddingToCentral}
                                 onClick={folder.onAddToCentral}
                               >
                                 {folder.isAddingToCentral ? (
                                   <Loader2 className="size-4 animate-spin" />
                                 ) : (
-                                  <Database className="size-4" />
+                                  <DatabaseActionIcon installed={false} />
                                 )}
                               </ActionButton>
                             ) : null}
-                            {folder.onInstall ? (
-                              <ActionButton
-                                label={folder.installLabel ?? t("central.installTo")}
-                                disabled={folder.isInstalling}
-                                onClick={folder.onInstall}
-                              >
-                                {folder.isInstalling ? (
-                                  <Loader2 className="size-4 animate-spin" />
-                                ) : (
-                                  <PackagePlus className="size-4" />
-                                )}
-                              </ActionButton>
+                            {folder.onRemoveFromCentral ? (
+                              <InlineConfirmAction
+                                onConfirm={folder.onRemoveFromCentral}
+                                isLoading={folder.isRemovingFromCentral}
+                                idleTitle={
+                                  folder.removeFromCentralLabel ??
+                                  t("resource.removeFromCentralAction")
+                                }
+                                idleAriaLabel={
+                                  folder.removeFromCentralLabel ??
+                                  t("resource.removeFromCentralAction")
+                                }
+                                confirmLabel={t("common.confirmDelete")}
+                                icon={<DatabaseActionIcon installed />}
+                              />
                             ) : null}
                             {folder.onUninstall ? (
                               <ActionButton
-                                label={folder.uninstallLabel ?? t("common.uninstall")}
+                                label={folder.uninstallLabel ?? t("resource.uninstallFromTargetsAction")}
                                 disabled={folder.isUninstalling}
                                 onClick={folder.onUninstall}
                               >
@@ -950,15 +869,39 @@ export function SkillBrowserTable({
                                 )}
                               </ActionButton>
                             ) : null}
-                            {folder.onDelete ? (
+                            {!folder.onUninstall && folder.onInstall ? (
                               <ActionButton
-                                label={folder.deleteLabel ?? t("common.delete")}
-                                disabled={folder.isDeleting}
-                                destructive
-                                onClick={folder.onDelete}
+                                label={folder.installLabel ?? t("resource.installToTargetsAction")}
+                                disabled={folder.isInstalling}
+                                onClick={folder.onInstall}
                               >
-                                <Trash2 className="size-4" />
+                                {folder.isInstalling ? (
+                                  <Loader2 className="size-4 animate-spin" />
+                                ) : (
+                                  <PackagePlus className="size-4" />
+                                )}
                               </ActionButton>
+                            ) : null}
+                            {folder.onDelete ? (
+                              folder.deleteRequiresConfirmation ? (
+                                <InlineConfirmAction
+                                  onConfirm={folder.onDelete}
+                                  isLoading={folder.isDeleting}
+                                  idleTitle={folder.deleteLabel ?? t("resource.deleteAction")}
+                                  idleAriaLabel={folder.deleteLabel ?? t("resource.deleteAction")}
+                                  confirmLabel={t("common.confirmDelete")}
+                                  icon={<Trash2 className="size-4" />}
+                                />
+                              ) : (
+                                <ActionButton
+                                  label={folder.deleteLabel ?? t("resource.deleteAction")}
+                                  disabled={folder.isDeleting}
+                                  destructive
+                                  onClick={folder.onDelete}
+                                >
+                                  <Trash2 className="size-4" />
+                                </ActionButton>
+                              )
                             ) : null}
                           </div>
                         </td>

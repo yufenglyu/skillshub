@@ -6,6 +6,7 @@ import {
   getPathBasename,
   joinPathForDisplay,
   normalizePathSeparators,
+  pathsShareSkillsRoot,
 } from "@/lib/path";
 
 describe("path helpers", () => {
@@ -49,6 +50,9 @@ describe("path helpers", () => {
     expect(formatPathForDisplay("C:\\Users\\alice\\.agents/skills/demo/SKILL.md")).toBe(
       "C:\\Users\\alice\\.agents\\skills\\demo\\SKILL.md"
     );
+    expect(formatPathForDisplay("\\\\?\\C:\\Users\\alice\\.agents\\skills")).toBe(
+      "C:\\Users\\alice\\.agents\\skills"
+    );
   });
 
   it("derives home directories from unix and windows paths", () => {
@@ -76,5 +80,20 @@ describe("path helpers", () => {
     expect(describeSkillsPattern("C:\\Users\\alice\\.cursor\\skills")).toBe(
       ".cursor/skills"
     );
+  });
+
+  it("compares skill roots across separators and home-path forms", () => {
+    expect(
+      pathsShareSkillsRoot(
+        "C:\\Users\\alice\\.agents\\skills",
+        "C:/Users/alice/.agents/skills/"
+      )
+    ).toBe(true);
+    expect(
+      pathsShareSkillsRoot("/Users/alice/.agents/skills", "~/.agents/skills")
+    ).toBe(true);
+    expect(
+      pathsShareSkillsRoot("~/.agents/skills", "~/.cursor/skills")
+    ).toBe(false);
   });
 });

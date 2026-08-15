@@ -79,4 +79,31 @@ describe("resourceLibraryStore platform installs", () => {
       skillId: "resource-skill",
     });
   });
+
+  it("removes only the central copy and reloads the resource skill", async () => {
+    const restoredSkill = {
+      ...resourceSkill,
+      is_central: false,
+      canonical_path: "C:/library/resource-skill",
+    };
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({
+        skillId: "resource-skill",
+        removedCentralPath: "C:/.agents/skills/resource-skill",
+        resourcePath: "C:/library/resource-skill",
+        uninstalledAgents: ["codex"],
+      })
+      .mockResolvedValueOnce([restoredSkill]);
+
+    await useResourceLibraryStore
+      .getState()
+      .removeFromCentral("resource-skill");
+
+    expect(invoke).toHaveBeenNthCalledWith(
+      1,
+      "remove_resource_skill_from_central",
+      { skillId: "resource-skill" }
+    );
+    expect(useResourceLibraryStore.getState().skills).toEqual([restoredSkill]);
+  });
 });
