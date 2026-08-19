@@ -1162,6 +1162,8 @@ async fn update_source_backed_skills_impl(
     let mut github_jobs: Vec<(db::SkillSource, db::Skill)> = Vec::new();
     let mut npx_repo_sources: HashMap<String, Vec<(db::SkillSource, db::Skill)>> = HashMap::new();
     let mut npx_skill_sources = Vec::new();
+    let mut local_skipped = Vec::new();
+    let mut unupdatable = Vec::new();
 
     for source in sources {
         let Some(skill) = db::get_skill_by_id(pool, &source.skill_id).await? else {
@@ -1172,11 +1174,7 @@ async fn update_source_backed_skills_impl(
         }
 
         if is_local_only_skill_source(&source.source_type) {
-            items.push(source_update_item(
-                &skill,
-                SkillSourceUpdateStatus::Skipped,
-                None,
-            ));
+            local_skipped.push(skill);
             continue;
         }
 
@@ -1205,20 +1203,18 @@ async fn update_source_backed_skills_impl(
         }
 
         if github_raw_update_urls(&source).is_empty() {
-            items.push(source_update_item(
-                &skill,
-                SkillSourceUpdateStatus::Failed,
-                Some(format!(
-                    "Skill '{}' source is not an updatable SKILL.md file",
-                    skill.id
-                )),
-            ));
+            unupdatable.push(skill);
             continue;
         }
         github_jobs.push((source, skill));
     }
 
-    let total = (github_jobs.len() + npx_repo_sources.len() + npx_skill_sources.len()) as u32;
+    let npx_repo_skill_count: usize = npx_repo_sources.values().map(Vec::len).sum();
+    let total = (github_jobs.len()
+        + npx_repo_skill_count
+        + npx_skill_sources.len()
+        + local_skipped.len()
+        + unupdatable.len()) as u32;
     let mut current = 0_u32;
 
     for (mut source, skill) in github_jobs {
@@ -1278,48 +1274,39 @@ async fn update_source_backed_skills_impl(
     }
 
     for (repo, group) in npx_repo_sources {
-        current += 1;
-        let progress_name = group
-            .first()
-            .map(|(_, skill)| skill.name.as_str())
-            .unwrap_or(repo.as_str());
-        let progress_id = group
-            .first()
-            .map(|(_, skill)| skill.id.as_str())
-            .unwrap_or(repo.as_str());
-        emit_source_update_progress(app, current, total, progress_name, progress_id);
-        match update_npx_repo_source_group(pool, &repo, &group, auth.as_deref()).await {
-            Ok(result) if result.unchanged => {
-                for (_, skill) in group {
+        if let Some((_, first)) = group.first() {
+            emit_source_update_progress(app, current + 1, total, &first.name, &first.id);
+        }
+        let group_result = update_npx_repo_source_group(pool, &repo, &group, auth.as_deref()).await;
+        for (_, skill) in group {
+            current += 1;
+            emit_source_update_progress(app, current, total, &skill.name, &skill.id);
+            match &group_result {
+                Ok(result) if result.unchanged => {
                     items.push(source_update_item(
                         &skill,
                         SkillSourceUpdateStatus::Unchanged,
                         None,
                     ));
                 }
-            }
-            Ok(result) => {
-                for (_, skill) in group {
-                    if result.updated_ids.contains(&skill.id) {
-                        items.push(source_update_item(
-                            &skill,
-                            SkillSourceUpdateStatus::Updated,
-                            None,
-                        ));
-                    } else {
-                        items.push(source_update_item(
-                            &skill,
-                            SkillSourceUpdateStatus::Failed,
-                            Some(
-                                "The skill was not returned by the latest repository import."
-                                    .to_string(),
-                            ),
-                        ));
-                    }
+                Ok(result) if result.updated_ids.contains(&skill.id) => {
+                    items.push(source_update_item(
+                        &skill,
+                        SkillSourceUpdateStatus::Updated,
+                        None,
+                    ));
                 }
-            }
-            Err(error) => {
-                for (_, skill) in group {
+                Ok(_) => {
+                    items.push(source_update_item(
+                        &skill,
+                        SkillSourceUpdateStatus::Failed,
+                        Some(
+                            "The skill was not returned by the latest repository import."
+                                .to_string(),
+                        ),
+                    ));
+                }
+                Err(error) => {
                     items.push(source_update_item(
                         &skill,
                         SkillSourceUpdateStatus::Failed,
@@ -1350,6 +1337,29 @@ async fn update_source_backed_skills_impl(
                 Some(error),
             )),
         }
+    }
+
+    for skill in local_skipped {
+        current += 1;
+        emit_source_update_progress(app, current, total, &skill.name, &skill.id);
+        items.push(source_update_item(
+            &skill,
+            SkillSourceUpdateStatus::Skipped,
+            None,
+        ));
+    }
+
+    for skill in unupdatable {
+        current += 1;
+        emit_source_update_progress(app, current, total, &skill.name, &skill.id);
+        items.push(source_update_item(
+            &skill,
+            SkillSourceUpdateStatus::Failed,
+            Some(format!(
+                "Skill '{}' source is not an updatable SKILL.md file",
+                skill.id
+            )),
+        ));
     }
 
     Ok(SkillSourceUpdateReport { items })
