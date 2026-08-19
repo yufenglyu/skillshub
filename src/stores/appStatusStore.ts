@@ -10,6 +10,7 @@ export interface AppStatusTask {
   updatedCount?: number | null;
   skippedCount?: number | null;
   failedCount?: number | null;
+  currentCount?: number | null;
   totalCount?: number | null;
   error?: string | null;
   items?: AppStatusTaskItem[];
@@ -20,6 +21,7 @@ export interface AppStatusTask {
 export interface AppStatusTaskItem {
   name: string;
   status: "updated" | "skipped" | "failed" | "info";
+  repository?: string | null;
   detail?: string | null;
 }
 

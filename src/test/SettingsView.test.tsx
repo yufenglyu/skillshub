@@ -525,7 +525,7 @@ describe("SettingsView", () => {
   });
 
   it("localizes WebDAV backend errors without exposing raw details", async () => {
-    const rawError = "WebDAV list failed: internal transport detail 12345";
+    const rawError = { message: "WebDAV list failed: internal transport detail 12345" };
     const listWebDavBackups = vi.fn().mockRejectedValue(rawError);
     setupMocks({ listWebDavBackups });
     renderSettingsView();
@@ -541,7 +541,7 @@ describe("SettingsView", () => {
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith("刷新远端备份失败: 远端服务请求失败");
     });
-    expect(toast.error).not.toHaveBeenCalledWith(expect.stringContaining(rawError));
+    expect(toast.error).not.toHaveBeenCalledWith(expect.stringContaining(rawError.message));
     expect(toast.error).not.toHaveBeenCalledWith(expect.stringContaining("12345"));
   });
 

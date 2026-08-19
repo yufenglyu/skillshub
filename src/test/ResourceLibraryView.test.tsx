@@ -21,8 +21,11 @@ const mockRefreshCounts = vi.fn();
 const mockLoadCentralSkills = vi.fn();
 const mockGetSkillsByAgent = vi.fn();
 const mockStartTask = vi.fn();
+const mockUpdateTask = vi.fn();
 const mockCompleteTask = vi.fn();
 const mockFailTask = vi.fn();
+const mockListen = vi.fn();
+const mockUnlisten = vi.fn();
 
 const agents: AgentWithStatus[] = [
   {
@@ -140,9 +143,16 @@ vi.mock("@/stores/appStatusStore", () => ({
   useAppStatusStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       startTask: mockStartTask,
+      updateTask: mockUpdateTask,
       completeTask: mockCompleteTask,
       failTask: mockFailTask,
     }),
+}));
+
+vi.mock("@/lib/tauri", () => ({
+  isTauriRuntime: () => true,
+  listen: (...args: unknown[]) => mockListen(...args),
+  invoke: vi.fn(),
 }));
 
 import { ResourceLibraryView } from "@/pages/ResourceLibraryView";
@@ -205,8 +215,12 @@ describe("ResourceLibraryView delete", () => {
     mockLoadCentralSkills.mockReset();
     mockGetSkillsByAgent.mockReset();
     mockStartTask.mockReset();
+    mockUpdateTask.mockReset();
     mockCompleteTask.mockReset();
     mockFailTask.mockReset();
+    mockUnlisten.mockReset();
+    mockListen.mockReset();
+    mockListen.mockResolvedValue(mockUnlisten);
     window.localStorage.removeItem("skills-manage.skillListViewMode.resource-library");
   });
 
@@ -262,7 +276,15 @@ describe("ResourceLibraryView delete", () => {
   });
 
   it("reports source update progress to the app status bar", async () => {
-    mockUpdateSourceBackedSkills.mockResolvedValue(["resource-demo", "other-skill"]);
+    mockUpdateSourceBackedSkills.mockImplementation(async () => {
+      const handler = mockListen.mock.calls[0]?.[1] as (event: {
+        payload: { current: number; total: number; name: string; skillId: string };
+      }) => void;
+      handler({
+        payload: { current: 1, total: 2, name: "resource-demo", skillId: "resource-demo" },
+      });
+      return ["resource-demo", "other-skill"];
+    });
 
     render(
       <MemoryRouter>
@@ -280,12 +302,23 @@ describe("ResourceLibraryView delete", () => {
     );
 
     await waitFor(() => {
+      expect(mockUpdateTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          currentCount: 1,
+          totalCount: 2,
+          detail: "正在更新 resource-demo",
+        })
+      );
+    });
+
+    await waitFor(() => {
       expect(mockCompleteTask).toHaveBeenCalledWith(
         expect.objectContaining({
           updatedCount: 2,
         })
       );
     });
+    expect(mockUnlisten).toHaveBeenCalled();
   });
 
   it("reports the failing skill and reason to the app status bar", async () => {

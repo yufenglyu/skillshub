@@ -29,6 +29,16 @@ function statusIcon(task: AppStatusTask | null) {
   return <Circle className="size-3 fill-current text-muted-foreground" />;
 }
 
+function itemStatusLabel(
+  t: (key: string) => string,
+  status: NonNullable<AppStatusTask["items"]>[number]["status"]
+) {
+  if (status === "updated") return t("status.itemUpdated");
+  if (status === "skipped") return t("status.itemSkipped");
+  if (status === "failed") return t("status.itemFailed");
+  return t("status.itemSkipped");
+}
+
 export function AppStatusBar() {
   const { t } = useTranslation();
   const [isStatsOpen, setIsStatsOpen] = useState(false);
@@ -49,6 +59,19 @@ export function AppStatusBar() {
       typeof task.skippedCount === "number" ||
       typeof task.failedCount === "number" ||
       (task.items?.length ?? 0) > 0);
+  const currentCount = task?.currentCount ?? 0;
+  const totalCount = task?.totalCount ?? 0;
+  const showProgress = task?.status === "running" && totalCount > 0;
+  const progressPercent = showProgress
+    ? Math.min(100, Math.round((currentCount / totalCount) * 100))
+    : 0;
+  const progressLabel = showProgress
+    ? t("status.resourceSourceProgressAria", {
+        current: currentCount,
+        total: totalCount,
+        name: detail,
+      })
+    : detail;
 
   return (
     <>
@@ -72,6 +95,29 @@ export function AppStatusBar() {
           <span className="truncate">{detail}</span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {showProgress ? (
+            <>
+              <span className="tabular-nums text-foreground">
+                {t("status.resourceSourceProgressCount", {
+                  current: currentCount,
+                  total: totalCount,
+                })}
+              </span>
+              <div
+                className="h-1.5 w-24 overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={totalCount}
+                aria-valuenow={currentCount}
+                aria-label={progressLabel}
+              >
+                <div
+                  className="h-full rounded-full bg-primary transition-[width]"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            </>
+          ) : null}
           {hasStats ? (
             <Button
               type="button"
@@ -98,7 +144,7 @@ export function AppStatusBar() {
       </footer>
 
       <Dialog open={isStatsOpen} onOpenChange={setIsStatsOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t("status.updateStats")}</DialogTitle>
           </DialogHeader>
@@ -117,29 +163,39 @@ export function AppStatusBar() {
             </div>
           </div>
           <DialogBody className="px-0">
-            <div className="space-y-1">
-              {(task?.items ?? []).map((item) => (
-                <div
-                  key={`${item.status}:${item.name}:${item.detail ?? ""}`}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm"
-                >
-                  <span className="min-w-0 truncate font-medium text-foreground">{item.name}</span>
-                  <span
-                    className={cn(
-                      "shrink-0 text-xs",
-                      item.status === "failed" && "text-destructive",
-                      item.status === "updated" && "text-emerald-600",
-                      item.status === "skipped" && "text-muted-foreground"
-                    )}
-                  >
-                    {item.detail ?? item.status}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <table className="w-full border-separate border-spacing-0 text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="w-12 border-b border-border px-3 py-2 font-medium">{t("status.columnIndex")}</th>
+                  <th className="border-b border-border px-3 py-2 font-medium">{t("status.columnName")}</th>
+                  <th className="border-b border-border px-3 py-2 font-medium">{t("status.columnRepository")}</th>
+                  <th className="w-24 border-b border-border px-3 py-2 font-medium">{t("status.columnStatus")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(task?.items ?? []).map((item, index) => (
+                  <tr key={`${item.status}:${item.name}:${item.repository ?? ""}:${index}`} title={item.detail ?? undefined}>
+                    <td className="border-b border-border px-3 py-2 tabular-nums text-muted-foreground">{index + 1}</td>
+                    <td className="border-b border-border px-3 py-2 font-medium text-foreground">{item.name}</td>
+                    <td className="border-b border-border px-3 py-2 text-muted-foreground">{item.repository || "-"}</td>
+                    <td
+                      className={cn(
+                        "border-b border-border px-3 py-2 text-xs",
+                        item.status === "failed" && "text-destructive",
+                        item.status === "updated" && "text-emerald-600",
+                        item.status === "skipped" && "text-muted-foreground"
+                      )}
+                    >
+                      {itemStatusLabel(t, item.status)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </DialogBody>
         </DialogContent>
       </Dialog>
     </>
   );
 }
+

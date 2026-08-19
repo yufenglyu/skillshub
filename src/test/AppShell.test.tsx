@@ -166,9 +166,9 @@ describe("AppShell", () => {
           skippedCount: 2,
           failedCount: 1,
           items: [
-            { name: "ask-matt", status: "updated", detail: "已更新" },
-            { name: "local-demo", status: "skipped", detail: "本地添加，跳过更新" },
-            { name: "broken-skill", status: "failed", detail: "下载失败" },
+            { name: "ask-matt", status: "updated", repository: "mattpocock/skills" },
+            { name: "local-demo", status: "skipped", repository: null },
+            { name: "broken-skill", status: "failed", repository: "example/skills", detail: "下载失败" },
           ],
         },
       };
@@ -192,8 +192,48 @@ describe("AppShell", () => {
     expect(screen.getByText(/更新 3/)).toBeInTheDocument();
     expect(screen.getByText(/跳过 2/)).toBeInTheDocument();
     expect(screen.getByText(/失败 1/)).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "序号" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "名称" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "仓库" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "更新状态" })).toBeInTheDocument();
     expect(screen.getByText("ask-matt")).toBeInTheDocument();
+    expect(screen.getByText("mattpocock/skills")).toBeInTheDocument();
     expect(screen.getByText("broken-skill")).toBeInTheDocument();
+    expect(screen.getByText("已更新")).toBeInTheDocument();
+    expect(screen.getAllByText("跳过").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("失败").length).toBeGreaterThan(1);
+  });
+
+  it("shows a live progress bar while source updates are running", () => {
+    mockUseAppStatusStore.mockImplementation((selector?: unknown) => {
+      const state = {
+        task: {
+          id: "resource-source-update",
+          label: "更新技能",
+          detail: "正在更新 fixture-skill",
+          status: "running",
+          currentCount: 2,
+          totalCount: 5,
+        },
+      };
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/a"]}>
+        <Routes>
+          <Route path="/" element={<AppShell />}>
+            <Route path="a" element={<DummyPage label="page-a" />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("正在更新 fixture-skill")).toBeInTheDocument();
+    expect(screen.getByText("2/5")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "2");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "5");
   });
 
   it("resets shell scroll and keeps main non-scrollable when the route changes", async () => {

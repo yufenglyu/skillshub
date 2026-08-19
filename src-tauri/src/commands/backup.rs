@@ -23,8 +23,10 @@ use crate::{
 
 const BACKUP_SCHEMA_VERSION: u32 = 1;
 const WEBDAV_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const WEBDAV_UPLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 const WEBDAV_MAX_DOWNLOAD_BYTES: usize = 64 * 1024 * 1024;
 const WEBDAV_MAX_LIST_BYTES: usize = 8 * 1024 * 1024;
+const WEBDAV_MAX_REDIRECTS: usize = 5;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -237,8 +239,9 @@ pub async fn upload_webdav_backup(
     config: WebDavConfig,
     options: Option<BackupOptions>,
 ) -> Result<WebDavBackupFile, String> {
-    let archive =
-        export_app_backup_archive_impl(&state.db, complete_backup_options(options)).await?;
+    let archive = export_app_backup_archive_impl(&state.db, complete_backup_options(options))
+        .await
+        .map_err(|error| format!("WebDAV backup export failed: {error}"))?;
     upload_webdav_backup_impl(config, archive).await
 }
 
@@ -319,6 +322,7 @@ fn build_webdav_directory_url(config: &WebDavConfig) -> Result<String, String> {
     let remote_dir = normalize_webdav_remote_path(&config.remote_dir)?;
     let mut url = Url::parse(&base).map_err(|_| "WebDAV URL is invalid".to_string())?;
     append_webdav_path_segments(&mut url, &remote_dir)?;
+    ensure_trailing_slash(&mut url);
     Ok(url.to_string())
 }
 
@@ -332,6 +336,13 @@ fn append_webdav_path_segments(url: &mut Url, path: &str) -> Result<(), String> 
     Ok(())
 }
 
+fn ensure_trailing_slash(url: &mut Url) {
+    let path = url.path().to_string();
+    if !path.ends_with('/') {
+        url.set_path(&format!("{path}/"));
+    }
+}
+
 fn apply_webdav_auth(
     builder: reqwest::RequestBuilder,
     config: &WebDavConfig,
@@ -340,7 +351,128 @@ fn apply_webdav_auth(
         (Some(username), Some(password)) if !username.is_empty() || !password.is_empty() => {
             builder.basic_auth(username.to_string(), Some(password.to_string()))
         }
+        (Some(username), None) if !username.is_empty() => builder.basic_auth(username, None::<String>),
+        (None, Some(password)) if !password.is_empty() => {
+            builder.basic_auth("", Some(password.to_string()))
+        }
         _ => builder,
+    }
+}
+
+fn build_webdav_collection_url(config: &WebDavConfig, relative_dir: &str) -> Result<String, String> {
+    let base = normalize_webdav_base_url(&config.base_url)?;
+    let relative_dir = normalize_webdav_remote_path(relative_dir)?;
+    let mut url = Url::parse(&base).map_err(|_| "WebDAV URL is invalid".to_string())?;
+    append_webdav_path_segments(&mut url, &relative_dir)?;
+    ensure_trailing_slash(&mut url);
+    Ok(url.to_string())
+}
+
+fn webdav_status_error(operation: &str, status: reqwest::StatusCode, body: &str) -> String {
+    let snippet = body
+        .chars()
+        .filter(|ch| !ch.is_control() || *ch == '\n' || *ch == '\t')
+        .take(180)
+        .collect::<String>();
+    if snippet.trim().is_empty() {
+        format!("{operation} failed with status {status}")
+    } else {
+        format!(
+            "{operation} failed with status {status}: {}",
+            snippet.trim()
+        )
+    }
+}
+
+async fn send_webdav_request(
+    client: &Client,
+    method: Method,
+    url: &str,
+    config: &WebDavConfig,
+    configure: impl Fn(reqwest::RequestBuilder) -> reqwest::RequestBuilder,
+    operation: &str,
+) -> Result<reqwest::Response, String> {
+    let mut current_url = url.to_string();
+    for _ in 0..WEBDAV_MAX_REDIRECTS {
+        let response = apply_webdav_auth(
+            configure(client.request(method.clone(), &current_url)),
+            config,
+        )
+        .send()
+        .await
+        .map_err(|e| format!("{operation} failed: {}", sanitize_webdav_error(e)))?;
+        let status = response.status();
+        if status.is_redirection() {
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            drop(response);
+            let Some(location) = location else {
+                return Err(format!("{operation} failed with status {status}"));
+            };
+            current_url = Url::parse(&current_url)
+                .ok()
+                .and_then(|base| base.join(&location).ok())
+                .map(|joined| joined.to_string())
+                .unwrap_or(location);
+            continue;
+        }
+        return Ok(response);
+    }
+    Err(format!("{operation} failed: too many redirects"))
+}
+
+async fn ensure_webdav_remote_dir(client: &Client, config: &WebDavConfig) -> Result<(), String> {
+    let remote_dir = normalize_webdav_remote_path(&config.remote_dir)?;
+    let mut prefix = String::new();
+    for segment in remote_dir.split('/') {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(segment);
+        mkcol_webdav_collection(client, config, &prefix).await?;
+    }
+    Ok(())
+}
+
+async fn mkcol_webdav_collection(
+    client: &Client,
+    config: &WebDavConfig,
+    relative_dir: &str,
+) -> Result<(), String> {
+    let url = build_webdav_collection_url(config, relative_dir)?;
+    let method = Method::from_bytes(b"MKCOL").map_err(|e| e.to_string())?;
+    let response = send_webdav_request(
+        client,
+        method,
+        &url,
+        config,
+        |builder| builder,
+        "WebDAV upload",
+    )
+    .await?;
+    let status = response.status();
+    if status.is_success() || matches!(status.as_u16(), 405 | 409) {
+        return Ok(());
+    }
+    if matches!(status.as_u16(), 401 | 403) {
+        let body = response.text().await.unwrap_or_default();
+        return Err(webdav_status_error("WebDAV upload", status, &body));
+    }
+    Ok(())
+}
+
+fn webdav_success_or_error(
+    operation: &str,
+    status: reqwest::StatusCode,
+    body: &str,
+) -> Result<(), String> {
+    if status.is_success() {
+        Ok(())
+    } else {
+        Err(webdav_status_error(operation, status, body))
     }
 }
 
@@ -353,22 +485,26 @@ async fn upload_webdav_backup_impl(
     }
     let filename = generated_backup_filename();
     let url = build_webdav_url(&config, &filename)?;
-    let client = webdav_client()?;
-    let response = apply_webdav_auth(
-        client
-            .put(&url)
-            .header("Content-Type", "application/zip")
-            .body(archive.clone()),
+    let client = webdav_upload_client()?;
+    ensure_webdav_remote_dir(&client, &config).await?;
+    let response = send_webdav_request(
+        &client,
+        Method::PUT,
+        &url,
         &config,
+        |builder| {
+            builder
+                .header(reqwest::header::CONTENT_TYPE, "application/zip")
+                .header("Overwrite", "T")
+                .body(archive.clone())
+        },
+        "WebDAV upload",
     )
-    .send()
-    .await
-    .map_err(|e| format!("WebDAV upload failed: {}", sanitize_webdav_error(e)))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "WebDAV upload failed with status {}",
-            response.status()
-        ));
+    .await?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(webdav_status_error("WebDAV upload", status, &body));
     }
     Ok(WebDavBackupFile {
         name: filename.clone(),
@@ -384,15 +520,19 @@ async fn download_webdav_backup_impl(
 ) -> Result<Vec<u8>, String> {
     let url = build_webdav_url(&config, remote_path)?;
     let client = webdav_client()?;
-    let response = apply_webdav_auth(client.get(&url), &config)
-        .send()
-        .await
-        .map_err(|e| format!("WebDAV download failed: {}", sanitize_webdav_error(e)))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "WebDAV download failed with status {}",
-            response.status()
-        ));
+    let response = send_webdav_request(
+        &client,
+        Method::GET,
+        &url,
+        &config,
+        |builder| builder,
+        "WebDAV download",
+    )
+    .await?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(webdav_status_error("WebDAV download", status, &body));
     }
     read_webdav_bytes(
         response,
@@ -405,32 +545,37 @@ async fn download_webdav_backup_impl(
 async fn delete_webdav_backup_impl(config: WebDavConfig, remote_path: &str) -> Result<(), String> {
     let url = build_webdav_url(&config, remote_path)?;
     let client = webdav_client()?;
-    let response = apply_webdav_auth(client.delete(&url), &config)
-        .send()
-        .await
-        .map_err(|e| format!("WebDAV delete failed: {}", sanitize_webdav_error(e)))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "WebDAV delete failed with status {}",
-            response.status()
-        ));
-    }
-    Ok(())
+    let response = send_webdav_request(
+        &client,
+        Method::DELETE,
+        &url,
+        &config,
+        |builder| builder,
+        "WebDAV delete",
+    )
+    .await?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    webdav_success_or_error("WebDAV delete", status, &body)
 }
 
 async fn list_webdav_backups_impl(config: WebDavConfig) -> Result<Vec<WebDavBackupFile>, String> {
     let url = build_webdav_directory_url(&config)?;
     let method = Method::from_bytes(b"PROPFIND").map_err(|e| e.to_string())?;
     let client = webdav_client()?;
-    let response = apply_webdav_auth(client.request(method, &url).header("Depth", "1"), &config)
-        .send()
-        .await
-        .map_err(|e| format!("WebDAV list failed: {}", sanitize_webdav_error(e)))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "WebDAV list failed with status {}",
-            response.status()
-        ));
+    let response = send_webdav_request(
+        &client,
+        method,
+        &url,
+        &config,
+        |builder| builder.header("Depth", "1"),
+        "WebDAV list",
+    )
+    .await?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(webdav_status_error("WebDAV list", status, &body));
     }
     let body = read_webdav_body(response, WEBDAV_MAX_LIST_BYTES, "WebDAV list failed").await?;
     parse_webdav_backup_files(&body)
@@ -440,22 +585,30 @@ async fn test_webdav_connection_impl(config: WebDavConfig) -> Result<(), String>
     let url = build_webdav_directory_url(&config)?;
     let method = Method::from_bytes(b"PROPFIND").map_err(|e| e.to_string())?;
     let client = webdav_client()?;
-    let response = apply_webdav_auth(client.request(method, &url).header("Depth", "0"), &config)
-        .send()
-        .await
-        .map_err(|e| format!("WebDAV test failed: {}", sanitize_webdav_error(e)))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "WebDAV test failed with status {}",
-            response.status()
-        ));
+    let response = send_webdav_request(
+        &client,
+        method,
+        &url,
+        &config,
+        |builder| builder.header("Depth", "0"),
+        "WebDAV test",
+    )
+    .await?;
+    let status = response.status();
+    if status.as_u16() == 404 {
+        let upload_client = webdav_upload_client()?;
+        return ensure_webdav_remote_dir(&upload_client, &config).await;
     }
-    Ok(())
+    let body = response.text().await.unwrap_or_default();
+    webdav_success_or_error("WebDAV test", status, &body)
 }
 
-fn webdav_client() -> Result<Client, String> {
+fn webdav_client_with_timeout(timeout: Duration) -> Result<Client, String> {
     Client::builder()
-        .timeout(WEBDAV_REQUEST_TIMEOUT)
+        .timeout(timeout)
+        .connect_timeout(Duration::from_secs(20))
+        .http1_only()
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| {
             format!(
@@ -463,6 +616,14 @@ fn webdav_client() -> Result<Client, String> {
                 sanitize_webdav_error(e)
             )
         })
+}
+
+fn webdav_client() -> Result<Client, String> {
+    webdav_client_with_timeout(WEBDAV_REQUEST_TIMEOUT)
+}
+
+fn webdav_upload_client() -> Result<Client, String> {
+    webdav_client_with_timeout(WEBDAV_UPLOAD_TIMEOUT)
 }
 
 async fn read_webdav_body(
@@ -3129,6 +3290,18 @@ mod tests {
     }
 
     #[test]
+    fn webdav_directory_url_uses_trailing_slash() {
+        let config = WebDavConfig {
+            base_url: "https://example.com/dav".to_string(),
+            username: None,
+            password: None,
+            remote_dir: "skillshub".to_string(),
+        };
+        let url = build_webdav_directory_url(&config).expect("directory url");
+        assert_eq!(url, "https://example.com/dav/skillshub/");
+    }
+
+    #[test]
     fn webdav_normalize_base_url_trims_trailing_slash() {
         let result = normalize_webdav_base_url("https://example.com/dav/").expect("normalized url");
         assert_eq!(result, "https://example.com/dav");
@@ -3914,6 +4087,100 @@ mod tests {
             .await
             .expect_err("oversized upload accepted");
         assert!(error.contains("size limit"));
+    }
+
+    #[tokio::test]
+    async fn webdav_upload_creates_missing_collection_before_put() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("addr");
+        let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let requests_clone = Arc::clone(&requests);
+        let accepted_clone = Arc::clone(&accepted);
+
+        listener
+            .set_nonblocking(false)
+            .expect("blocking listener");
+        let server = std::thread::spawn(move || {
+            while accepted_clone.load(Ordering::SeqCst) < 2 {
+                let (mut stream, _) = listener.accept().expect("accept");
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let mut data = Vec::new();
+                let mut buffer = [0_u8; 4096];
+                loop {
+                    match stream.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(bytes_read) => {
+                            data.extend_from_slice(&buffer[..bytes_read]);
+                            let header_end = data
+                                .windows(4)
+                                .position(|window| window == b"\r\n\r\n")
+                                .map(|index| index + 4);
+                            if let Some(header_end) = header_end {
+                                let headers = String::from_utf8_lossy(&data[..header_end]);
+                                let content_length = headers
+                                    .lines()
+                                    .find_map(|line| {
+                                        line.split_once(':').and_then(|(name, value)| {
+                                            if name.eq_ignore_ascii_case("content-length") {
+                                                value.trim().parse::<usize>().ok()
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                    })
+                                    .unwrap_or(0);
+                                if data.len() >= header_end + content_length {
+                                    break;
+                                }
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                let request_text = String::from_utf8_lossy(&data).to_string();
+                requests_clone
+                    .lock()
+                    .expect("lock")
+                    .push(request_text.clone());
+                accepted_clone.fetch_add(1, Ordering::SeqCst);
+                let status = if request_text.starts_with("MKCOL ") {
+                    "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n"
+                } else {
+                    "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n"
+                };
+                let _ = stream.write_all(status.as_bytes());
+            }
+        });
+
+        let config = WebDavConfig {
+            base_url: format!("http://{address}/dav"),
+            username: Some("user".to_string()),
+            password: Some("token".to_string()),
+            remote_dir: "skillshub".to_string(),
+        };
+        let uploaded = upload_webdav_backup_impl(config, b"zip-bytes".to_vec())
+            .await
+            .expect("upload");
+        server.join().expect("server join");
+
+        let captured = requests.lock().expect("captured");
+        assert!(
+            captured.iter().any(|request| request.starts_with("MKCOL ")),
+            "missing MKCOL before PUT: {captured:?}"
+        );
+        assert!(
+            captured.iter().any(|request| request.starts_with("PUT ")),
+            "missing PUT after MKCOL: {captured:?}"
+        );
+        assert!(uploaded.name.ends_with(".zip"));
     }
 
     #[tokio::test]

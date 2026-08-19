@@ -463,3 +463,10 @@ export interface GitHubImportProgressPayload {
   completedBytes: number;
   totalBytes: number;
 }
+
+export interface SkillSourceUpdateProgress {
+  current: number;
+  total: number;
+  name: string;
+  skillId: string;
+}

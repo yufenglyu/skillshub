@@ -25,6 +25,7 @@ import { AgentWithStatus, BackupOptions, ScanDirectory, WebDavBackupFile } from 
 import { AI_PROVIDERS, REGION_LABELS, RegionId } from "@/data/aiProviders";
 import { isInstallTargetAgent } from "@/lib/agents";
 import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/path";
+import { webDavErrorDetail } from "@/lib/webdavError";
 import { cn } from "@/lib/utils";
 
 // ─── App constants ────────────────────────────────────────────────────────────
@@ -54,31 +55,6 @@ function HintIcon({ text, className }: { text: string; className?: string }) {
   );
 }
 
-function webDavErrorDetail(t: (key: string) => string, error: unknown): string {
-  const message = String(error);
-  if (/timed out/i.test(message)) {
-    return t("settings.webdavErrorTimeout");
-  }
-  if (/connection failed/i.test(message)) {
-    return t("settings.webdavErrorConnection");
-  }
-  if (/status (401|403)\b/i.test(message)) {
-    return t("settings.webdavErrorUnauthorized");
-  }
-  if (/status [45]\d\d\b/i.test(message)) {
-    return t("settings.webdavErrorRemote");
-  }
-  if (/Invalid WebDAV XML|invalid percent encoding|unsafe filename/i.test(message)) {
-    return t("settings.webdavErrorResponse");
-  }
-  if (/URL cannot be empty|URL is invalid|URL must use|URL must not include|remote path|path segments/i.test(message)) {
-    return t("settings.webdavErrorConfig");
-  }
-  if (/^WebDAV (list|test|upload|download|delete) failed:/i.test(message)) {
-    return t("settings.webdavErrorRemote");
-  }
-  return t("settings.webdavErrorUnknown");
-}
 
 // ─── ScanDirectoryRow ─────────────────────────────────────────────────────────
 

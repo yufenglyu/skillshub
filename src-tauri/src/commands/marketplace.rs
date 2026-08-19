@@ -1045,23 +1045,55 @@ pub async fn install_remote_skill_from_url(
     .await
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSourceUpdateProgress {
+    pub current: u32,
+    pub total: u32,
+    pub name: String,
+    pub skill_id: String,
+}
+
+fn emit_source_update_progress(
+    app: Option<&AppHandle>,
+    current: u32,
+    total: u32,
+    name: &str,
+    skill_id: &str,
+) {
+    if let Some(app) = app {
+        let _ = app.emit(
+            "skill-source-update:progress",
+            SkillSourceUpdateProgress {
+                current,
+                total,
+                name: name.to_string(),
+                skill_id: skill_id.to_string(),
+            },
+        );
+    }
+}
+
 #[tauri::command]
 pub async fn update_source_backed_central_skills(
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    update_source_backed_skills_impl(&state.db, true).await
+    update_source_backed_skills_impl(&state.db, true, Some(&app)).await
 }
 
 #[tauri::command]
 pub async fn update_source_backed_resource_skills(
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    update_source_backed_skills_impl(&state.db, false).await
+    update_source_backed_skills_impl(&state.db, false, Some(&app)).await
 }
 
 async fn update_source_backed_skills_impl(
     pool: &db::DbPool,
     is_central: bool,
+    app: Option<&AppHandle>,
 ) -> Result<Vec<String>, String> {
     let sources = db::get_all_skill_sources(pool).await?;
     let syncs = db::get_all_skill_source_syncs(pool).await?;
@@ -1076,10 +1108,11 @@ async fn update_source_backed_skills_impl(
         .map_err(|e| e.to_string())?;
     let mut updated = Vec::new();
     let mut failures = Vec::new();
+    let mut github_jobs: Vec<(db::SkillSource, db::Skill)> = Vec::new();
     let mut npx_repo_sources: HashMap<String, Vec<(db::SkillSource, db::Skill)>> = HashMap::new();
     let mut npx_skill_sources = Vec::new();
 
-    for mut source in sources {
+    for source in sources {
         let Some(skill) = db::get_skill_by_id(pool, &source.skill_id).await? else {
             continue;
         };
@@ -1111,10 +1144,19 @@ async fn update_source_backed_skills_impl(
             continue;
         }
 
-        let urls = github_raw_update_urls(&source);
-        if urls.is_empty() {
+        if github_raw_update_urls(&source).is_empty() {
             continue;
         }
+        github_jobs.push((source, skill));
+    }
+
+    let total = (github_jobs.len() + npx_repo_sources.len() + npx_skill_sources.len()) as u32;
+    let mut current = 0_u32;
+
+    for (mut source, skill) in github_jobs {
+        current += 1;
+        emit_source_update_progress(app, current, total, &skill.name, &skill.id);
+        let urls = github_raw_update_urls(&source);
         let (used_url, relocated_source_path, content) =
             match fetch_update_skill_markdown(&client, &urls, auth.as_deref()).await {
                 Ok((used_url, content)) => (used_url, None, content),
@@ -1152,12 +1194,21 @@ async fn update_source_backed_skills_impl(
             Ok(skill_id) => updated.push(skill_id),
             Err(error) => {
                 failures.push(format!("{}: {}", skill.id, error));
-                continue;
             }
         }
     }
 
     for (repo, group) in npx_repo_sources {
+        current += 1;
+        let progress_name = group
+            .first()
+            .map(|(_, skill)| skill.name.as_str())
+            .unwrap_or(repo.as_str());
+        let progress_id = group
+            .first()
+            .map(|(_, skill)| skill.id.as_str())
+            .unwrap_or(repo.as_str());
+        emit_source_update_progress(app, current, total, progress_name, progress_id);
         match update_npx_repo_source_group(pool, &repo, &group, auth.as_deref()).await {
             Ok(group_updated) => updated.extend(group_updated),
             Err(error) => failures.push(format!("{repo}: {error}")),
@@ -1165,6 +1216,8 @@ async fn update_source_backed_skills_impl(
     }
 
     for (source, skill) in npx_skill_sources {
+        current += 1;
+        emit_source_update_progress(app, current, total, &skill.name, &skill.id);
         match update_npx_skill_source(pool, &source, &skill, auth.as_deref()).await {
             Ok(Some(skill_id)) => updated.push(skill_id),
             Ok(None) => {}

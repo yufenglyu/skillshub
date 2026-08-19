@@ -48,12 +48,14 @@ import {
   type SkillSortField,
 } from "@/lib/skillSort";
 import { cn } from "@/lib/utils";
+import { listen, isTauriRuntime } from "@/lib/tauri";
+import { toErrorMessage } from "@/lib/errorMessage";
 import { useAppStatusStore, type AppStatusTaskItem } from "@/stores/appStatusStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useSkillStore } from "@/stores/skillStore";
-import type { CentralSkillBundleDeletePreview, SkillWithLinks } from "@/types";
+import type { CentralSkillBundleDeletePreview, SkillSourceUpdateProgress, SkillWithLinks } from "@/types";
 
 function EmptyState({ message }: { message: string }) {
   return (
@@ -88,13 +90,14 @@ function sourceUpdateItems(skills: SkillWithLinks[], updatedIds: string[]): AppS
         skill.source === "local-folder"
     )
     .map((skill) => {
+      const repository = skill.source_repo ?? null;
       if (updatedIdSet.has(skill.id)) {
-        return { name: skill.name, status: "updated" as const, detail: skill.source_repo };
+        return { name: skill.name, status: "updated" as const, repository };
       }
       if (skill.source === "local-folder") {
-        return { name: skill.name, status: "skipped" as const, detail: "local-folder" };
+        return { name: skill.name, status: "skipped" as const, repository };
       }
-      return { name: skill.name, status: "skipped" as const, detail: "not changed" };
+      return { name: skill.name, status: "skipped" as const, repository };
     });
 }
 
@@ -117,8 +120,8 @@ function earliestSkillCreatedAt(skills: SkillWithLinks[]) {
 }
 
 function formatTaskError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return message.replace(/^Error:\s*/i, "").trim() || "Unknown error";
+  const message = toErrorMessage(error).replace(/^Error:\s*/i, "").trim();
+  return message || "Unknown error";
 }
 
 export function ResourceLibraryView() {
@@ -149,6 +152,7 @@ export function ResourceLibraryView() {
     (state) => state.updateSourceBackedSkill
   );
   const startStatusTask = useAppStatusStore((state) => state.startTask);
+  const updateStatusTask = useAppStatusStore((state) => state.updateTask);
   const completeStatusTask = useAppStatusStore((state) => state.completeTask);
   const failStatusTask = useAppStatusStore((state) => state.failTask);
 
@@ -388,8 +392,22 @@ export function ResourceLibraryView() {
       id: "resource-source-update",
       label: t("status.resourceSourceUpdate"),
       detail: t("status.resourceSourceConnecting"),
-      totalCount: skills.length,
+      currentCount: 0,
+      totalCount: 0,
     });
+    let unlisten: (() => void) | undefined;
+    if (isTauriRuntime()) {
+      unlisten = await listen<SkillSourceUpdateProgress>("skill-source-update:progress", (event) => {
+        const current = event.payload.current;
+        const total = event.payload.total;
+        const name = event.payload.name;
+        updateStatusTask({
+          currentCount: current,
+          totalCount: total,
+          detail: t("status.resourceSourceUpdatingItem", { name }),
+        });
+      });
+    }
     try {
       const updated = await updateSourceBackedSkills();
       const items = sourceUpdateItems(skills, updated);
@@ -411,6 +429,8 @@ export function ResourceLibraryView() {
         items: [{ name: t("status.resourceSourceUpdate"), status: "failed", detail: errorMessage }],
       });
       toast.error(t("resource.updateSourcesError", { error: String(err) }));
+    } finally {
+      unlisten?.();
     }
   }
 
@@ -419,7 +439,8 @@ export function ResourceLibraryView() {
     startStatusTask({
       id: `resource-source-update:${skill.id}`,
       label: t("status.resourceSingleSourceUpdate", { name: skill.name }),
-      detail: t("status.resourceSourceConnecting"),
+      detail: t("status.resourceSourceUpdatingItem", { name: skill.name }),
+      currentCount: 1,
       totalCount: 1,
     });
     try {
