@@ -283,7 +283,12 @@ describe("ResourceLibraryView delete", () => {
       handler({
         payload: { current: 1, total: 2, name: "resource-demo", skillId: "resource-demo" },
       });
-      return ["resource-demo", "other-skill"];
+      return {
+        items: [
+          { skillId: "resource-demo", name: "resource-demo", status: "updated" },
+          { skillId: "other-skill", name: "other-skill", status: "updated" },
+        ],
+      };
     });
 
     render(
@@ -319,6 +324,66 @@ describe("ResourceLibraryView delete", () => {
       );
     });
     expect(mockUnlisten).toHaveBeenCalled();
+  });
+
+  it("classifies local skips, up-to-date remotes, successful updates, and failures", async () => {
+    resourceSkills = [
+      {
+        ...defaultSkills[0],
+        source_repo: "example/skills",
+      },
+      {
+        ...defaultSkills[0],
+        id: "already-latest",
+        name: "already-latest",
+        source_repo: "example/skills",
+      },
+      {
+        ...defaultSkills[0],
+        id: "local-demo",
+        name: "local-demo",
+        source: "local-folder",
+        source_repo: null,
+      },
+      {
+        ...defaultSkills[0],
+        id: "broken-skill",
+        name: "broken-skill",
+        source_repo: "example/skills",
+      },
+    ];
+    mockUpdateSourceBackedSkills.mockResolvedValue({
+      items: [
+        { skillId: "resource-demo", name: "resource-demo", status: "updated" },
+        { skillId: "already-latest", name: "already-latest", status: "unchanged" },
+        { skillId: "broken-skill", name: "broken-skill", status: "failed", error: "下载失败" },
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /更新技能|Update skills/i }));
+
+    await waitFor(() => {
+      expect(mockCompleteTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          updatedCount: 1,
+          unchangedCount: 1,
+          skippedCount: 1,
+          failedCount: 1,
+          items: expect.arrayContaining([
+            expect.objectContaining({ name: "resource-demo", status: "updated" }),
+            expect.objectContaining({ name: "already-latest", status: "unchanged" }),
+            expect.objectContaining({ name: "local-demo", status: "skipped" }),
+            expect.objectContaining({ name: "broken-skill", status: "failed", detail: "下载失败" }),
+          ]),
+        })
+      );
+    });
   });
 
   it("reports the failing skill and reason to the app status bar", async () => {

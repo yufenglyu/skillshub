@@ -163,10 +163,12 @@ describe("AppShell", () => {
           detail: "更新完成",
           status: "success",
           updatedCount: 3,
+          unchangedCount: 1,
           skippedCount: 2,
           failedCount: 1,
           items: [
             { name: "ask-matt", status: "updated", repository: "mattpocock/skills" },
+            { name: "frontend-design", status: "unchanged", repository: "anthropics/skills" },
             { name: "local-demo", status: "skipped", repository: null },
             { name: "broken-skill", status: "failed", repository: "example/skills", detail: "下载失败" },
           ],
@@ -189,9 +191,10 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("button", { name: /查看更新统计|View update statistics/i }));
 
     expect(screen.getByRole("dialog", { name: /更新统计|Update statistics/i })).toBeInTheDocument();
-    expect(screen.getByText(/更新 3/)).toBeInTheDocument();
+    expect(screen.getByText(/更新成功 3/)).toBeInTheDocument();
+    expect(screen.getByText(/已是最新 1/)).toBeInTheDocument();
     expect(screen.getByText(/跳过 2/)).toBeInTheDocument();
-    expect(screen.getByText(/失败 1/)).toBeInTheDocument();
+    expect(screen.getByText(/更新失败 1/)).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "序号" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "名称" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "仓库" })).toBeInTheDocument();
@@ -199,9 +202,10 @@ describe("AppShell", () => {
     expect(screen.getByText("ask-matt")).toBeInTheDocument();
     expect(screen.getByText("mattpocock/skills")).toBeInTheDocument();
     expect(screen.getByText("broken-skill")).toBeInTheDocument();
-    expect(screen.getByText("已更新")).toBeInTheDocument();
+    expect(screen.getAllByText("更新成功").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("已是最新").length).toBeGreaterThan(1);
     expect(screen.getAllByText("跳过").length).toBeGreaterThan(1);
-    expect(screen.getAllByText("失败").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("更新失败").length).toBeGreaterThan(1);
   });
 
   it("shows a live progress bar while source updates are running", () => {

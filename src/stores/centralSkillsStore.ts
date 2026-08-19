@@ -11,6 +11,7 @@ import {
   DeleteCentralSkillBundleResult,
   DeleteCentralSkillResult,
   ScanDirectory,
+  SkillSourceUpdateReport,
   SkillWithLinks,
 } from "@/types";
 import { mergeProjectAgents } from "@/lib/projectTargets";
@@ -118,7 +119,7 @@ interface CentralSkillsState {
   clearBundleDeletePreview: () => void;
   togglePlatformLink: (skillId: string, agentId: string) => Promise<void>;
   uninstallSkillsFromAgent: (skillIds: string[], agentId: string) => Promise<void>;
-  updateSourceBackedSkills: () => Promise<string[]>;
+  updateSourceBackedSkills: () => Promise<SkillSourceUpdateReport>;
   updateSourceBackedSkill: (skillId: string) => Promise<string>;
 }
 
@@ -425,13 +426,13 @@ export const useCentralSkillsStore = create<CentralSkillsState>((set, get) => ({
     set({ isUpdatingSources: true, error: null });
     if (!isTauriRuntime()) {
       set({ isUpdatingSources: false });
-      return [];
+      return { items: [] };
     }
     try {
-      const updated = await invoke<string[]>("update_source_backed_central_skills");
+      const report = await invoke<SkillSourceUpdateReport>("update_source_backed_central_skills");
       const skills = await invoke<SkillWithLinks[]>("get_central_skills");
       set({ skills, isUpdatingSources: false });
-      return updated ?? [];
+      return report ?? { items: [] };
     } catch (err) {
       set({ error: String(err), isUpdatingSources: false });
       throw err;

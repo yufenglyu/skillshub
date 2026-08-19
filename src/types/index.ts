@@ -470,3 +470,16 @@ export interface SkillSourceUpdateProgress {
   name: string;
   skillId: string;
 }
+
+export type SkillSourceUpdateStatus = "updated" | "unchanged" | "failed" | "skipped";
+
+export interface SkillSourceUpdateItem {
+  skillId: string;
+  name: string;
+  status: SkillSourceUpdateStatus;
+  error?: string | null;
+}
+
+export interface SkillSourceUpdateReport {
+  items: SkillSourceUpdateItem[];
+}

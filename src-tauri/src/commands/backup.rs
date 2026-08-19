@@ -23,8 +23,8 @@ use crate::{
 
 const BACKUP_SCHEMA_VERSION: u32 = 1;
 const WEBDAV_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const WEBDAV_UPLOAD_TIMEOUT: Duration = Duration::from_secs(300);
-const WEBDAV_MAX_DOWNLOAD_BYTES: usize = 64 * 1024 * 1024;
+const WEBDAV_UPLOAD_TIMEOUT: Duration = Duration::from_secs(900);
+const WEBDAV_MAX_TRANSFER_BYTES: usize = 1024 * 1024 * 1024;
 const WEBDAV_MAX_LIST_BYTES: usize = 8 * 1024 * 1024;
 const WEBDAV_MAX_REDIRECTS: usize = 5;
 
@@ -476,13 +476,18 @@ fn webdav_success_or_error(
     }
 }
 
+fn ensure_webdav_archive_fits(len: usize) -> Result<(), String> {
+    if len > WEBDAV_MAX_TRANSFER_BYTES {
+        return Err("WebDAV backup exceeds size limit".to_string());
+    }
+    Ok(())
+}
+
 async fn upload_webdav_backup_impl(
     config: WebDavConfig,
     archive: Vec<u8>,
 ) -> Result<WebDavBackupFile, String> {
-    if archive.len() > WEBDAV_MAX_DOWNLOAD_BYTES {
-        return Err("WebDAV backup exceeds size limit".to_string());
-    }
+    ensure_webdav_archive_fits(archive.len())?;
     let filename = generated_backup_filename();
     let url = build_webdav_url(&config, &filename)?;
     let client = webdav_upload_client()?;
@@ -536,7 +541,7 @@ async fn download_webdav_backup_impl(
     }
     read_webdav_bytes(
         response,
-        WEBDAV_MAX_DOWNLOAD_BYTES,
+        WEBDAV_MAX_TRANSFER_BYTES,
         "WebDAV download failed",
     )
     .await
@@ -4074,17 +4079,10 @@ mod tests {
         assert!(error.contains("conflicting skill restore paths"));
     }
 
-    #[tokio::test]
-    async fn webdav_upload_rejects_backups_larger_than_download_limit() {
-        let config = WebDavConfig {
-            base_url: "https://example.com/dav".to_string(),
-            username: None,
-            password: None,
-            remote_dir: "skillshub".to_string(),
-        };
-        let too_large = vec![b'x'; WEBDAV_MAX_DOWNLOAD_BYTES + 1];
-        let error = upload_webdav_backup_impl(config, too_large)
-            .await
+    #[test]
+    fn webdav_upload_rejects_backups_larger_than_transfer_limit() {
+        assert!(ensure_webdav_archive_fits(WEBDAV_MAX_TRANSFER_BYTES).is_ok());
+        let error = ensure_webdav_archive_fits(WEBDAV_MAX_TRANSFER_BYTES + 1)
             .expect_err("oversized upload accepted");
         assert!(error.contains("size limit"));
     }

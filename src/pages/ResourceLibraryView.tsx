@@ -55,7 +55,12 @@ import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useSkillStore } from "@/stores/skillStore";
-import type { CentralSkillBundleDeletePreview, SkillSourceUpdateProgress, SkillWithLinks } from "@/types";
+import type {
+  CentralSkillBundleDeletePreview,
+  SkillSourceUpdateProgress,
+  SkillSourceUpdateReport,
+  SkillWithLinks,
+} from "@/types";
 
 function EmptyState({ message }: { message: string }) {
   return (
@@ -79,26 +84,32 @@ function resourceSkillSourceRepo(skill: SkillWithLinks): string | null {
   return skill.source_repo ?? githubRepoFromSourceLabel(skill.source) ?? null;
 }
 
-function sourceUpdateItems(skills: SkillWithLinks[], updatedIds: string[]): AppStatusTaskItem[] {
-  const updatedIdSet = new Set(updatedIds);
-  return skills
-    .filter(
-      (skill) =>
-        updatedIdSet.has(skill.id) ||
-        skill.source_url ||
-        skill.source_repo ||
-        skill.source === "local-folder"
-    )
-    .map((skill) => {
-      const repository = skill.source_repo ?? null;
-      if (updatedIdSet.has(skill.id)) {
-        return { name: skill.name, status: "updated" as const, repository };
-      }
-      if (skill.source === "local-folder") {
-        return { name: skill.name, status: "skipped" as const, repository };
-      }
-      return { name: skill.name, status: "skipped" as const, repository };
-    });
+function sourceUpdateItems(
+  skills: SkillWithLinks[],
+  report: SkillSourceUpdateReport | null | undefined
+): AppStatusTaskItem[] {
+  const byId = new Map(skills.map((skill) => [skill.id, skill]));
+  const seen = new Set<string>();
+  const items: AppStatusTaskItem[] = (report?.items ?? []).map((outcome) => {
+    seen.add(outcome.skillId);
+    const skill = byId.get(outcome.skillId);
+    return {
+      name: skill?.name ?? outcome.name,
+      status: outcome.status,
+      repository: skill?.source_repo ?? null,
+      detail: outcome.error ?? null,
+    };
+  });
+  for (const skill of skills) {
+    if (skill.source === "local-folder" && !seen.has(skill.id)) {
+      items.push({
+        name: skill.name,
+        status: "skipped",
+        repository: skill.source_repo ?? null,
+      });
+    }
+  }
+  return items;
 }
 
 function latestSkillUpdatedAt(skills: SkillWithLinks[]) {
@@ -409,17 +420,21 @@ export function ResourceLibraryView() {
       });
     }
     try {
-      const updated = await updateSourceBackedSkills();
-      const items = sourceUpdateItems(skills, updated);
+      const report = await updateSourceBackedSkills();
+      const items = sourceUpdateItems(skills, report);
+      const updatedCount = items.filter((item) => item.status === "updated").length;
+      const unchangedCount = items.filter((item) => item.status === "unchanged").length;
       const skippedCount = items.filter((item) => item.status === "skipped").length;
+      const failedCount = items.filter((item) => item.status === "failed").length;
       completeStatusTask({
-        detail: t("status.resourceSourceUpdated", { count: updated.length }),
-        updatedCount: updated.length,
+        detail: t("status.resourceSourceUpdated", { count: updatedCount }),
+        updatedCount,
+        unchangedCount,
         skippedCount,
-        failedCount: 0,
+        failedCount,
         items,
       });
-      toast.success(t("resource.updateSourcesSuccess", { count: updated.length }));
+      toast.success(t("resource.updateSourcesSuccess", { count: updatedCount }));
     } catch (err) {
       const errorMessage = formatTaskError(err);
       failStatusTask({

@@ -34,6 +34,7 @@ function itemStatusLabel(
   status: NonNullable<AppStatusTask["items"]>[number]["status"]
 ) {
   if (status === "updated") return t("status.itemUpdated");
+  if (status === "unchanged") return t("status.itemUnchanged");
   if (status === "skipped") return t("status.itemSkipped");
   if (status === "failed") return t("status.itemFailed");
   return t("status.itemSkipped");
@@ -56,6 +57,7 @@ export function AppStatusBar() {
   const hasStats =
     task &&
     (typeof task.updatedCount === "number" ||
+      typeof task.unchangedCount === "number" ||
       typeof task.skippedCount === "number" ||
       typeof task.failedCount === "number" ||
       (task.items?.length ?? 0) > 0);
@@ -130,6 +132,9 @@ export function AppStatusBar() {
               {typeof task?.updatedCount === "number" ? (
                 <span>{t("status.updatedCount", { count: task.updatedCount })}</span>
               ) : null}
+              {typeof task?.unchangedCount === "number" ? (
+                <span>{t("status.unchangedCount", { count: task.unchangedCount })}</span>
+              ) : null}
               {typeof task?.skippedCount === "number" ? (
                 <span>{t("status.skippedCount", { count: task.skippedCount })}</span>
               ) : null}
@@ -148,10 +153,14 @@ export function AppStatusBar() {
           <DialogHeader>
             <DialogTitle>{t("status.updateStats")}</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-3 gap-2 text-sm">
+          <div className="grid grid-cols-4 gap-2 text-sm">
             <div className="rounded-lg border border-border p-3">
               <div className="text-xs text-muted-foreground">{t("status.updatedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-foreground">{task?.updatedCount ?? 0}</div>
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <div className="text-xs text-muted-foreground">{t("status.unchangedLabel")}</div>
+              <div className="mt-1 text-xl font-semibold text-foreground">{task?.unchangedCount ?? 0}</div>
             </div>
             <div className="rounded-lg border border-border p-3">
               <div className="text-xs text-muted-foreground">{t("status.skippedLabel")}</div>
@@ -169,7 +178,7 @@ export function AppStatusBar() {
                   <th className="w-12 border-b border-border px-3 py-2 font-medium">{t("status.columnIndex")}</th>
                   <th className="border-b border-border px-3 py-2 font-medium">{t("status.columnName")}</th>
                   <th className="border-b border-border px-3 py-2 font-medium">{t("status.columnRepository")}</th>
-                  <th className="w-24 border-b border-border px-3 py-2 font-medium">{t("status.columnStatus")}</th>
+                  <th className="w-28 border-b border-border px-3 py-2 font-medium">{t("status.columnStatus")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -183,6 +192,7 @@ export function AppStatusBar() {
                         "border-b border-border px-3 py-2 text-xs",
                         item.status === "failed" && "text-destructive",
                         item.status === "updated" && "text-emerald-600",
+                        item.status === "unchanged" && "text-foreground",
                         item.status === "skipped" && "text-muted-foreground"
                       )}
                     >

@@ -26,10 +26,12 @@ describe("appStatusStore", () => {
     useAppStatusStore.getState().completeTask({
       detail: "Updated 3 skills",
       updatedCount: 3,
+      unchangedCount: 1,
       skippedCount: 2,
       failedCount: 1,
       items: [
         { name: "ask-matt", status: "updated", detail: "Updated" },
+        { name: "frontend-design", status: "unchanged" },
         { name: "local-demo", status: "skipped", detail: "Local folder" },
       ],
     });
@@ -40,10 +42,12 @@ describe("appStatusStore", () => {
       detail: "Updated 3 skills",
       status: "success",
       updatedCount: 3,
+      unchangedCount: 1,
       skippedCount: 2,
       failedCount: 1,
       items: [
         { name: "ask-matt", status: "updated", detail: "Updated" },
+        { name: "frontend-design", status: "unchanged" },
         { name: "local-demo", status: "skipped", detail: "Local folder" },
       ],
       completedAt: "2026-08-12T04:05:06.000Z",

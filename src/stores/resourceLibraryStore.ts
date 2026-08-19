@@ -14,6 +14,7 @@ import {
   ImportSkillsViaNpxInput,
   ImportSkillsViaNpxResult,
   ScanDirectory,
+  SkillSourceUpdateReport,
   SkillWithLinks,
 } from "@/types";
 import { BROWSER_FIXTURE_AGENTS } from "@/stores/centralSkillsStore";
@@ -56,7 +57,7 @@ interface ResourceLibraryState {
     method: string
   ) => Promise<BatchInstallResult>;
   togglePlatformLink: (skillId: string, agentId: string) => Promise<void>;
-  updateSourceBackedSkills: () => Promise<string[]>;
+  updateSourceBackedSkills: () => Promise<SkillSourceUpdateReport>;
   updateSourceBackedSkill: (skillId: string) => Promise<string>;
   importSkillsViaNpx: (input: ImportSkillsViaNpxInput) => Promise<ImportSkillsViaNpxResult>;
   addLocalSkills: (input: AddLocalResourceSkillsInput) => Promise<AddLocalResourceSkillsResult>;
@@ -166,14 +167,14 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
     set({ isUpdatingSources: true, error: null });
     if (!isTauriRuntime()) {
       set({ isUpdatingSources: false });
-      return [];
+      return { items: [] };
     }
 
     try {
-      const updated = await invoke<string[]>("update_source_backed_resource_skills");
+      const report = await invoke<SkillSourceUpdateReport>("update_source_backed_resource_skills");
       const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
       set({ skills: skills ?? [], isUpdatingSources: false });
-      return updated ?? [];
+      return report ?? { items: [] };
     } catch (err) {
       set({ error: String(err), isUpdatingSources: false });
       throw err;

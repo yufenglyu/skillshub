@@ -2,7 +2,7 @@ use chrono::Utc;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
@@ -705,6 +705,27 @@ async fn fetch_relocated_github_skill_markdown(
     Ok(Some((relocated_url, relocated_path, content)))
 }
 
+fn skill_markdown_is_current(path: &Path, content: &str) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|existing| existing == content)
+}
+
+fn is_local_only_skill_source(source_type: &str) -> bool {
+    matches!(source_type, "local-folder" | "manual")
+}
+
+fn source_update_item(
+    skill: &db::Skill,
+    status: SkillSourceUpdateStatus,
+    error: Option<String>,
+) -> SkillSourceUpdateItem {
+    SkillSourceUpdateItem {
+        skill_id: skill.id.clone(),
+        name: skill.name.clone(),
+        status,
+        error,
+    }
+}
+
 async fn apply_source_update_content(
     pool: &db::DbPool,
     skill: &db::Skill,
@@ -712,11 +733,14 @@ async fn apply_source_update_content(
     used_url: String,
     relocated_source_path: Option<String>,
     content: String,
-) -> Result<String, String> {
+) -> Result<SkillSourceUpdateStatus, String> {
     validate_update_skill_markdown(&skill.id, &content)?;
     let skill_md_path = PathBuf::from(&skill.file_path);
-    std::fs::write(&skill_md_path, content)
-        .map_err(|e| format!("Failed to write update for {}: {}", skill.id, e))?;
+    let unchanged = skill_markdown_is_current(&skill_md_path, &content);
+    if !unchanged {
+        std::fs::write(&skill_md_path, &content)
+            .map_err(|e| format!("Failed to write update for {}: {}", skill.id, e))?;
+    }
     if source.source_url.as_deref() != Some(used_url.as_str())
         || relocated_source_path
             .as_deref()
@@ -729,7 +753,11 @@ async fn apply_source_update_content(
         source.updated_at = Utc::now().to_rfc3339();
         db::upsert_skill_source(pool, source).await?;
     }
-    Ok(skill.id.clone())
+    Ok(if unchanged {
+        SkillSourceUpdateStatus::Unchanged
+    } else {
+        SkillSourceUpdateStatus::Updated
+    })
 }
 
 fn sanitize_local_skill_id(name: &str) -> Result<String, String> {
@@ -1054,6 +1082,30 @@ pub struct SkillSourceUpdateProgress {
     pub skill_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillSourceUpdateStatus {
+    Updated,
+    Unchanged,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSourceUpdateItem {
+    pub skill_id: String,
+    pub name: String,
+    pub status: SkillSourceUpdateStatus,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillSourceUpdateReport {
+    pub items: Vec<SkillSourceUpdateItem>,
+}
+
 fn emit_source_update_progress(
     app: Option<&AppHandle>,
     current: u32,
@@ -1078,7 +1130,7 @@ fn emit_source_update_progress(
 pub async fn update_source_backed_central_skills(
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<Vec<String>, String> {
+) -> Result<SkillSourceUpdateReport, String> {
     update_source_backed_skills_impl(&state.db, true, Some(&app)).await
 }
 
@@ -1086,7 +1138,7 @@ pub async fn update_source_backed_central_skills(
 pub async fn update_source_backed_resource_skills(
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<Vec<String>, String> {
+) -> Result<SkillSourceUpdateReport, String> {
     update_source_backed_skills_impl(&state.db, false, Some(&app)).await
 }
 
@@ -1094,7 +1146,7 @@ async fn update_source_backed_skills_impl(
     pool: &db::DbPool,
     is_central: bool,
     app: Option<&AppHandle>,
-) -> Result<Vec<String>, String> {
+) -> Result<SkillSourceUpdateReport, String> {
     let sources = db::get_all_skill_sources(pool).await?;
     let syncs = db::get_all_skill_source_syncs(pool).await?;
     let syncs_by_skill = syncs
@@ -1106,8 +1158,7 @@ async fn update_source_backed_skills_impl(
         .user_agent("SkillsHub/0.10.7")
         .build()
         .map_err(|e| e.to_string())?;
-    let mut updated = Vec::new();
-    let mut failures = Vec::new();
+    let mut items = Vec::new();
     let mut github_jobs: Vec<(db::SkillSource, db::Skill)> = Vec::new();
     let mut npx_repo_sources: HashMap<String, Vec<(db::SkillSource, db::Skill)>> = HashMap::new();
     let mut npx_skill_sources = Vec::new();
@@ -1117,6 +1168,15 @@ async fn update_source_backed_skills_impl(
             continue;
         };
         if skill.is_central != is_central {
+            continue;
+        }
+
+        if is_local_only_skill_source(&source.source_type) {
+            items.push(source_update_item(
+                &skill,
+                SkillSourceUpdateStatus::Skipped,
+                None,
+            ));
             continue;
         }
 
@@ -1145,6 +1205,14 @@ async fn update_source_backed_skills_impl(
         }
 
         if github_raw_update_urls(&source).is_empty() {
+            items.push(source_update_item(
+                &skill,
+                SkillSourceUpdateStatus::Failed,
+                Some(format!(
+                    "Skill '{}' source is not an updatable SKILL.md file",
+                    skill.id
+                )),
+            ));
             continue;
         }
         github_jobs.push((source, skill));
@@ -1168,13 +1236,20 @@ async fn update_source_backed_skills_impl(
                             (used_url, Some(source_path), content)
                         }
                         Ok(None) => {
-                            failures.push(format!("{}: {}", skill.id, primary_error));
+                            items.push(source_update_item(
+                                &skill,
+                                SkillSourceUpdateStatus::Failed,
+                                Some(primary_error),
+                            ));
                             continue;
                         }
                         Err(relocate_error) => {
-                            failures.push(format!(
-                                "{}: {}; relocate failed: {}",
-                                skill.id, primary_error, relocate_error
+                            items.push(source_update_item(
+                                &skill,
+                                SkillSourceUpdateStatus::Failed,
+                                Some(format!(
+                                    "{primary_error}; relocate failed: {relocate_error}"
+                                )),
                             ));
                             continue;
                         }
@@ -1191,9 +1266,13 @@ async fn update_source_backed_skills_impl(
         )
         .await
         {
-            Ok(skill_id) => updated.push(skill_id),
+            Ok(status) => items.push(source_update_item(&skill, status, None)),
             Err(error) => {
-                failures.push(format!("{}: {}", skill.id, error));
+                items.push(source_update_item(
+                    &skill,
+                    SkillSourceUpdateStatus::Failed,
+                    Some(error),
+                ));
             }
         }
     }
@@ -1210,8 +1289,44 @@ async fn update_source_backed_skills_impl(
             .unwrap_or(repo.as_str());
         emit_source_update_progress(app, current, total, progress_name, progress_id);
         match update_npx_repo_source_group(pool, &repo, &group, auth.as_deref()).await {
-            Ok(group_updated) => updated.extend(group_updated),
-            Err(error) => failures.push(format!("{repo}: {error}")),
+            Ok(result) if result.unchanged => {
+                for (_, skill) in group {
+                    items.push(source_update_item(
+                        &skill,
+                        SkillSourceUpdateStatus::Unchanged,
+                        None,
+                    ));
+                }
+            }
+            Ok(result) => {
+                for (_, skill) in group {
+                    if result.updated_ids.contains(&skill.id) {
+                        items.push(source_update_item(
+                            &skill,
+                            SkillSourceUpdateStatus::Updated,
+                            None,
+                        ));
+                    } else {
+                        items.push(source_update_item(
+                            &skill,
+                            SkillSourceUpdateStatus::Failed,
+                            Some(
+                                "The skill was not returned by the latest repository import."
+                                    .to_string(),
+                            ),
+                        ));
+                    }
+                }
+            }
+            Err(error) => {
+                for (_, skill) in group {
+                    items.push(source_update_item(
+                        &skill,
+                        SkillSourceUpdateStatus::Failed,
+                        Some(error.clone()),
+                    ));
+                }
+            }
         }
     }
 
@@ -1219,20 +1334,25 @@ async fn update_source_backed_skills_impl(
         current += 1;
         emit_source_update_progress(app, current, total, &skill.name, &skill.id);
         match update_npx_skill_source(pool, &source, &skill, auth.as_deref()).await {
-            Ok(Some(skill_id)) => updated.push(skill_id),
-            Ok(None) => {}
-            Err(error) => failures.push(format!("{}: {}", skill.id, error)),
+            Ok(Some(_)) => items.push(source_update_item(
+                &skill,
+                SkillSourceUpdateStatus::Updated,
+                None,
+            )),
+            Ok(None) => items.push(source_update_item(
+                &skill,
+                SkillSourceUpdateStatus::Unchanged,
+                None,
+            )),
+            Err(error) => items.push(source_update_item(
+                &skill,
+                SkillSourceUpdateStatus::Failed,
+                Some(error),
+            )),
         }
     }
 
-    if updated.is_empty() && !failures.is_empty() {
-        return Err(format!(
-            "No skills were updated. Failures: {}",
-            failures.join("; ")
-        ));
-    }
-
-    Ok(updated)
+    Ok(SkillSourceUpdateReport { items })
 }
 
 fn npx_source_input(source: &db::SkillSource) -> Option<String> {
@@ -1318,12 +1438,17 @@ async fn record_npx_sync_status(
     .await
 }
 
+struct NpxRepoGroupUpdate {
+    updated_ids: HashSet<String>,
+    unchanged: bool,
+}
+
 async fn update_npx_repo_source_group(
     pool: &db::DbPool,
     repo: &str,
     group: &[(db::SkillSource, db::Skill)],
     auth: Option<&str>,
-) -> Result<Vec<String>, String> {
+) -> Result<NpxRepoGroupUpdate, String> {
     let remote_ref = fetch_npx_source_remote_ref(repo, auth).await?;
     let mut last_remote_ref = None;
     for (source, _) in group {
@@ -1354,7 +1479,10 @@ async fn update_npx_repo_source_group(
             )
             .await?;
         }
-        return Ok(Vec::new());
+        return Ok(NpxRepoGroupUpdate {
+            updated_ids: HashSet::new(),
+            unchanged: true,
+        });
     }
 
     let request = skills_cli::ImportSkillsViaNpxRequest {
@@ -1401,7 +1529,10 @@ async fn update_npx_repo_source_group(
             .await?;
         }
     }
-    Ok(imported_ids.into_iter().collect())
+    Ok(NpxRepoGroupUpdate {
+        updated_ids: imported_ids,
+        unchanged: false,
+    })
 }
 
 async fn update_npx_skill_source(
@@ -1514,17 +1645,20 @@ async fn update_source_backed_skill_impl(
     if let Some(request) = skills_cli::npx_update_request_from_source(&source) {
         let auth = github_import::github_direct_auth_from_settings(pool).await?;
         if request.skill.is_none() {
-            let updated = update_npx_repo_source_group(
+            let result = update_npx_repo_source_group(
                 pool,
                 &request.input,
                 &[(source.clone(), skill.clone())],
                 auth.as_deref(),
             )
             .await?;
-            return Ok(updated
-                .into_iter()
-                .find(|updated_skill_id| updated_skill_id == &skill.id)
-                .unwrap_or_else(|| skill.id.clone()));
+            if result.unchanged || result.updated_ids.contains(&skill.id) {
+                return Ok(skill.id.clone());
+            }
+            return Err(
+                "npx skills did not import this skill; it may have been removed or renamed upstream."
+                    .to_string(),
+            );
         }
         return update_npx_skill_source(pool, &source, &skill, auth.as_deref())
             .await
@@ -1562,7 +1696,8 @@ async fn update_source_backed_skill_impl(
         relocated_source_path,
         content,
     )
-    .await
+    .await?;
+    Ok(skill.id.clone())
 }
 
 // ─── AI Explanation ──────────────────────────────────────────────────────────
@@ -2382,11 +2517,11 @@ mod tests {
         add_registry_impl, cache_skill_explanation, classify_reqwest_error,
         detect_explanation_api_protocol, format_reqwest_error, get_fallback_endpoint,
         github_raw_update_urls, install_marketplace_skill_content_impl,
-        is_updatable_skill_source_url, load_cached_skill_explanation,
-        marketplace_skills_from_candidates, registry_has_cached_skills,
-        relocated_github_skill_md_url, search_marketplace_skills_impl, sync_registry_impl,
-        validate_update_skill_markdown, ExplanationApiProtocol, ExplanationErrorKind,
-        RegistryCacheMetadata, RegistrySyncStatus, SyncRegistryOptions,
+        is_local_only_skill_source, is_updatable_skill_source_url,
+        load_cached_skill_explanation, marketplace_skills_from_candidates, registry_has_cached_skills,
+        relocated_github_skill_md_url, search_marketplace_skills_impl, skill_markdown_is_current,
+        sync_registry_impl, validate_update_skill_markdown, ExplanationApiProtocol,
+        ExplanationErrorKind, RegistryCacheMetadata, RegistrySyncStatus, SyncRegistryOptions,
     };
     use crate::commands::github_import::RemoteSkillCandidate;
     use crate::db;
@@ -3050,6 +3185,34 @@ mod tests {
                 "https://raw.githubusercontent.com/example/skills/master/skills/brand-guidelines/SKILL.md",
             ]
         );
+    }
+
+    #[test]
+    fn skill_markdown_is_current_detects_identical_and_changed_files() {
+        let dir = tempdir().expect("create tempdir");
+        let path = dir.path().join("SKILL.md");
+        std::fs::write(&path, "---\nname: demo\n---\nbody\n").unwrap();
+        assert!(skill_markdown_is_current(
+            &path,
+            "---\nname: demo\n---\nbody\n"
+        ));
+        assert!(!skill_markdown_is_current(
+            &path,
+            "---\nname: demo\n---\nupdated\n"
+        ));
+        assert!(!skill_markdown_is_current(
+            &dir.path().join("missing.md"),
+            "---\nname: demo\n---\nbody\n"
+        ));
+    }
+
+    #[test]
+    fn local_only_skill_sources_are_skipped_during_source_updates() {
+        assert!(is_local_only_skill_source("local-folder"));
+        assert!(is_local_only_skill_source("manual"));
+        assert!(!is_local_only_skill_source("github"));
+        assert!(!is_local_only_skill_source("skills-cli"));
+        assert!(!is_local_only_skill_source("marketplace"));
     }
 
     #[test]
