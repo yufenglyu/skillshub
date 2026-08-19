@@ -590,6 +590,58 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: /Demo Project/ })).toBeInTheDocument();
   });
 
+  it("indents lobster and coding platform lists like project directories", () => {
+    renderSidebar("/central", {
+      platformState: {
+        ...defaultStoreState,
+        agents: [
+          ...defaultStoreState.agents,
+          {
+            id: "openclaw",
+            display_name: "OpenClaw",
+            category: "lobster",
+            global_skills_dir: "~/.openclaw/skills/",
+            is_detected: true,
+            is_builtin: true,
+            is_enabled: true,
+          },
+          {
+            id: "project:7",
+            display_name: "Demo Project",
+            category: "project",
+            global_skills_dir: "D:\\Projects\\Demo\\.agents\\skills",
+            project_skills_dir: ".agents/skills",
+            is_detected: true,
+            is_builtin: false,
+            is_enabled: true,
+          },
+        ],
+        skillsByAgent: {
+          ...defaultStoreState.skillsByAgent,
+          openclaw: 1,
+          "project:7": 2,
+        },
+      },
+    });
+
+    const nestedListClass = "ml-3 border-l border-sidebar-border/70 pl-2";
+    const lobsterHeading = screen.getByText("龙虾类");
+    const codingHeading = screen.getByText("编程类");
+    const openClawButton = screen.getByRole("button", { name: /OpenClaw/ });
+    const claudeButton = screen.getByRole("button", { name: /Claude Code/ });
+    const projectButton = screen.getByRole("button", { name: /Demo Project/ });
+
+    const lobsterList = openClawButton.closest("div.ml-3");
+    const codingList = claudeButton.closest("div.ml-3");
+    const projectList = projectButton.closest("div.ml-3");
+
+    expect(lobsterList).toHaveClass(...nestedListClass.split(" "));
+    expect(codingList).toHaveClass(...nestedListClass.split(" "));
+    expect(projectList).toHaveClass(...nestedListClass.split(" "));
+    expect(lobsterList?.contains(lobsterHeading)).toBe(false);
+    expect(codingList?.contains(codingHeading)).toBe(false);
+  });
+
   it("renders show all platforms toggle", () => {
     renderSidebar();
     expect(screen.getByText("软件平台")).toBeInTheDocument();

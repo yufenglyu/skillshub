@@ -33,6 +33,7 @@ describe("SkillColumnSettings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "显示列" }));
 
+    expect(screen.getByLabelText("序号")).toBeDisabled();
     expect(screen.getByLabelText("名称")).toBeDisabled();
     expect(screen.getByLabelText("操作")).toBeDisabled();
   });

@@ -2580,6 +2580,47 @@ pub async fn add_scan_directory(
         .map_err(|e| e.to_string())
 }
 
+/// Update a custom scan directory path and label.
+pub async fn update_scan_directory(
+    pool: &DbPool,
+    path: &str,
+    new_path: &str,
+    label: Option<&str>,
+) -> Result<ScanDirectory, String> {
+    let new_path = new_path.trim();
+    if new_path.is_empty() {
+        return Err("Scan directory path cannot be empty".to_string());
+    }
+
+    let row = sqlx::query("SELECT id, is_builtin FROM scan_directories WHERE path = ?")
+        .bind(path)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    match row {
+        None => Err(format!("Scan directory '{}' not found", path)),
+        Some(r) => {
+            let is_builtin: bool = r.try_get("is_builtin").map_err(|e| e.to_string())?;
+            if is_builtin {
+                return Err(format!("Cannot update built-in scan directory '{}'", path));
+            }
+            sqlx::query("UPDATE scan_directories SET path = ?, label = ? WHERE path = ?")
+                .bind(new_path)
+                .bind(label)
+                .bind(path)
+                .execute(pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            sqlx::query_as::<_, ScanDirectory>("SELECT * FROM scan_directories WHERE path = ?")
+                .bind(new_path)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| e.to_string())
+        }
+    }
+}
+
 /// Remove a scan directory. Returns an error if the directory is builtin.
 pub async fn remove_scan_directory(pool: &DbPool, path: &str) -> Result<(), String> {
     let row = sqlx::query("SELECT id, is_builtin FROM scan_directories WHERE path = ?")
@@ -3846,6 +3887,24 @@ mod tests {
         assert_eq!(dir.label.as_deref(), Some("My Project"));
         assert!(dir.is_active);
         assert!(!dir.is_builtin);
+    }
+
+    #[tokio::test]
+    async fn test_update_scan_directory_label_and_path() {
+        let pool = setup_test_db().await;
+        add_scan_directory(&pool, "/tmp/old-project", Some("Old"))
+            .await
+            .unwrap();
+        let updated = update_scan_directory(
+            &pool,
+            "/tmp/old-project",
+            "/tmp/new-project",
+            Some("New Name"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(updated.path, "/tmp/new-project");
+        assert_eq!(updated.label.as_deref(), Some("New Name"));
     }
 
     #[tokio::test]

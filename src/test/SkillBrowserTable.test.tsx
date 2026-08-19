@@ -23,6 +23,8 @@ describe("SkillBrowserTable", () => {
       />
     );
 
+    expect(screen.getByRole("columnheader", { name: "序号" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "序号" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "名称" })).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "创建时间" })).not.toBeInTheDocument();
     expect(screen.getByText("owner/repo")).toBeInTheDocument();
@@ -31,6 +33,54 @@ describe("SkillBrowserTable", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "查看 api-skill 的详情" }));
     expect(onDetail).toHaveBeenCalled();
+  });
+
+  it("shows a leftmost index column for skills and folders", () => {
+    const { rerender } = render(
+      <SkillBrowserTable
+        kind="skill"
+        visibleColumns={new Set(["name", "actions"])}
+        skills={[
+          { rowKey: "one", name: "api-skill" },
+          { rowKey: "two", name: "cli-skill" },
+        ]}
+      />
+    );
+
+    expect(
+      screen.getAllByRole("columnheader").map((header) => header.getAttribute("aria-label"))
+    ).toEqual(["序号", "名称", "操作"]);
+    expect(screen.getByRole("cell", { name: "1" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "2" })).toBeInTheDocument();
+
+    rerender(
+      <SkillBrowserTable
+        kind="folder"
+        visibleColumns={new Set(["name", "actions"])}
+        folders={[
+          {
+            key: "owner/repo",
+            name: "owner/repo",
+            path: "D:/Skills/owner/repo",
+            skillCount: 3,
+            onOpen: vi.fn(),
+          },
+          {
+            key: "other/repo",
+            name: "other/repo",
+            path: "D:/Skills/other/repo",
+            skillCount: 1,
+            onOpen: vi.fn(),
+          },
+        ]}
+      />
+    );
+
+    expect(
+      screen.getAllByRole("columnheader").map((header) => header.getAttribute("aria-label"))
+    ).toEqual(["序号", "名称", "操作"]);
+    expect(screen.getByRole("cell", { name: "1" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "2" })).toBeInTheDocument();
   });
 
   it("sorts from sortable column headers and keeps the actions header left aligned", () => {
@@ -244,13 +294,13 @@ describe("SkillBrowserTable", () => {
       />
     );
 
-    const availableRow = screen.getByRole("row", { name: /^available/ });
+    const availableRow = screen.getByRole("row", { name: /available/ });
     expect(within(availableRow).getByRole("button", { name: "加入中央技能库" })).toBeInTheDocument();
     expect(within(availableRow).getByRole("button", { name: "安装到平台或项目" })).toBeInTheDocument();
     expect(availableRow.querySelector(".lucide-plus")).toBeInTheDocument();
     expect(availableRow.querySelector(".lucide-package-plus")).toBeInTheDocument();
 
-    const installedRow = screen.getByRole("row", { name: /^installed/ });
+    const installedRow = screen.getByRole("row", { name: /installed/ });
     expect(within(installedRow).getByRole("button", { name: "从中央技能库移除" })).toBeInTheDocument();
     expect(within(installedRow).getByRole("button", { name: "从平台或项目卸载" })).toBeInTheDocument();
     expect(installedRow.querySelector(".lucide-minus")).toBeInTheDocument();
@@ -273,18 +323,38 @@ describe("SkillBrowserTable", () => {
       document.dispatchEvent(new PointerEvent("pointerup"));
     });
 
-    const nameColumn = document.querySelector("colgroup col");
+    const nameColumn = document.querySelectorAll("colgroup col")[1];
     expect(nameColumn).toHaveStyle({
       width: "444px",
     });
 
-    const nameCellContent = screen.getByText("api-skill").closest("td")?.firstElementChild;
-    Object.defineProperty(nameCellContent, "scrollWidth", {
-      configurable: true,
-      value: 520,
-    });
     fireEvent.doubleClick(handle);
-    expect(nameColumn).toHaveStyle({ width: "520px" });
+    const fittedWidth = Number.parseInt(nameColumn.getAttribute("style")?.match(/width:\s*(\d+)/)?.[1] ?? "0", 10);
+    expect(fittedWidth).toBeGreaterThanOrEqual(80);
+    expect(fittedWidth).toBeLessThan(200);
+  });
+
+  it("lets the index column be resized below the default column minimum", () => {
+    window.localStorage.removeItem("skills-manage.skillTableColumnWidths.skill");
+    render(
+      <SkillBrowserTable
+        kind="skill"
+        visibleColumns={new Set(["name", "actions"])}
+        skills={[{ rowKey: "one", name: "api-skill" }]}
+      />
+    );
+
+    const indexColumn = document.querySelector("colgroup col");
+    expect(indexColumn).toHaveStyle({ width: "40px" });
+
+    const handle = screen.getByRole("separator", { name: "调整 序号 列宽" });
+    fireEvent.pointerDown(handle, { clientX: 100 });
+    act(() => {
+      document.dispatchEvent(new PointerEvent("pointermove", { clientX: 70 }));
+      document.dispatchEvent(new PointerEvent("pointerup"));
+    });
+
+    expect(indexColumn).toHaveStyle({ width: "32px" });
   });
 
   it("renders folder rows and invokes folder actions", () => {
@@ -380,7 +450,7 @@ describe("SkillBrowserTable", () => {
     expect(screen.getByText("2026-08-14")).toBeInTheDocument();
     expect(
       screen.getAllByRole("columnheader").map((header) => header.getAttribute("aria-label"))
-    ).toEqual(["名称", "创建时间", "更新时间", "安装统计", "操作"]);
+    ).toEqual(["序号", "名称", "创建时间", "更新时间", "安装统计", "操作"]);
   });
 
   it("splits folder install summary into platforms, projects, and shared targets", () => {

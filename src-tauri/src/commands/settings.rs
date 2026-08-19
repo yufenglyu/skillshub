@@ -1,7 +1,10 @@
 use tauri::State;
 
 use crate::db::{self, Agent, DbPool, ScanDirectory};
-use crate::path_utils::{expand_home_path, path_to_string};
+use crate::path_utils::{
+    copy_app_data_dir, expand_home_path, normalize_app_data_dir, path_to_string,
+    app_data_dir, write_app_data_dir_override,
+};
 use crate::AppState;
 
 const GITHUB_LATEST_RELEASE_API: &str =
@@ -47,6 +50,21 @@ pub async fn add_scan_directory_impl(
     }
     let expanded_path = path_to_string(&expand_home_path(path));
     db::add_scan_directory(pool, &expanded_path, label).await
+}
+
+pub async fn update_scan_directory_impl(
+    pool: &DbPool,
+    path: &str,
+    new_path: &str,
+    label: Option<&str>,
+) -> Result<ScanDirectory, String> {
+    let new_path = new_path.trim();
+    if new_path.is_empty() {
+        return Err("Scan directory path cannot be empty".to_string());
+    }
+    let expanded_path = path_to_string(&expand_home_path(new_path));
+    let normalized_label = label.map(str::trim).filter(|value| !value.is_empty());
+    db::update_scan_directory(pool, path, &expanded_path, normalized_label).await
 }
 
 /// Remove a custom (non-builtin) scan directory by path.
@@ -128,6 +146,27 @@ pub async fn update_skill_resource_library_dir_impl(
     Ok(path_to_string(
         &db::set_skill_resource_library_dir(pool, path).await?,
     ))
+}
+
+pub fn get_app_data_dir_impl() -> String {
+    path_to_string(&app_data_dir())
+}
+
+pub async fn update_app_data_dir_impl(pool: &DbPool, path: &str) -> Result<String, String> {
+    let next = normalize_app_data_dir(path)?;
+    let current = app_data_dir();
+    if next != current && !next.join("db.sqlite").exists() {
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Failed to checkpoint database before copy: {}", e))?;
+        copy_app_data_dir(&current, &next)?;
+    } else {
+        std::fs::create_dir_all(&next)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    }
+    write_app_data_dir_override(&next)?;
+    Ok(path_to_string(&next))
 }
 
 pub async fn check_app_update_impl(pool: &DbPool) -> Result<AppUpdateInfo, String> {
@@ -270,6 +309,16 @@ pub async fn add_scan_directory(
     add_scan_directory_impl(&state.db, &path, label.as_deref()).await
 }
 
+#[tauri::command]
+pub async fn update_scan_directory(
+    state: State<'_, AppState>,
+    path: String,
+    new_path: String,
+    label: Option<String>,
+) -> Result<ScanDirectory, String> {
+    update_scan_directory_impl(&state.db, &path, &new_path, label.as_deref()).await
+}
+
 /// Tauri command: remove a custom scan directory by path.
 #[tauri::command]
 pub async fn remove_scan_directory(state: State<'_, AppState>, path: String) -> Result<(), String> {
@@ -324,6 +373,19 @@ pub async fn update_skill_resource_library_dir(
     path: String,
 ) -> Result<String, String> {
     update_skill_resource_library_dir_impl(&state.db, &path).await
+}
+
+#[tauri::command]
+pub fn get_app_data_dir() -> String {
+    get_app_data_dir_impl()
+}
+
+#[tauri::command]
+pub async fn update_app_data_dir(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    update_app_data_dir_impl(&state.db, &path).await
 }
 
 #[tauri::command]
@@ -424,6 +486,19 @@ mod tests {
             .await
             .unwrap();
         assert!(dir.label.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_update_scan_directory_changes_label() {
+        let pool = setup_test_db().await;
+        add_scan_directory_impl(&pool, "/tmp/named", Some("Old"))
+            .await
+            .unwrap();
+        let updated = update_scan_directory_impl(&pool, "/tmp/named", "/tmp/named", Some("New"))
+            .await
+            .unwrap();
+        assert_eq!(updated.label.as_deref(), Some("New"));
+        assert_eq!(updated.path, "/tmp/named");
     }
 
     #[tokio::test]
@@ -699,5 +774,12 @@ mod tests {
         assert!(is_newer_version("0.12.9", "0.13.0"));
         assert!(!is_newer_version("0.12.0", "0.12.0"));
         assert!(!is_newer_version("0.12.1", "0.12.0"));
+    }
+
+    #[tokio::test]
+    async fn test_update_app_data_dir_rejects_empty() {
+        let pool = setup_test_db().await;
+        let err = update_app_data_dir_impl(&pool, "  ").await.unwrap_err();
+        assert!(err.contains("empty"));
     }
 }

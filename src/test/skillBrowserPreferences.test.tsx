@@ -34,9 +34,11 @@ describe("skill browser preferences", () => {
   it("does not toggle fixed skill columns", () => {
     const { result } = renderHook(() => useSkillTableColumns("skill"));
 
+    act(() => result.current.toggleColumn("index"));
     act(() => result.current.toggleColumn("name"));
     act(() => result.current.toggleColumn("actions"));
 
+    expect(result.current.visibleColumns.has("index")).toBe(true);
     expect(result.current.visibleColumns.has("name")).toBe(true);
     expect(result.current.visibleColumns.has("actions")).toBe(true);
   });

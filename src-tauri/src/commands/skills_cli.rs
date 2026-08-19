@@ -9,6 +9,7 @@ use crate::commands::skills::{
     add_repo_resource_skills_impl, AddLocalResourceSkillsRequest, AddLocalResourceSkillsResult,
 };
 use crate::db::{self, DbPool};
+use crate::path_utils;
 use crate::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,16 +113,8 @@ fn skills_add_args(target: &SkillsCliImportTarget) -> Vec<String> {
     args
 }
 
-fn app_data_dir() -> Result<PathBuf, String> {
-    let home = std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(PathBuf::from)
-        .ok_or_else(|| "Failed to determine user home directory".to_string())?;
-    Ok(home.join(".skillshub"))
-}
-
 fn create_skills_cli_staging_dir() -> Result<PathBuf, String> {
-    let staging_root = app_data_dir()?.join("staging").join("skills-cli");
+    let staging_root = path_utils::app_data_dir().join("staging").join("skills-cli");
     std::fs::create_dir_all(&staging_root)
         .map_err(|e| format!("Failed to create skills CLI staging directory: {}", e))?;
     let dir = staging_root.join(format!(

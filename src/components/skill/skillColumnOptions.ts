@@ -7,6 +7,7 @@ export interface SkillColumnOption {
 }
 
 export const SKILL_COLUMN_OPTIONS: SkillColumnOption[] = [
+  { key: "index", labelKey: "skillBrowser.columns.index", fixed: true },
   { key: "name", labelKey: "skillBrowser.columns.name", fixed: true },
   { key: "source", labelKey: "skillBrowser.columns.source" },
   { key: "createdAt", labelKey: "skillBrowser.columns.createdAt" },
@@ -18,6 +19,7 @@ export const SKILL_COLUMN_OPTIONS: SkillColumnOption[] = [
 ];
 
 export const FOLDER_COLUMN_OPTIONS: SkillColumnOption[] = [
+  { key: "index", labelKey: "skillBrowser.columns.index", fixed: true },
   { key: "name", labelKey: "skillBrowser.columns.name", fixed: true },
   { key: "path", labelKey: "skillBrowser.columns.path" },
   { key: "skillCount", labelKey: "skillBrowser.columns.skillCount" },

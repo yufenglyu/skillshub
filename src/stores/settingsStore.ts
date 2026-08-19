@@ -31,6 +31,7 @@ interface SettingsState {
   // Actions — scan directories
   loadScanDirectories: () => Promise<void>;
   addScanDirectory: (path: string, label?: string) => Promise<ScanDirectory>;
+  updateScanDirectory: (path: string, nextPath: string, label?: string) => Promise<ScanDirectory>;
   removeScanDirectory: (path: string) => Promise<void>;
   toggleScanDirectory: (path: string, active: boolean) => Promise<void>;
 
@@ -50,7 +51,11 @@ interface SettingsState {
   updateCentralSkillsDir: (path: string) => Promise<AgentWithStatus>;
   loadResourceLibraryDir: () => Promise<void>;
   updateResourceLibraryDir: (path: string) => Promise<string>;
-  exportAppBackup: (options?: BackupOptions) => Promise<Uint8Array>;
+  configDir: string;
+  isLoadingConfigDir: boolean;
+  loadConfigDir: () => Promise<void>;
+  updateConfigDir: (path: string) => Promise<string>;
+  exportAppBackup: (destPath: string, options?: BackupOptions) => Promise<void>;
   importAppBackup: (backup: Uint8Array) => Promise<void>;
   listWebDavBackups: (config: WebDavConfig) => Promise<WebDavBackupFile[]>;
   testWebDavConnection: (config: WebDavConfig) => Promise<void>;
@@ -93,6 +98,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   isSavingGitHubPat: false,
   resourceLibraryDir: "",
   isLoadingResourceLibraryDir: false,
+  configDir: "",
+  isLoadingConfigDir: false,
   webDavConfig: DEFAULT_WEBDAV_CONFIG,
   isLoadingWebDavConfig: false,
   isSavingWebDavConfig: false,
@@ -126,6 +133,20 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     // Refresh the list
     set((state) => ({
       scanDirectories: [...state.scanDirectories, dir],
+    }));
+    return dir;
+  },
+
+  updateScanDirectory: async (path: string, nextPath: string, label?: string) => {
+    const dir = await invoke<ScanDirectory>("update_scan_directory", {
+      path,
+      newPath: nextPath,
+      label: label || null,
+    });
+    set((state) => ({
+      scanDirectories: state.scanDirectories.map((item) =>
+        item.path === path ? dir : item
+      ),
     }));
     return dir;
   },
@@ -303,11 +324,27 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     return updated;
   },
 
-  exportAppBackup: async (options) => {
-    const backup = await invoke<number[] | Uint8Array>("export_app_backup", {
+  loadConfigDir: async () => {
+    set({ isLoadingConfigDir: true, error: null });
+    try {
+      const path = await invoke<string>("get_app_data_dir");
+      set({ configDir: path, isLoadingConfigDir: false });
+    } catch (err) {
+      set({ error: String(err), isLoadingConfigDir: false });
+    }
+  },
+
+  updateConfigDir: async (path: string) => {
+    const updated = await invoke<string>("update_app_data_dir", { path });
+    set({ configDir: updated });
+    return updated;
+  },
+
+  exportAppBackup: async (destPath, options) => {
+    await invoke("export_app_backup_to_path", {
+      destPath,
       options: options ?? null,
     });
-    return toBackupBytes(backup);
   },
 
   importAppBackup: async (backup: Uint8Array) => {

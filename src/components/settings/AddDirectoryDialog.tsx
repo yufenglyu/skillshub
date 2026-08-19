@@ -15,51 +15,76 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { normalizePathForInputDisplay } from "@/lib/path";
-
-// ─── Props ────────────────────────────────────────────────────────────────────
+import { ScanDirectory } from "@/types";
+import { projectDirectoryName } from "@/lib/projectTargets";
+import { formatPathForDisplay, normalizePathForInputDisplay } from "@/lib/path";
 
 interface AddDirectoryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAdd: (path: string) => Promise<void>;
+  directory?: ScanDirectory | null;
+  onAdd: (path: string, label: string) => Promise<void>;
+  onEdit?: (path: string, nextPath: string, label: string) => Promise<void>;
 }
 
-// ─── AddDirectoryDialog ───────────────────────────────────────────────────────
+function folderNameFromPath(path: string) {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
 
 export function AddDirectoryDialog({
   open,
   onOpenChange,
+  directory = null,
   onAdd,
+  onEdit,
 }: AddDirectoryDialogProps) {
   const { t } = useTranslation();
+  const isEditMode = directory !== null;
+  const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset form when dialog opens.
   useEffect(() => {
     if (open) {
-      setPath("");
+      setName(directory ? projectDirectoryName(directory) : "");
+      setPath(directory ? formatPathForDisplay(directory.path) : "");
+      setNameError(null);
       setValidationError(null);
       setError(null);
     }
-  }, [open]);
+  }, [open, directory]);
 
   async function handleSubmit() {
+    const trimmedName = name.trim();
     const trimmedPath = path.trim();
+    let hasError = false;
+    if (!trimmedName) {
+      setNameError(t("addDir.nameRequired"));
+      hasError = true;
+    } else {
+      setNameError(null);
+    }
     if (!trimmedPath) {
       setValidationError(t("addDir.pathRequired"));
-      return;
+      hasError = true;
+    } else {
+      setValidationError(null);
     }
+    if (hasError) return;
 
     setIsSubmitting(true);
-    setValidationError(null);
     setError(null);
 
     try {
-      await onAdd(trimmedPath);
+      if (isEditMode && directory && onEdit) {
+        await onEdit(directory.path, trimmedPath, trimmedName);
+      } else {
+        await onAdd(trimmedPath, trimmedName);
+      }
       onOpenChange(false);
     } catch (err) {
       setError(String(err));
@@ -70,7 +95,7 @@ export function AddDirectoryDialog({
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !isSubmitting) {
-      handleSubmit();
+      void handleSubmit();
     }
   }
 
@@ -81,24 +106,51 @@ export function AddDirectoryDialog({
       title: t("addDir.browseTitle"),
     });
     if (typeof selected !== "string") return;
-    setPath(normalizePathForInputDisplay(selected));
+    const nextPath = normalizePathForInputDisplay(selected);
+    setPath(nextPath);
     setValidationError(null);
+    if (!name.trim()) {
+      setName(folderNameFromPath(nextPath));
+      setNameError(null);
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t("addDir.title")}</DialogTitle>
+          <DialogTitle>{isEditMode ? t("addDir.editTitle") : t("addDir.title")}</DialogTitle>
           <DialogClose />
         </DialogHeader>
 
         <DialogBody className="space-y-4">
           <DialogDescription>
-            {t("addDir.desc")}
+            {isEditMode ? t("addDir.editDesc") : t("addDir.desc")}
           </DialogDescription>
 
-          {/* Path field */}
+          <div className="space-y-1.5">
+            <label htmlFor="dir-name" className="text-sm font-medium">
+              {t("addDir.nameLabel")} <span className="text-destructive">*</span>
+            </label>
+            <Input
+              id="dir-name"
+              placeholder={t("addDir.namePlaceholder")}
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (nameError) setNameError(null);
+              }}
+              onKeyDown={handleKeyDown}
+              disabled={isSubmitting}
+              autoFocus
+            />
+            {nameError && (
+              <p className="text-xs text-destructive" role="alert">
+                {nameError}
+              </p>
+            )}
+          </div>
+
           <div className="space-y-1.5">
             <label htmlFor="dir-path" className="text-sm font-medium">
               {t("addDir.pathLabel")} <span className="text-destructive">*</span>
@@ -114,7 +166,6 @@ export function AddDirectoryDialog({
                 }}
                 onKeyDown={handleKeyDown}
                 disabled={isSubmitting}
-                autoFocus
               />
               <Button
                 type="button"
@@ -134,7 +185,6 @@ export function AddDirectoryDialog({
             )}
           </div>
 
-          {/* Backend error */}
           {error && (
             <p className="text-xs text-destructive" role="alert">
               {error}
@@ -150,14 +200,14 @@ export function AddDirectoryDialog({
           >
             {t("addDir.cancel")}
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
+          <Button onClick={() => void handleSubmit()} disabled={isSubmitting}>
             {isSubmitting ? (
               <>
                 <Loader2 className="size-3.5 animate-spin" />
-                {t("addDir.adding")}
+                {isEditMode ? t("addDir.saving") : t("addDir.adding")}
               </>
             ) : (
-              t("addDir.add")
+              isEditMode ? t("addDir.save") : t("addDir.add")
             )}
           </Button>
         </DialogFooter>

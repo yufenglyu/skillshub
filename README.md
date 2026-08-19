@@ -17,10 +17,10 @@ SkillsHub keeps long-term skill storage separate from where tools actually load 
 | **Skill Resource Library** | Default home for imported and locally added skills | `~/.skillshub/library` |
 | **Central Skills** | Shared compatibility library you promote into on purpose | `~/.agents/skills` |
 | **Software platforms** | Tool-specific install targets (symlink or copy) | Depends on the tool |
-| **Project directories** | Project-scoped install targets | `<project>/.agents/skills` |
+| **Project directories** | Named project-scoped install targets | `<project>/.agents/skills` |
 | **Collections** | Reusable groups of Resource Library skills | App database |
 
-Application data lives in `~/.skillshub/db.sqlite`. After upgrading from older releases, SkillsHub can migrate `~/.skillsmanage/db.sqlite` on first launch when the new database does not exist yet.
+Application data lives in a `.skillshub` folder (`~/.skillshub` by default). Put `.skillshub` next to `skillshub.exe` for a portable install, or choose another config folder in Settings. After upgrading from older releases, SkillsHub can migrate `~/.skillsmanage` on first launch when the new folder does not exist yet.
 
 ## Highlights
 
@@ -35,7 +35,7 @@ Application data lives in `~/.skillshub/db.sqlite`. After upgrading from older r
 - Promoting a skill to Central Skills writes it to `~/.agents/skills`. When Central Skills already has managed skills, newly detected platforms and configured project directories are included in central synchronization.
 - If a platform or project uses the shared `.agents/skills` path, installing there is treated as **Add to Central Skills**, not as a self-referencing platform install. Already-central skills show as shared through Central Skills.
 - Collections stay compact: create, edit, delete, batch-install, and add skills. Collection browsing is a single flat table.
-- Settings cover editable built-in platforms, custom platforms, project directories, local ZIP / WebDAV backup, and update checking. Backups exclude API keys, tokens, and password-like values.
+- Settings cover the config folder (including portable mode), Resource Library and Central Skills paths, editable built-in platforms, custom platforms, named project directories, local ZIP / WebDAV backup, and update checking. Backups exclude API keys, tokens, and password-like values.
 
 ## Screenshots
 
@@ -91,7 +91,7 @@ Built-in platform definitions can be edited or removed in Settings. Changes are 
 | Lobster | OpenClaw, AutoClaw, EasyClaw, QClaw, WorkBuddy, and related Lobster-style platforms |
 | Custom | Any local platform with a stable skills directory |
 
-The sidebar shows a built-in platform only when its configured skills directory exists locally, unless you choose to show all platforms. Software platform groups and project directory lists collapse independently.
+The sidebar shows a built-in platform only when its configured skills directory exists locally, unless you choose to show all platforms. Lobster and Coding platform lists are indented under their category headers, like Project Directories. Software platform groups and project directory lists collapse independently. Configured project directories are not treated as custom coding platforms.
 
 ## Importing And Adding Skills
 
@@ -102,7 +102,7 @@ Skills imported through `npx skills` keep the source repository, optional skill 
 
 ## Backup And Privacy
 
-SkillsHub can export and import complete local backup files. WebDAV support adds connection testing, remote listing, upload, selected restore, and selected delete.
+SkillsHub can export and import complete local backup files. Local export opens a save dialog and writes the ZIP on disk. WebDAV support adds connection testing, remote listing, upload, selected restore, and selected delete. Remote backup times are shown in the local timezone.
 
 Backups include skills, source metadata, collections, custom platform settings, regular app settings, and installation state. API keys, tokens, and passwords are excluded and must be re-entered after restore.
 
@@ -137,15 +137,15 @@ The Vite development server uses port `24200`.
 
 ## Release
 
-GitHub Actions publishes desktop packages when a version tag such as `v0.30.0` is pushed. The release workflow reads notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
+GitHub Actions publishes desktop packages when a version tag such as `v0.40.0` is pushed. The release workflow reads notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
 Local packaging scripts are still available for host-specific builds:
 
 | Platform | Command |
 |----------|---------|
-| Windows | `pnpm package:release:windows -- -Version 0.30.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.30.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.30.0` |
+| Windows | `pnpm package:release:windows -- -Version 0.40.0` |
+| macOS | `pnpm package:release:macos -- -Version 0.40.0` |
+| Linux | `pnpm package:release:linux -- -Version 0.40.0` |
 
 Use `-VersionOnly` when you only need to update version metadata before committing a release.
 

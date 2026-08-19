@@ -54,7 +54,11 @@ pub fn run() {
             migrate_legacy_app_data_if_needed(&db_dir, &legacy_db_dir)
                 .expect("Failed to migrate legacy ~/.skillsmanage data");
             fs::create_dir_all(&db_dir).expect("Failed to create ~/.skillshub directory");
-            let db_path = path_utils::path_to_string(&db_dir.join("db.sqlite"));
+            let db_path_buf = path_utils::resolve_database_path();
+            if let Some(parent) = db_path_buf.parent() {
+                fs::create_dir_all(parent).expect("Failed to create database directory");
+            }
+            let db_path = path_utils::path_to_string(&db_path_buf);
 
             // Create pool and initialize schema
             let pool = tauri::async_runtime::block_on(async {
@@ -111,6 +115,7 @@ pub fn run() {
             commands::skills_cli::import_skills_via_npx,
             // Backup
             commands::backup::export_app_backup,
+            commands::backup::export_app_backup_to_path,
             commands::backup::import_app_backup,
             commands::backup::list_webdav_backups,
             commands::backup::test_webdav_connection,
@@ -131,6 +136,7 @@ pub fn run() {
             // Settings
             commands::settings::get_scan_directories,
             commands::settings::add_scan_directory,
+            commands::settings::update_scan_directory,
             commands::settings::remove_scan_directory,
             commands::settings::set_scan_directory_active,
             commands::settings::get_setting,
@@ -138,6 +144,8 @@ pub fn run() {
             commands::settings::update_central_skills_dir,
             commands::settings::get_skill_resource_library_dir,
             commands::settings::update_skill_resource_library_dir,
+            commands::settings::get_app_data_dir,
+            commands::settings::update_app_data_dir,
             commands::settings::check_app_update,
             // Discover
             commands::discover::discover_scan_roots,

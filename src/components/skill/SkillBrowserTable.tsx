@@ -102,6 +102,7 @@ interface SkillBrowserTableProps {
 
 const FIXED_COLUMNS = new Set<string>(FIXED_SKILL_COLUMNS);
 const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
+  index: 40,
   name: 384,
   source: 180,
   createdAt: 140,
@@ -114,6 +115,7 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   actions: 120,
 };
 const MIN_COLUMN_WIDTH = 80;
+const MIN_INDEX_COLUMN_WIDTH = 32;
 const MAX_AUTO_COLUMN_WIDTH = 640;
 const COLUMN_WIDTH_EVENT = "skills-manage:skill-table-widths";
 function formatDate(value?: string | null) {
@@ -428,6 +430,84 @@ function NotesCell({ notes }: { notes?: string | null }) {
   return <span className="line-clamp-2">{notes.trim()}</span>;
 }
 
+function minColumnWidth(column: string) {
+  return column === "index" ? MIN_INDEX_COLUMN_WIDTH : MIN_COLUMN_WIDTH;
+}
+
+function cellHorizontalPadding(column: string) {
+  return column === "index" ? 16 : 24;
+}
+
+function clampAutoFitWidth(column: string, measured: number) {
+  const capped =
+    column === "notes" || column === "tags"
+      ? Math.min(measured, DEFAULT_COLUMN_WIDTHS[column] ?? 256)
+      : Math.min(measured, MAX_AUTO_COLUMN_WIDTH);
+  return Math.max(minColumnWidth(column), capped);
+}
+
+function fitLabelsForCell(cell: HTMLTableCellElement): string[] {
+  const truncated = Array.from(cell.querySelectorAll(".truncate"))
+    .map((element) => element.textContent?.trim() ?? "")
+    .filter(Boolean);
+  if (truncated.length > 0) return truncated;
+
+  const labels: string[] = [];
+  for (const child of Array.from(cell.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      const text = child.textContent?.trim();
+      if (text) labels.push(text);
+      continue;
+    }
+    if (!(child instanceof HTMLElement)) continue;
+    if (child.getAttribute("role") === "separator") continue;
+    const text = (child.innerText ?? child.textContent ?? "").trim();
+    if (!text) continue;
+    for (const line of text.split(/\n+/)) {
+      const label = line.trim();
+      if (label) labels.push(label);
+    }
+  }
+  return labels;
+}
+
+function estimateGlyphWidth(text: string) {
+  let width = 0;
+  for (const character of text) {
+    width += character.charCodeAt(0) > 255 ? 13 : 7;
+  }
+  return width;
+}
+
+function measureTextWidth(text: string, sample: HTMLElement) {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (context) {
+    const style = window.getComputedStyle(sample);
+    const font = style.font && style.font !== "" ? style.font : `${style.fontSize} ${style.fontFamily}`;
+    if (font.trim()) {
+      context.font = font;
+      const measured = context.measureText(text).width;
+      if (measured > 0) return measured;
+    }
+  }
+  return estimateGlyphWidth(text);
+}
+
+function measureCellFitWidth(cell: HTMLTableCellElement, column: string) {
+  const labels = fitLabelsForCell(cell);
+  if (labels.length === 0) return minColumnWidth(column);
+
+  let contentWidth = 0;
+  for (const label of labels) {
+    contentWidth = Math.max(contentWidth, measureTextWidth(label, cell));
+  }
+  const extras =
+    (cell.querySelector("input[type='checkbox']") ? 24 : 0) +
+    (cell.querySelector("[aria-hidden='true']") ? 14 : 0);
+  return Math.ceil(contentWidth + cellHorizontalPadding(column) + extras);
+}
+
 function columnWidthStorageKey(kind: SkillTableKind) {
   return `skills-manage.skillTableColumnWidths.${kind}`;
 }
@@ -443,8 +523,8 @@ function readColumnWidths(kind: SkillTableKind) {
       Object.entries(parsed)
         .map(([key, value]): [string, number] => [key, Number(value)])
         .filter((entry): entry is [string, number] => {
-          const [, value] = entry;
-          return Number.isFinite(value) && value >= MIN_COLUMN_WIDTH;
+          const [key, value] = entry;
+          return Number.isFinite(value) && value >= minColumnWidth(key);
         })
     );
   } catch {
@@ -498,9 +578,11 @@ export function SkillBrowserTable({
   const tableRef = useRef<HTMLTableElement | null>(null);
   const columns =
     kind === "skill"
-      ? ["name", "source", "createdAt", "updatedAt", "installSummary", "tags", "notes", "actions"]
-      : ["name", "path", "skillCount", "createdAt", "updatedAt", "installSummary", "actions"];
-  const activeColumns = columns.filter((column) => visibleColumns.has(column));
+      ? ["index", "name", "source", "createdAt", "updatedAt", "installSummary", "tags", "notes", "actions"]
+      : ["index", "name", "path", "skillCount", "createdAt", "updatedAt", "installSummary", "actions"];
+  const activeColumns = columns.filter(
+    (column) => column === "index" || visibleColumns.has(column)
+  );
   const columnOptions = useMemo(() => optionsForSkillTable(kind), [kind]);
   const resolvedColumnWidths = useMemo(
     () =>
@@ -560,7 +642,10 @@ export function SkillBrowserTable({
     function handleMove(moveEvent: PointerEvent) {
       const state = dragState.current;
       if (!state) return;
-      const width = Math.max(MIN_COLUMN_WIDTH, state.startWidth + moveEvent.clientX - state.startX);
+      const width = Math.max(
+        minColumnWidth(state.column),
+        state.startWidth + moveEvent.clientX - state.startX
+      );
       setColumnWidths((previous) => {
         const next = { ...previous, [state.column]: width };
         persistColumnWidths(next);
@@ -590,14 +675,9 @@ export function SkillBrowserTable({
     const measuredWidth = Array.from(tableRef.current.rows).reduce((maximum, row) => {
       const cell = row.cells.item(columnIndex);
       if (!cell) return maximum;
-      const content = cell.firstElementChild as HTMLElement | null;
-      const textEstimate = (cell.textContent?.trim().length ?? 0) * 8 + 32;
-      return Math.max(maximum, content?.scrollWidth ?? 0, textEstimate);
-    }, MIN_COLUMN_WIDTH);
-    const width = Math.min(
-      MAX_AUTO_COLUMN_WIDTH,
-      Math.max(MIN_COLUMN_WIDTH, measuredWidth)
-    );
+      return Math.max(maximum, measureCellFitWidth(cell, column));
+    }, minColumnWidth(column));
+    const width = clampAutoFitWidth(column, measuredWidth);
     setColumnWidths((previous) => {
       const next = { ...previous, [column]: width };
       persistColumnWidths(next);
@@ -649,8 +729,8 @@ export function SkillBrowserTable({
       <div className="overflow-x-auto">
         <table
           ref={tableRef}
-          className="table-fixed text-left text-sm"
-          style={{ width: `max(100%, ${tableWidth}px)` }}
+          className="table-fixed min-w-full text-left text-sm"
+          style={{ width: `${tableWidth}px` }}
         >
           <colgroup>
             {activeColumns.map((column) => (
@@ -668,7 +748,10 @@ export function SkillBrowserTable({
                   scope="col"
                   aria-label={t(`skillBrowser.columns.${column}`)}
                   onContextMenu={handleHeaderContextMenu}
-                  className="relative px-3 py-2 font-medium"
+                  className={cn(
+                    "relative py-2 font-medium",
+                    column === "index" ? "px-2" : "px-3"
+                  )}
                 >
                   {renderHeaderContent(column)}
                   {column !== "actions" ? (
@@ -691,9 +774,19 @@ export function SkillBrowserTable({
           </thead>
           <tbody className="divide-y divide-border">
             {kind === "skill"
-              ? skills.map((skill) => (
+              ? skills.map((skill, skillIndex) => (
                   <tr key={skill.rowKey ?? skill.name} className="align-top transition-colors hover:bg-muted/25">
                     {activeColumns.map((column) => {
+                      if (column === "index") {
+                        return (
+                          <td
+                            key={column}
+                            className="px-2 py-2 tabular-nums text-muted-foreground"
+                          >
+                            {skillIndex + 1}
+                          </td>
+                        );
+                      }
                       if (column === "name") {
                         return (
                           <td key={column} className="px-3 py-2">
@@ -784,9 +877,19 @@ export function SkillBrowserTable({
                     })}
                   </tr>
                 ))
-              : folders.map((folder) => (
+              : folders.map((folder, folderIndex) => (
                   <tr key={folder.key} className="align-top transition-colors hover:bg-muted/25">
                     {activeColumns.map((column) => {
+                      if (column === "index") {
+                        return (
+                          <td
+                            key={column}
+                            className="px-2 py-2 tabular-nums text-muted-foreground"
+                          >
+                            {folderIndex + 1}
+                          </td>
+                        );
+                      }
                       if (column === "name") {
                         return (
                           <td key={column} className="px-3 py-2">

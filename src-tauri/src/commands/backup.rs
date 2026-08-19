@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc};
 use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
 use quick_xml::events::Event;
@@ -216,6 +216,17 @@ pub async fn export_app_backup(
     options: Option<BackupOptions>,
 ) -> Result<Vec<u8>, String> {
     export_app_backup_archive_impl(&state.db, complete_backup_options(options)).await
+}
+
+#[tauri::command]
+pub async fn export_app_backup_to_path(
+    state: State<'_, AppState>,
+    dest_path: String,
+    options: Option<BackupOptions>,
+) -> Result<(), String> {
+    let archive =
+        export_app_backup_archive_impl(&state.db, complete_backup_options(options)).await?;
+    write_backup_archive_to_path(&dest_path, &archive)
 }
 
 #[tauri::command]
@@ -741,8 +752,7 @@ fn parse_webdav_backup_files(xml: &str) -> Result<Vec<WebDavBackupFile>, String>
 
 fn webdav_modified_timestamp(file: &WebDavBackupFile) -> Option<DateTime<Utc>> {
     let http_timestamp = parse_webdav_modified_at(file.modified_at.as_deref());
-    let filename_timestamp = generated_backup_timestamp(&file.name)
-        .map(|timestamp| DateTime::<Utc>::from_naive_utc_and_offset(timestamp, Utc));
+    let filename_timestamp = generated_backup_timestamp_utc(&file.name);
     http_timestamp.into_iter().chain(filename_timestamp).max()
 }
 
@@ -751,6 +761,11 @@ fn parse_webdav_modified_at(value: Option<&str>) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc2822(value)
         .map(|date| date.with_timezone(&Utc))
         .ok()
+        .or_else(|| {
+            DateTime::parse_from_rfc3339(value)
+                .map(|date| date.with_timezone(&Utc))
+                .ok()
+        })
         .or_else(|| {
             httpdate::parse_http_date(value)
                 .ok()
@@ -767,12 +782,57 @@ fn generated_backup_timestamp(name: &str) -> Option<NaiveDateTime> {
     NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d-%H%M%S").ok()
 }
 
+fn generated_backup_timestamp_utc(name: &str) -> Option<DateTime<Utc>> {
+    let naive = generated_backup_timestamp(name)?;
+    Local
+        .from_local_datetime(&naive)
+        .earliest()
+        .or_else(|| Local.from_local_datetime(&naive).latest())
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+fn listed_webdav_modified_at(value: Option<&str>) -> Option<String> {
+    match parse_webdav_modified_at(value) {
+        Some(dt) => Some(dt.to_rfc3339()),
+        None => value
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string),
+    }
+}
+
 fn generated_backup_filename() -> String {
     format!(
         "skillshub-backup-{}-{}.zip",
-        Utc::now().format("%Y-%m-%d-%H%M%S"),
+        Local::now().format("%Y-%m-%d-%H%M%S"),
         Uuid::new_v4().simple()
     )
+}
+
+fn write_backup_archive_to_path(dest_path: &str, archive: &[u8]) -> Result<(), String> {
+    let trimmed = dest_path.trim();
+    if trimmed.is_empty() {
+        return Err("Backup destination path is empty".to_string());
+    }
+    let path = PathBuf::from(trimmed);
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "Failed to create backup directory '{}': {}",
+                    parent.display(),
+                    e
+                )
+            })?;
+        }
+    }
+    std::fs::write(&path, archive).map_err(|e| {
+        format!(
+            "Failed to write backup file '{}': {}",
+            path.display(),
+            e
+        )
+    })
 }
 
 fn webdav_entry_to_backup_file(
@@ -800,7 +860,7 @@ fn webdav_entry_to_backup_file(
         name: name.clone(),
         remote_path: normalize_webdav_remote_path(&name)?,
         size: entry.content_length,
-        modified_at: entry.last_modified.clone(),
+        modified_at: listed_webdav_modified_at(entry.last_modified.as_deref()),
     }))
 }
 
@@ -1275,6 +1335,9 @@ async fn append_skill_backups(
 ) -> Result<(), String> {
     for skill in skills {
         let skill_dir = skill_directory(&skill);
+        if !skill_dir.is_dir() {
+            continue;
+        }
         let relative_dir = relative_to_root(&skill_dir, root).unwrap_or_else(|| skill.id.clone());
         let files = collect_files(&skill_dir)?;
         let source = sanitize_skill_source(db::get_skill_source(pool, &skill.id).await?);
@@ -1329,12 +1392,25 @@ fn collect_files_inner(
     current: &Path,
     files: &mut Vec<SkillFileBackup>,
 ) -> Result<(), String> {
-    for entry in std::fs::read_dir(current)
-        .map_err(|e| format!("Failed to read directory '{}': {}", current.display(), e))?
-    {
+    let entries = match std::fs::read_dir(current) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => {
+            return Err(format!(
+                "Failed to read directory '{}': {}",
+                current.display(),
+                e
+            ))
+        }
+    };
+    for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
-        let metadata = std::fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+        let metadata = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.to_string()),
+        };
         if metadata.file_type().is_symlink() {
             continue;
         }
@@ -2026,6 +2102,47 @@ mod tests {
             ),
             "asset body"
         );
+    }
+
+    #[tokio::test]
+    async fn archive_export_skips_skills_whose_directory_is_missing() {
+        let (pool, dir) = setup_test_db().await;
+        let resource_root = dir.path().join("resource-library");
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .expect("resource dir");
+        let missing_dir = resource_root.join("gone-skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "gone-skill".to_string(),
+                name: "Gone Skill".to_string(),
+                description: None,
+                file_path: path_to_string(&missing_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&missing_dir)),
+                is_central: false,
+                source: Some("manual".to_string()),
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+
+        let archive = export_app_backup_archive_impl(
+            &pool,
+            BackupOptions {
+                include_resource_library: true,
+                include_central_library: false,
+                include_app_config: false,
+                include_installations: false,
+            },
+        )
+        .await
+        .expect("archive export");
+
+        let manifest = zip_entry_text(&archive, "manifest.json");
+        assert!(!manifest.contains("gone-skill"));
     }
 
     #[tokio::test]
@@ -3276,6 +3393,33 @@ mod tests {
     }
 
     #[test]
+    fn generated_backup_filename_uses_local_clock() {
+        let name = generated_backup_filename();
+        let parsed = generated_backup_timestamp(&name).expect("filename timestamp");
+        let now = Local::now().naive_local();
+        let diff = (now - parsed).num_seconds().abs();
+        assert!(
+            diff <= 2,
+            "filename {name} is {diff}s away from local clock {now}"
+        );
+    }
+
+    #[test]
+    fn write_backup_archive_to_path_creates_the_zip() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("out").join("backup.zip");
+        write_backup_archive_to_path(&path.to_string_lossy(), b"PK\x03\x04")
+            .expect("write backup");
+        assert_eq!(std::fs::read(&path).expect("read backup"), b"PK\x03\x04");
+    }
+
+    #[test]
+    fn write_backup_archive_to_path_rejects_empty_path() {
+        let error = write_backup_archive_to_path("   ", b"PK\x03\x04").expect_err("empty path");
+        assert!(error.contains("empty"));
+    }
+
+    #[test]
     fn webdav_normalize_remote_path_accepts_nested_zip_backup() {
         let result =
             normalize_webdav_remote_path("backups/skillshub-backup.zip").expect("normalized path");
@@ -3398,7 +3542,7 @@ mod tests {
                 name: "skillshub-backup.json".to_string(),
                 remote_path: "skillshub-backup.json".to_string(),
                 size: Some(42),
-                modified_at: Some("Wed, 15 Jul 2026 08:00:00 GMT".to_string()),
+                modified_at: Some("2026-07-15T08:00:00+00:00".to_string()),
             }]
         );
     }

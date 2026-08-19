@@ -1,6 +1,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
@@ -25,13 +26,15 @@ import { AgentWithStatus, BackupOptions, ScanDirectory, WebDavBackupFile } from 
 import { AI_PROVIDERS, REGION_LABELS, RegionId } from "@/data/aiProviders";
 import { isInstallTargetAgent } from "@/lib/agents";
 import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/path";
+import { isProjectAgentId, projectDirectoryName } from "@/lib/projectTargets";
 import { webDavErrorDetail } from "@/lib/webdavError";
+import { defaultLocalBackupFilename, formatBackupTimestamp } from "@/lib/backupTime";
 import { cn } from "@/lib/utils";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.30.0";
-const DB_PATH_FALLBACK = "~/.skillshub/db.sqlite";
+const APP_VERSION = "0.40.0";
+const CONFIG_DIR_FALLBACK = "~/.skillshub";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
   includeCentralLibrary: true,
@@ -60,28 +63,29 @@ function HintIcon({ text, className }: { text: string; className?: string }) {
 
 interface ScanDirectoryRowProps {
   dir: ScanDirectory;
+  onEdit: () => void;
   onRemove: () => void;
   onToggle: (active: boolean) => void;
   isRemoving: boolean;
 }
 
-function ScanDirectoryRow({ dir, onRemove, onToggle, isRemoving }: ScanDirectoryRowProps) {
+function ScanDirectoryRow({ dir, onEdit, onRemove, onToggle, isRemoving }: ScanDirectoryRowProps) {
   const { t } = useTranslation();
   const action = dir.is_active ? t("settings.enabled") : t("settings.disabled");
+  const displayName = projectDirectoryName(dir);
   return (
     <div className="flex items-center gap-3 py-2.5 px-4 border-b border-border/50 last:border-0">
       <FolderOpen className="size-4 text-muted-foreground shrink-0" />
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{formatPathForDisplay(dir.path)}</div>
-        {dir.label && (
-          <div className="text-xs text-muted-foreground mt-0.5">{dir.label}</div>
-        )}
+        <div className="text-sm font-medium truncate">{displayName}</div>
+        <div className="mt-0.5 truncate text-xs text-muted-foreground">
+          {formatPathForDisplay(dir.path)}
+        </div>
         {dir.is_builtin && (
           <div className="text-xs text-muted-foreground mt-0.5">{t("settings.builtinDir")}</div>
         )}
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {/* Toggle for non-builtin dirs (built-in dirs are always active) */}
         {!dir.is_builtin && (
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">
@@ -94,16 +98,27 @@ function ScanDirectoryRow({ dir, onRemove, onToggle, isRemoving }: ScanDirectory
             />
           </div>
         )}
-        {/* Remove button for non-builtin dirs */}
         {!dir.is_builtin && (
-          <InlineConfirmAction
-            onConfirm={onRemove}
-            isLoading={isRemoving}
-            idleAriaLabel={t("settings.removeDirLabel", { path: dir.path })}
-            idleTitle={t("settings.removeDirLabel", { path: dir.path })}
-            confirmLabel={t("common.confirmDelete")}
-            icon={<Trash2 className="size-3.5" />}
-          />
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onEdit}
+              aria-label={t("settings.editDirLabel", { name: displayName })}
+              className="h-7 w-7 p-0"
+              title={t("settings.editDirLabel", { name: displayName })}
+            >
+              <Pencil className="size-3.5" />
+            </Button>
+            <InlineConfirmAction
+              onConfirm={onRemove}
+              isLoading={isRemoving}
+              idleAriaLabel={t("settings.removeDirLabel", { path: dir.path })}
+              idleTitle={t("settings.removeDirLabel", { path: dir.path })}
+              confirmLabel={t("common.confirmDelete")}
+              icon={<Trash2 className="size-3.5" />}
+            />
+          </>
         )}
       </div>
     </div>
@@ -273,6 +288,7 @@ interface SoftwarePlatformsCardProps {
   removingDir: string | null;
   removingAgent: string | null;
   onAddDirectory: () => void;
+  onEditDirectory: (dir: ScanDirectory) => void;
   onAddPlatform: () => void;
   onRemoveDirectory: (path: string) => void;
   onToggleDirectory: (path: string, active: boolean) => void;
@@ -289,6 +305,7 @@ function SoftwarePlatformsCard({
   removingDir,
   removingAgent,
   onAddDirectory,
+  onEditDirectory,
   onAddPlatform,
   onRemoveDirectory,
   onToggleDirectory,
@@ -391,6 +408,7 @@ function SoftwarePlatformsCard({
                       <ScanDirectoryRow
                         key={dir.id}
                         dir={dir}
+                        onEdit={() => onEditDirectory(dir)}
                         onRemove={() => onRemoveDirectory(dir.path)}
                         onToggle={(active) => onToggleDirectory(dir.path, active)}
                         isRemoving={removingDir === dir.path}
@@ -421,6 +439,7 @@ export function SettingsView() {
   const isLoadingScanDirs = useSettingsStore((s) => s.isLoadingScanDirs);
   const loadScanDirectories = useSettingsStore((s) => s.loadScanDirectories);
   const addScanDirectory = useSettingsStore((s) => s.addScanDirectory);
+  const updateScanDirectory = useSettingsStore((s) => s.updateScanDirectory);
   const removeScanDirectory = useSettingsStore((s) => s.removeScanDirectory);
   const toggleScanDirectory = useSettingsStore((s) => s.toggleScanDirectory);
   const addCustomAgent = useSettingsStore((s) => s.addCustomAgent);
@@ -430,6 +449,9 @@ export function SettingsView() {
   const resourceLibraryDir = useSettingsStore((s) => s.resourceLibraryDir);
   const loadResourceLibraryDir = useSettingsStore((s) => s.loadResourceLibraryDir);
   const updateResourceLibraryDir = useSettingsStore((s) => s.updateResourceLibraryDir);
+  const configDir = useSettingsStore((s) => s.configDir);
+  const loadConfigDir = useSettingsStore((s) => s.loadConfigDir);
+  const updateConfigDir = useSettingsStore((s) => s.updateConfigDir);
   const exportAppBackup = useSettingsStore((s) => s.exportAppBackup);
   const importAppBackup = useSettingsStore((s) => s.importAppBackup);
   const listWebDavBackups = useSettingsStore((s) => s.listWebDavBackups);
@@ -458,7 +480,9 @@ export function SettingsView() {
   const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
   const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
 
-  const softwarePlatforms = agents.filter(isInstallTargetAgent);
+  const softwarePlatforms = agents.filter(
+    (agent) => isInstallTargetAgent(agent) && !isProjectAgentId(agent.id)
+  );
   const centralAgent = agents.find((a) => a.id === "central");
   const homeDir = useMemo(() => {
     const candidates = [
@@ -471,9 +495,14 @@ export function SettingsView() {
       .map((candidate) => deriveHomeDir(candidate))
       .find((candidate): candidate is string => Boolean(candidate));
   }, [agents, scanDirectories]);
-  const dbPathDisplay = useMemo(
-    () => (homeDir ? joinPathForDisplay(homeDir, ".skillshub/db.sqlite") : DB_PATH_FALLBACK),
-    [homeDir]
+  const configDirDisplay = useMemo(
+    () =>
+      configDir
+        ? formatPathForDisplay(configDir)
+        : homeDir
+          ? joinPathForDisplay(homeDir, ".skillshub")
+          : CONFIG_DIR_FALLBACK,
+    [configDir, homeDir]
   );
 
   // ── Local State ────────────────────────────────────────────────────────────
@@ -546,6 +575,7 @@ export function SettingsView() {
   const [showAiTestDetails, setShowAiTestDetails] = useState(false);
 
   const [isAddDirOpen, setIsAddDirOpen] = useState(false);
+  const [editingDirectory, setEditingDirectory] = useState<ScanDirectory | null>(null);
   const [isPlatformDialogOpen, setIsPlatformDialogOpen] = useState(false);
   const [editingPlatform, setEditingPlatform] = useState<AgentWithStatus | null>(null);
   const [removingDir, setRemovingDir] = useState<string | null>(null);
@@ -561,6 +591,9 @@ export function SettingsView() {
   const [resourcePathInput, setResourcePathInput] = useState("");
   const [isSavingResourcePath, setIsSavingResourcePath] = useState(false);
   const [resourcePathMessage, setResourcePathMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [configDirInput, setConfigDirInput] = useState("");
+  const [isSavingConfigDir, setIsSavingConfigDir] = useState(false);
+  const [configDirMessage, setConfigDirMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [isImportingBackup, setIsImportingBackup] = useState(false);
   const [webDavBaseUrl, setWebDavBaseUrl] = useState("");
@@ -584,8 +617,9 @@ export function SettingsView() {
     loadScanDirectories();
     loadGitHubPat();
     loadResourceLibraryDir();
+    loadConfigDir();
     loadWebDavConfig();
-  }, [loadScanDirectories, loadGitHubPat, loadResourceLibraryDir, loadWebDavConfig]);
+  }, [loadScanDirectories, loadGitHubPat, loadResourceLibraryDir, loadConfigDir, loadWebDavConfig]);
 
   useEffect(() => {
     setGitHubPatInput(githubPat);
@@ -602,6 +636,12 @@ export function SettingsView() {
       setResourcePathInput(formatPathForDisplay(resourceLibraryDir));
     }
   }, [resourceLibraryDir]);
+
+  useEffect(() => {
+    if (configDirDisplay) {
+      setConfigDirInput(configDirDisplay);
+    }
+  }, [configDirDisplay]);
 
   useEffect(() => {
     setWebDavBaseUrl(webDavConfig.baseUrl);
@@ -624,6 +664,10 @@ export function SettingsView() {
     () => resourcePathInput.trim() !== formatPathForDisplay(resourceLibraryDir),
     [resourceLibraryDir, resourcePathInput]
   );
+  const isConfigDirDirty = useMemo(
+    () => configDirInput.trim() !== configDirDisplay,
+    [configDirDisplay, configDirInput]
+  );
   const isWebDavConfigDirty = useMemo(
     () =>
       webDavBaseUrl.trim() !== webDavConfig.baseUrl ||
@@ -635,17 +679,29 @@ export function SettingsView() {
 
   // ── Scan Directories Handlers ──────────────────────────────────────────────
 
-  async function handleAddDirectory(path: string) {
+  async function handleAddDirectory(path: string, label: string) {
     setScanDirError(null);
     try {
-      await addScanDirectory(path);
-      // Trigger rescan after adding a directory.
+      await addScanDirectory(path, label);
       await refreshCounts();
       toast.success(t("addDir.add") + " ✓");
     } catch (err) {
       setScanDirError(String(err));
       toast.error(String(err));
-      throw err; // Re-throw so the dialog knows it failed
+      throw err;
+    }
+  }
+
+  async function handleEditDirectory(path: string, nextPath: string, label: string) {
+    setScanDirError(null);
+    try {
+      await updateScanDirectory(path, nextPath, label);
+      await refreshCounts();
+      toast.success(t("addDir.save") + " ✓");
+    } catch (err) {
+      setScanDirError(String(err));
+      toast.error(String(err));
+      throw err;
     }
   }
 
@@ -712,6 +768,23 @@ export function SettingsView() {
       toast.error(message);
     } finally {
       setIsSavingResourcePath(false);
+    }
+  }
+
+  async function handleSaveConfigDir() {
+    setIsSavingConfigDir(true);
+    setConfigDirMessage(null);
+    try {
+      await updateConfigDir(configDirInput);
+      const message = t("settings.configDirSaved");
+      setConfigDirMessage({ type: "success", text: message });
+      toast.success(message);
+    } catch (err) {
+      const message = String(err);
+      setConfigDirMessage({ type: "error", text: message });
+      toast.error(message);
+    } finally {
+      setIsSavingConfigDir(false);
     }
   }
 
@@ -834,18 +907,17 @@ export function SettingsView() {
   }
 
   async function handleExportBackup() {
+    const destPath = await save({
+      defaultPath: defaultLocalBackupFilename(),
+      filters: [{ name: "ZIP", extensions: ["zip"] }],
+    });
+    if (!destPath) {
+      return;
+    }
+
     setIsExportingBackup(true);
     try {
-      const backup = await exportAppBackup(COMPLETE_BACKUP_OPTIONS);
-      const blob = new Blob([backup], { type: "application/zip" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `skillshub-backup-${new Date().toISOString().slice(0, 10)}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      await exportAppBackup(destPath, COMPLETE_BACKUP_OPTIONS);
       toast.success(t("settings.backupExported"));
     } catch (err) {
       toast.error(t("settings.backupExportError", { error: String(err) }));
@@ -1018,7 +1090,60 @@ export function SettingsView() {
       {/* Content */}
       <div className="flex-1 overflow-auto p-6 space-y-6">
 
-        {/* Section 1: Skill Resource Library Root */}
+        {/* Section 1: Config folder */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <FolderOpen className="size-5 text-muted-foreground" />
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <CardTitle>{t("settings.configDirTitle")}</CardTitle>
+                  <HintIcon text={t("settings.configDirDesc")} />
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="config-dir" className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <span>{t("settings.configDirLabel")}</span>
+                  <HintIcon text={t("settings.configDirHint")} className="size-4" />
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Input
+                    id="config-dir"
+                    className="min-w-0 flex-1"
+                    value={configDirInput}
+                    onChange={(event) => setConfigDirInput(event.target.value)}
+                    disabled={isSavingConfigDir}
+                    placeholder={CONFIG_DIR_FALLBACK}
+                  />
+                  <Button
+                    variant="outline"
+                    className="shrink-0 sm:min-w-20"
+                    onClick={handleSaveConfigDir}
+                    disabled={isSavingConfigDir || !isConfigDirDirty || !configDirInput.trim()}
+                    aria-label={t("settings.saveConfigDir")}
+                  >
+                    {isSavingConfigDir ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                    <span>{t("common.save")}</span>
+                  </Button>
+                </div>
+              </div>
+              {configDirMessage ? (
+                <p
+                  className={configDirMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
+                  role="status"
+                >
+                  {configDirMessage.text}
+                </p>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Section 2: Skill Resource Library Root */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -1045,7 +1170,7 @@ export function SettingsView() {
                     value={resourcePathInput}
                     onChange={(event) => setResourcePathInput(event.target.value)}
                     disabled={isSavingResourcePath}
-                    placeholder={DB_PATH_FALLBACK.replace("db.sqlite", "library")}
+                    placeholder={`${CONFIG_DIR_FALLBACK}/library`}
                   />
                   <Button
                     variant="outline"
@@ -1098,7 +1223,7 @@ export function SettingsView() {
                     value={centralPathInput}
                     onChange={(event) => setCentralPathInput(event.target.value)}
                     disabled={isSavingCentralPath}
-                    placeholder={DB_PATH_FALLBACK.replace(".skillshub/db.sqlite", ".skillshub/central-skills")}
+                    placeholder={`${CONFIG_DIR_FALLBACK}/central-skills`}
                   />
                   <Button
                     variant="outline"
@@ -1132,7 +1257,14 @@ export function SettingsView() {
           isLoadingScanDirs={isLoadingScanDirs}
           removingDir={removingDir}
           removingAgent={removingAgent}
-          onAddDirectory={() => setIsAddDirOpen(true)}
+          onAddDirectory={() => {
+            setEditingDirectory(null);
+            setIsAddDirOpen(true);
+          }}
+          onEditDirectory={(dir) => {
+            setEditingDirectory(dir);
+            setIsAddDirOpen(true);
+          }}
           onAddPlatform={handleOpenAddPlatform}
           onRemoveDirectory={handleRemoveDirectory}
           onToggleDirectory={handleToggleDirectory}
@@ -1260,7 +1392,11 @@ export function SettingsView() {
                         <label key={file.remotePath} className="flex items-center gap-2 border-b border-border/50 px-3 py-2 text-sm last:border-0">
                           <input type="radio" name="webdav-backup-file" checked={selectedWebDavPath === file.remotePath} onChange={() => setSelectedWebDavPath(file.remotePath)} />
                           <span className="flex-1 truncate">{file.name}</span>
-                          {file.modifiedAt ? <span className="text-xs text-muted-foreground">{file.modifiedAt}</span> : null}
+                          {file.modifiedAt ? (
+                            <span className="text-xs text-muted-foreground">
+                              {formatBackupTimestamp(file.modifiedAt)}
+                            </span>
+                          ) : null}
                         </label>
                       ))
                     )}
@@ -1551,13 +1687,6 @@ export function SettingsView() {
                   ) : null}
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <Database className="size-4 text-muted-foreground shrink-0" />
-                <div>
-                  <div className="text-xs text-muted-foreground">{t("settings.dbPath")}</div>
-                  <div className="text-sm font-medium font-mono">{dbPathDisplay}</div>
-                </div>
-              </div>
               {/* ── Language Switcher ──────────────────────────────────────── */}
               <div className="flex items-center gap-3">
                 <Globe className="size-4 text-muted-foreground shrink-0" />
@@ -1596,8 +1725,13 @@ export function SettingsView() {
       {/* ── Dialogs ────────────────────────────────────────────────────────── */}
       <AddDirectoryDialog
         open={isAddDirOpen}
-        onOpenChange={setIsAddDirOpen}
+        onOpenChange={(open) => {
+          setIsAddDirOpen(open);
+          if (!open) setEditingDirectory(null);
+        }}
+        directory={editingDirectory}
         onAdd={handleAddDirectory}
+        onEdit={handleEditDirectory}
       />
 
       <PlatformDialog

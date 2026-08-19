@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.40.0 - 2026-08-19
+
+This release makes the app config folder portable, keeps project directories out of the software-platform list, and makes local backups save through a native file dialog.
+
+### Features
+
+- Store database, Resource Library, and other app files in a `.skillshub` config folder. Default is `~/.skillshub`; place `.skillshub` next to the executable for a portable install, or pick another folder in Settings.
+- Give project directories a display name, like software platforms.
+- Show live import, update, and install item status in the bottom status bar, including unchanged, locally skipped, and unupdatable skills.
+
+### Improvements
+
+- Reorder Settings to Config folder, Resource Library, Central Skills, then software platforms and project directories.
+- Indent Lobster and Coding platform lists in the sidebar the same way as Project Directories.
+- Let table columns shrink to content on double-click, keep a compact index column, and fill extra window width instead of leaving a blank strip on the right.
+- Show WebDAV backup times in the local timezone and name new backup files with the local clock.
+- Write local backup ZIP files through a save dialog instead of downloading them in the webview.
+- Refresh English and Chinese README content for the config folder, named project directories, sidebar hierarchy, and backup flow.
+
+### Fixes
+
+- Stop listing configured project directories as custom coding platforms in Settings.
+- Skip missing skill folders during backup export instead of failing the whole archive.
+- Avoid WebView crashes when exporting a large local backup.
+
 ## 0.30.0 - 2026-08-15
 
 This release replaces card browsing with a shared skill table, simplifies Collections, and makes shared `.agents/skills` installs follow Central Skills instead of failing.

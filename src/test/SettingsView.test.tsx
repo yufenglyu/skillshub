@@ -6,6 +6,7 @@ import { ScanDirectory, AgentWithStatus, AppUpdateInfo } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
 const mockOpenDialog = vi.fn();
+const mockSaveDialog = vi.fn();
 
 // Mock stores
 vi.mock("../stores/settingsStore", () => ({
@@ -26,6 +27,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: (...args: unknown[]) => mockOpenDialog(...args),
+  save: (...args: unknown[]) => mockSaveDialog(...args),
 }));
 
 vi.mock("sonner", () => ({
@@ -98,6 +100,7 @@ function setupMocks({
   agents = [] as AgentWithStatus[],
   loadScanDirectories = vi.fn(),
   addScanDirectory = vi.fn(),
+  updateScanDirectory = vi.fn(),
   removeScanDirectory = vi.fn(),
   toggleScanDirectory = vi.fn(),
   addCustomAgent = vi.fn(),
@@ -114,6 +117,10 @@ function setupMocks({
   updateCentralSkillsDir = vi.fn(),
   loadResourceLibraryDir = vi.fn(),
   updateResourceLibraryDir = vi.fn(),
+  configDir = "",
+  isLoadingConfigDir = false,
+  loadConfigDir = vi.fn(),
+  updateConfigDir = vi.fn(),
   exportAppBackup = vi.fn(),
   importAppBackup = vi.fn(),
   listWebDavBackups = vi.fn(),
@@ -145,6 +152,7 @@ function setupMocks({
       error: null,
       loadScanDirectories,
       addScanDirectory,
+      updateScanDirectory,
       removeScanDirectory,
       toggleScanDirectory,
       addCustomAgent,
@@ -161,6 +169,10 @@ function setupMocks({
       updateCentralSkillsDir,
       loadResourceLibraryDir,
       updateResourceLibraryDir,
+      configDir,
+      isLoadingConfigDir,
+      loadConfigDir,
+      updateConfigDir,
       exportAppBackup,
       importAppBackup,
       listWebDavBackups,
@@ -216,6 +228,8 @@ describe("SettingsView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockOpenDialog.mockReset();
+    mockSaveDialog.mockReset();
+    mockSaveDialog.mockResolvedValue("D:\\backups\\skillshub-backup.zip");
     vi.mocked(invoke).mockResolvedValue(null);
   });
 
@@ -244,14 +258,16 @@ describe("SettingsView", () => {
     expect(screen.getByText("关于")).toBeTruthy();
   });
 
-  it("groups directory settings in resource, central, software platform order", () => {
+  it("groups directory settings in config, resource, central, software platform order", () => {
     setupMocks();
     renderSettingsView();
 
+    const [config] = screen.getAllByText("配置文件路径");
     const resource = screen.getByText("技能资源库目录");
     const central = screen.getByText("中央技能库目录");
     const skillLocation = screen.getByRole("heading", { name: "平台与项目目录" });
 
+    expect(config.compareDocumentPosition(resource) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(resource.compareDocumentPosition(central) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(central.compareDocumentPosition(skillLocation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -342,20 +358,35 @@ describe("SettingsView", () => {
   });
 
   it("local export always includes all backup content", async () => {
-    const exportAppBackup = vi.fn().mockResolvedValue(new Uint8Array([80, 75, 3, 4]));
+    const exportAppBackup = vi.fn().mockResolvedValue(undefined);
     setupMocks({ exportAppBackup });
     renderSettingsView();
 
     fireEvent.click(screen.getByRole("button", { name: "导出备份" }));
 
     await waitFor(() => {
-      expect(exportAppBackup).toHaveBeenCalledWith({
+      expect(mockSaveDialog).toHaveBeenCalled();
+      expect(exportAppBackup).toHaveBeenCalledWith("D:\\backups\\skillshub-backup.zip", {
         includeResourceLibrary: true,
         includeCentralLibrary: true,
         includeAppConfig: true,
         includeInstallations: true,
       });
     });
+  });
+
+  it("does not export when the save dialog is cancelled", async () => {
+    const exportAppBackup = vi.fn();
+    mockSaveDialog.mockResolvedValueOnce(null);
+    setupMocks({ exportAppBackup });
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("button", { name: "导出备份" }));
+
+    await waitFor(() => {
+      expect(mockSaveDialog).toHaveBeenCalled();
+    });
+    expect(exportAppBackup).not.toHaveBeenCalled();
   });
 
   it("refreshes and renders WebDAV backup files", async () => {
@@ -379,6 +410,40 @@ describe("SettingsView", () => {
     fireEvent.click(screen.getByRole("button", { name: "查看远端" }));
 
     expect(await screen.findByText("skillshub-backup-2026-07-15-120000.zip")).toBeTruthy();
+  });
+
+  it("shows WebDAV backup times in the local timezone", async () => {
+    const listWebDavBackups = vi.fn().mockResolvedValue([
+      {
+        name: "skillshub-backup-2026-08-19-135638.zip",
+        remotePath: "skillshub-backup-2026-08-19-135638.zip",
+        size: 42,
+        modifiedAt: "Wed, 19 Aug 2026 13:56:38 GMT",
+      },
+    ]);
+    setupMocks({ listWebDavBackups });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("WebDAV URL"), {
+      target: { value: "https://example.com/dav" },
+    });
+    fireEvent.change(screen.getByLabelText("远端目录"), {
+      target: { value: "skillshub" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "查看远端" }));
+
+    const gmt = "Wed, 19 Aug 2026 13:56:38 GMT";
+    expect(await screen.findByText("skillshub-backup-2026-08-19-135638.zip")).toBeTruthy();
+    expect(screen.getByText(new Date(gmt).toLocaleString(undefined, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }))).toBeTruthy();
+    expect(screen.queryByText(/GMT/)).toBeNull();
   });
 
   it("clears stale WebDAV selections when the connection config changes", async () => {
@@ -413,10 +478,10 @@ describe("SettingsView", () => {
   });
 
   it("disables all backup actions while a local export is running", async () => {
-    let resolveExport: (value: Uint8Array) => void = () => undefined;
+    let resolveExport: () => void = () => undefined;
     const exportAppBackup = vi.fn(
       () =>
-        new Promise<Uint8Array>((resolve) => {
+        new Promise<void>((resolve) => {
           resolveExport = resolve;
         })
     );
@@ -434,7 +499,7 @@ describe("SettingsView", () => {
       expect(screen.getByRole("button", { name: "删除选中" })).toBeDisabled();
     });
 
-    resolveExport(new Uint8Array([80, 75, 3, 4]));
+    resolveExport();
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "导出备份" })).toBeEnabled();
@@ -723,6 +788,57 @@ describe("SettingsView", () => {
     expect(screen.getByRole("button", { name: "添加项目目录" })).toBeTruthy();
   });
 
+  it("shows the project directory name like a platform display name", () => {
+    setupMocks({ scanDirs: [mockCustomDir] });
+    renderSettingsView();
+    expect(screen.getByText("My Project")).toBeTruthy();
+    expect(screen.getByText("/Users/test/projects/my-project")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "编辑目录 My Project" })
+    ).toBeTruthy();
+  });
+
+  it("adds a project directory with a name", async () => {
+    const addScanDirectory = vi.fn().mockResolvedValue(mockCustomDir);
+    setupMocks({ addScanDirectory });
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("button", { name: "添加项目目录" }));
+    fireEvent.change(await screen.findByLabelText(/项目名称/), {
+      target: { value: "Demo" },
+    });
+    fireEvent.change(screen.getByLabelText(/目录路径/), {
+      target: { value: "D:\\Projects\\demo" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^添加$/ }));
+
+    await waitFor(() => {
+      expect(addScanDirectory).toHaveBeenCalledWith("D:\\Projects\\demo", "Demo");
+    });
+  });
+
+  it("edits a project directory name", async () => {
+    const updateScanDirectory = vi.fn().mockResolvedValue({
+      ...mockCustomDir,
+      label: "Renamed Project",
+    });
+    setupMocks({ scanDirs: [mockCustomDir], updateScanDirectory });
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑目录 My Project" }));
+    const nameInput = await screen.findByLabelText(/项目名称/);
+    fireEvent.change(nameInput, { target: { value: "Renamed Project" } });
+    fireEvent.click(screen.getByRole("button", { name: /^保存$/ }));
+
+    await waitFor(() => {
+      expect(updateScanDirectory).toHaveBeenCalledWith(
+        mockCustomDir.path,
+        mockCustomDir.path,
+        "Renamed Project"
+      );
+    });
+  });
+
   it("places add actions beside their matching project directory and software platform sections", () => {
     setupMocks();
     renderSettingsView();
@@ -971,18 +1087,67 @@ describe("SettingsView", () => {
     });
   });
 
+  it("keeps project directories out of the coding software platform list", () => {
+    const projectAgent: AgentWithStatus = {
+      id: "project:2",
+      display_name: "My Project",
+      category: "project",
+      global_skills_dir: `${mockCustomDir.path}/.agents/skills`,
+      project_skills_dir: ".agents/skills",
+      is_detected: true,
+      is_builtin: false,
+      is_enabled: true,
+    };
+    setupMocks({
+      scanDirs: [mockCustomDir],
+      agents: [mockBuiltinAgent, projectAgent],
+    });
+    renderSettingsView();
+
+    expandPlatformGroup("编程类");
+
+    expect(screen.getByText("Claude Code")).toBeTruthy();
+    expect(screen.getByText("My Project")).toBeTruthy();
+    expect(screen.queryByText("自定义平台")).toBeNull();
+    expect(screen.queryByText(`${mockCustomDir.path}/.agents/skills`)).toBeNull();
+    expect(screen.getByText(mockCustomDir.path)).toBeTruthy();
+  });
+
   // ── About section ─────────────────────────────────────────────────────────
 
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.30.0")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.40.0")).toBeTruthy();
   });
 
-  it("shows the database path in the about section", () => {
-    setupMocks({ scanDirs: [mockBuiltinDir], agents: [mockBuiltinAgent] });
+  it("shows an editable config folder path", () => {
+    setupMocks({
+      scanDirs: [mockBuiltinDir],
+      agents: [mockBuiltinAgent],
+      configDir: "/Users/test/.skillshub",
+    });
     renderSettingsView();
-    expect(screen.getByText("/Users/test/.skillshub/db.sqlite")).toBeTruthy();
+    expect(screen.getByLabelText("配置文件路径")).toHaveValue("/Users/test/.skillshub");
+  });
+
+  it("saves a custom config folder path", async () => {
+    const updateConfigDir = vi.fn().mockResolvedValue("D:/Apps/SkillsHub/.skillshub");
+    setupMocks({
+      configDir: "/Users/test/.skillshub",
+      updateConfigDir,
+    });
+    renderSettingsView();
+
+    fireEvent.change(screen.getByLabelText("配置文件路径"), {
+      target: { value: "D:/Apps/SkillsHub" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存配置文件路径" }));
+
+    await waitFor(() => {
+      expect(updateConfigDir).toHaveBeenCalledWith("D:/Apps/SkillsHub");
+    });
+    expect(await screen.findByText("配置文件路径已保存，请重启应用后生效")).toBeTruthy();
   });
 
   it("shows version label", () => {
@@ -1031,10 +1196,10 @@ describe("SettingsView", () => {
     );
   });
 
-  it("shows database path label", () => {
+  it("shows config folder path label", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("数据库路径")).toBeTruthy();
+    expect(screen.getAllByText("配置文件路径").length).toBeGreaterThan(0);
   });
 
   it("does not render theme flavor or accent controls in settings", () => {

@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 
 export type SkillTableKind = "skill" | "folder";
 
-export const FIXED_SKILL_COLUMNS = ["name", "actions"] as const;
+export const FIXED_SKILL_COLUMNS = ["index", "name", "actions"] as const;
 export const DEFAULT_SKILL_COLUMNS = [
+  "index",
   "name",
   "source",
   "createdAt",
@@ -13,6 +14,7 @@ export const DEFAULT_SKILL_COLUMNS = [
   "actions",
 ] as const;
 export const DEFAULT_FOLDER_COLUMNS = [
+  "index",
   "name",
   "path",
   "skillCount",

@@ -793,35 +793,19 @@ describe("CentralSkillsView", () => {
     });
   });
 
-  it("bulk uninstalls selected central skills from a platform without deleting central skills", async () => {
+  it("does not show bulk selection or uninstall controls", () => {
     renderCentralSkillsView({
       skills: [
         {
           ...mockSkills[0],
           linked_agents: ["claude-code"],
         },
-        {
-          ...mockSkills[1],
-          linked_agents: ["claude-code"],
-        },
       ],
     });
 
-    fireEvent.click(screen.getByLabelText("选择 frontend-design"));
-    fireEvent.click(screen.getByLabelText("选择 code-reviewer"));
-    fireEvent.change(screen.getByLabelText("选择卸载平台"), {
-      target: { value: "claude-code" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "从平台卸载" }));
-    fireEvent.click(screen.getByRole("button", { name: "确认卸载" }));
-
-    await waitFor(() => {
-      expect(mockUninstallSkillsFromAgent).toHaveBeenCalledWith(
-        ["frontend-design", "code-reviewer"],
-        "claude-code"
-      );
-    });
-    expect(mockDeleteCentralSkill).not.toHaveBeenCalled();
+    expect(screen.queryByRole("group", { name: /批量卸载|Bulk uninstall/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("选择 frontend-design")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("选择卸载平台")).not.toBeInTheDocument();
   });
 
   it("shows empty state when search has no results", async () => {

@@ -53,6 +53,8 @@ describe("settingsStore", () => {
       githubPat: "",
       isLoadingGitHubPat: false,
       isSavingGitHubPat: false,
+      configDir: "",
+      isLoadingConfigDir: false,
       webDavConfig: {
         baseUrl: "",
         username: "",
@@ -159,6 +161,26 @@ describe("settingsStore", () => {
       path: "~/my-dir",
       label: null,
     });
+  });
+
+  it("updateScanDirectory persists name and path", async () => {
+    useSettingsStore.setState({ scanDirectories: [mockCustomDir] });
+    const updated = { ...mockCustomDir, label: "Renamed", path: "/tmp/renamed" };
+    vi.mocked(invoke).mockResolvedValueOnce(updated);
+
+    const result = await useSettingsStore.getState().updateScanDirectory(
+      mockCustomDir.path,
+      "/tmp/renamed",
+      "Renamed"
+    );
+
+    expect(invoke).toHaveBeenCalledWith("update_scan_directory", {
+      path: mockCustomDir.path,
+      newPath: "/tmp/renamed",
+      label: "Renamed",
+    });
+    expect(result).toEqual(updated);
+    expect(useSettingsStore.getState().scanDirectories[0]).toEqual(updated);
   });
 
   it("addScanDirectory throws on failure", async () => {
@@ -341,8 +363,8 @@ describe("settingsStore", () => {
     ).rejects.toThrow("Not found");
   });
 
-  it("exportAppBackup returns backup bytes from export_app_backup", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce([80, 75, 3, 4]);
+  it("exportAppBackup writes a backup archive to the chosen path", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
     const options = {
       includeResourceLibrary: true,
       includeCentralLibrary: false,
@@ -350,10 +372,12 @@ describe("settingsStore", () => {
       includeInstallations: false,
     };
 
-    const backup = await useSettingsStore.getState().exportAppBackup(options);
+    await useSettingsStore.getState().exportAppBackup("D:/backups/app.zip", options);
 
-    expect(invoke).toHaveBeenCalledWith("export_app_backup", { options });
-    expect(backup).toEqual(new Uint8Array([80, 75, 3, 4]));
+    expect(invoke).toHaveBeenCalledWith("export_app_backup_to_path", {
+      destPath: "D:/backups/app.zip",
+      options,
+    });
   });
 
   it("importAppBackup passes backup bytes to import_app_backup", async () => {
@@ -556,5 +580,27 @@ describe("settingsStore", () => {
     });
     expect(useSettingsStore.getState().githubPat).toBe("");
     expect(useSettingsStore.getState().isSavingGitHubPat).toBe(false);
+  });
+
+  it("loadConfigDir reads the current config folder", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce("/Users/test/.skillshub");
+
+    await useSettingsStore.getState().loadConfigDir();
+
+    expect(invoke).toHaveBeenCalledWith("get_app_data_dir");
+    expect(useSettingsStore.getState().configDir).toBe("/Users/test/.skillshub");
+    expect(useSettingsStore.getState().isLoadingConfigDir).toBe(false);
+  });
+
+  it("updateConfigDir persists the config folder", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce("D:/Apps/SkillsHub/.skillshub");
+
+    const updated = await useSettingsStore.getState().updateConfigDir("D:/Apps/SkillsHub");
+
+    expect(invoke).toHaveBeenCalledWith("update_app_data_dir", {
+      path: "D:/Apps/SkillsHub",
+    });
+    expect(updated).toBe("D:/Apps/SkillsHub/.skillshub");
+    expect(useSettingsStore.getState().configDir).toBe("D:/Apps/SkillsHub/.skillshub");
   });
 });

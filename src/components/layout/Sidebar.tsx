@@ -418,17 +418,21 @@ export function Sidebar() {
                 ) : (
                   <div className="border-t border-sidebar-border/40 my-1.5" />
                 )}
-                {!lobsterCollapsed && lobsterAgents.map((agent) => (
-                  <NavItem
-                    key={agent.id}
-                    label={agent.display_name}
-                    isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
-                    onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
-                    icon={<PlatformIcon agentId={agent.id} className="size-4" />}
-                    expanded={expanded}
-                    count={skillsByAgent[agent.id]}
-                  />
-                ))}
+                {!lobsterCollapsed && (
+                  <div className={expanded ? "ml-3 border-l border-sidebar-border/70 pl-2" : ""}>
+                    {lobsterAgents.map((agent) => (
+                      <NavItem
+                        key={agent.id}
+                        label={agent.display_name}
+                        isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
+                        onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
+                        icon={<PlatformIcon agentId={agent.id} className="size-4" />}
+                        expanded={expanded}
+                        count={skillsByAgent[agent.id]}
+                      />
+                    ))}
+                  </div>
+                )}
               </>
             )}
 
@@ -443,17 +447,21 @@ export function Sidebar() {
                 ) : (
                   <div className="border-t border-sidebar-border/40 my-1.5" />
                 )}
-                {!codingCollapsed && codingAgents.map((agent) => (
-                  <NavItem
-                    key={agent.id}
-                    label={agent.display_name}
-                    isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
-                    onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
-                    icon={<PlatformIcon agentId={agent.id} className="size-4" />}
-                    expanded={expanded}
-                    count={skillsByAgent[agent.id]}
-                  />
-                ))}
+                {!codingCollapsed && (
+                  <div className={expanded ? "ml-3 border-l border-sidebar-border/70 pl-2" : ""}>
+                    {codingAgents.map((agent) => (
+                      <NavItem
+                        key={agent.id}
+                        label={agent.display_name}
+                        isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
+                        onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
+                        icon={<PlatformIcon agentId={agent.id} className="size-4" />}
+                        expanded={expanded}
+                        count={skillsByAgent[agent.id]}
+                      />
+                    ))}
+                  </div>
+                )}
               </>
             )}
 

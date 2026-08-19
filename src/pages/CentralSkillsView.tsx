@@ -3,8 +3,6 @@ import {
   AlertTriangle,
   Blocks,
   RefreshCw,
-  Trash2,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -42,7 +40,6 @@ import {
 } from "@/lib/skillSort";
 import { isTauriRuntime } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
-import { isInstallTargetAgent } from "@/lib/agents";
 
 const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
@@ -270,12 +267,6 @@ export function CentralSkillsView() {
   const [sortDirection, setSortDirection] = useState<SkillSortDirection>("asc");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [selectedCentralSkillIds, setSelectedCentralSkillIds] = useState<Set<string>>(
-    () => new Set()
-  );
-  const [bulkUninstallAgentId, setBulkUninstallAgentId] = useState("");
-  const [isBulkUninstallConfirming, setIsBulkUninstallConfirming] = useState(false);
-  const [isBulkUninstalling, setIsBulkUninstalling] = useState(false);
   const [installTargetSkill, setInstallTargetSkill] =
     useState<SkillWithLinks | null>(null);
   const [deleteTargetSkill, setDeleteTargetSkill] =
@@ -429,49 +420,6 @@ export function CentralSkillsView() {
     });
   }, [centralFolderGroupsByPath, filteredBundles, sortDirection, sortField]);
 
-  const uninstallTargetAgents = useMemo(
-    () => agents.filter(isInstallTargetAgent),
-    [agents]
-  );
-  const visibleUninstallableSkills = useMemo(
-    () => sortedSkills.filter((skill) => skill.linked_agents.length > 0),
-    [sortedSkills]
-  );
-  const selectedCentralSkills = useMemo(
-    () => skills.filter((skill) => selectedCentralSkillIds.has(skill.id)),
-    [selectedCentralSkillIds, skills]
-  );
-  const selectedLinkedSkillIdsForAgent = useMemo(
-    () =>
-      selectedCentralSkills
-        .filter(
-          (skill) =>
-            bulkUninstallAgentId.length > 0 &&
-            skill.linked_agents.includes(bulkUninstallAgentId)
-        )
-        .map((skill) => skill.id),
-    [bulkUninstallAgentId, selectedCentralSkills]
-  );
-  const allVisibleUninstallableSelected =
-    visibleUninstallableSkills.length > 0 &&
-    visibleUninstallableSkills.every((skill) =>
-      selectedCentralSkillIds.has(skill.id)
-    );
-  const skippedSelectedCount =
-    selectedCentralSkillIds.size - selectedLinkedSkillIdsForAgent.length;
-
-  useEffect(() => {
-    setSelectedCentralSkillIds((current) => {
-      const validIds = new Set(skills.map((skill) => skill.id));
-      const next = new Set([...current].filter((skillId) => validIds.has(skillId)));
-      return next.size === current.size ? current : next;
-    });
-  }, [skills]);
-
-  useEffect(() => {
-    setIsBulkUninstallConfirming(false);
-  }, [bulkUninstallAgentId, selectedCentralSkillIds]);
-
   useEffect(() => {
     if (!isSearchActive || !contentRef.current) return;
     contentRef.current.scrollTop = 0;
@@ -584,57 +532,6 @@ export function CentralSkillsView() {
       await Promise.all([loadCentralSkills(), loadCentralBundles()]);
     } catch (err) {
       toast.error(t("central.refreshError", { error: String(err) }));
-    }
-  }
-
-  function toggleCentralSkillSelection(skill: SkillWithLinks) {
-    if (skill.linked_agents.length === 0) return;
-    setSelectedCentralSkillIds((current) => {
-      const next = new Set(current);
-      if (next.has(skill.id)) {
-        next.delete(skill.id);
-      } else {
-        next.add(skill.id);
-      }
-      return next;
-    });
-  }
-
-  function toggleVisibleUninstallableSelection() {
-    setSelectedCentralSkillIds((current) => {
-      const next = new Set(current);
-      if (allVisibleUninstallableSelected) {
-        for (const skill of visibleUninstallableSkills) {
-          next.delete(skill.id);
-        }
-      } else {
-        for (const skill of visibleUninstallableSkills) {
-          next.add(skill.id);
-        }
-      }
-      return next;
-    });
-  }
-
-  async function handleBulkUninstallFromAgent() {
-    if (!bulkUninstallAgentId || selectedLinkedSkillIdsForAgent.length === 0) {
-      return;
-    }
-    setIsBulkUninstalling(true);
-    try {
-      await uninstallSkillsFromAgent(selectedLinkedSkillIdsForAgent, bulkUninstallAgentId);
-      await Promise.all([refreshCounts(), getSkillsByAgent(bulkUninstallAgentId)]);
-      setSelectedCentralSkillIds(new Set());
-      setIsBulkUninstallConfirming(false);
-      toast.success(
-        t("central.bulkUninstallSuccess", {
-          count: selectedLinkedSkillIdsForAgent.length,
-        })
-      );
-    } catch (err) {
-      toast.error(t("central.bulkUninstallError", { error: String(err) }));
-    } finally {
-      setIsBulkUninstalling(false);
     }
   }
 
@@ -762,98 +659,6 @@ export function CentralSkillsView() {
             ))}
           </div>
         )}
-        {skills.length > 0 && (
-          <div
-            role="group"
-            aria-label={t("central.bulkUninstallLabel")}
-            className="mt-3 flex flex-wrap items-center gap-2"
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={visibleUninstallableSkills.length === 0 || isBulkUninstalling}
-              onClick={toggleVisibleUninstallableSelection}
-              className="h-8"
-            >
-              {allVisibleUninstallableSelected
-                ? t("central.deselectVisible")
-                : t("central.selectVisible")}
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              {t("central.selectedCount", { count: selectedCentralSkillIds.size })}
-            </span>
-            <label className="sr-only" htmlFor="central-bulk-uninstall-agent">
-              {t("central.bulkUninstallPlatformLabel")}
-            </label>
-            <select
-              id="central-bulk-uninstall-agent"
-              aria-label={t("central.bulkUninstallPlatformLabel")}
-              value={bulkUninstallAgentId}
-              disabled={isBulkUninstalling}
-              onChange={(event) => setBulkUninstallAgentId(event.target.value)}
-              className="h-8 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="">{t("central.bulkUninstallChoosePlatform")}</option>
-              {uninstallTargetAgents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.display_name}
-                </option>
-              ))}
-            </select>
-            {visibleUninstallableSkills.length === 0 && (
-              <span className="text-xs text-muted-foreground">
-                {t("central.bulkUninstallNoInstalled")}
-              </span>
-            )}
-            {bulkUninstallAgentId &&
-              selectedCentralSkillIds.size > 0 &&
-              skippedSelectedCount > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {t("central.bulkUninstallSkipped", { count: skippedSelectedCount })}
-                </span>
-              )}
-            {selectedLinkedSkillIdsForAgent.length > 0 &&
-              (isBulkUninstallConfirming ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    disabled={isBulkUninstalling}
-                    onClick={() => void handleBulkUninstallFromAgent()}
-                    className="h-8 gap-1.5"
-                  >
-                    <Trash2 className="size-3.5" />
-                    {t("central.bulkUninstallConfirm")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={isBulkUninstalling}
-                    onClick={() => setIsBulkUninstallConfirming(false)}
-                    className="h-8 gap-1.5"
-                  >
-                    <X className="size-3.5" />
-                    {t("common.cancel")}
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  disabled={isBulkUninstalling}
-                  onClick={() => setIsBulkUninstallConfirming(true)}
-                  className="h-8 gap-1.5"
-                >
-                  <Trash2 className="size-3.5" />
-                  {t("central.bulkUninstallAction")}
-                </Button>
-              ))}
-          </div>
-        )}
       </div>
 
       {/* Content */}
@@ -927,16 +732,6 @@ export function CentralSkillsView() {
                     name: skill.name,
                     description: skill.description,
                     notes: skill.notes,
-                    checkbox:
-                      skill.linked_agents.length > 0
-                        ? {
-                            checked: selectedCentralSkillIds.has(skill.id),
-                            onChange: () => toggleCentralSkillSelection(skill),
-                            ariaLabel: t("central.selectSkillLabel", {
-                              name: skill.name,
-                            }),
-                          }
-                        : undefined,
                     publisher: skill.source_repo ?? skill.source_author ?? undefined,
                     sourceAuthor: skill.source_author,
                     sourceRepo: skill.source_repo,
