@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::{
     commands::linker::{install_skill_to_agent_copy_impl, install_skill_to_agent_impl},
+    commands::skills::SkillWithLinks,
     db::{self, Agent, Collection, DbPool, ScanDirectory, Skill, SkillMetadata, SkillSource},
     path_utils::path_to_string,
     AppState,
@@ -893,8 +894,11 @@ async fn export_app_backup_data_impl(
         .await?;
     }
     if options.include_resource_library {
-        crate::commands::skills::get_resource_library_skills_impl(pool).await?;
-        let resource_skills = db::get_resource_library_skills(pool).await?;
+        let resource_skills = crate::commands::skills::get_resource_library_skills_impl(pool)
+            .await?
+            .into_iter()
+            .map(skill_from_resource_listing)
+            .collect();
         append_skill_backups(
             pool,
             &mut skill_backups,
@@ -1210,12 +1214,17 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
         upsert_registry_backup(pool, &registry).await?;
     }
 
-    let included_skill_ids: HashSet<String> = backup
-        .skills
+    let skill_backups = backup.skills;
+    let resource_skill_ids: HashSet<String> = skill_backups
+        .iter()
+        .filter(|skill| skill.storage_kind == "resource")
+        .map(|skill| skill.skill.id.clone())
+        .collect();
+    let included_skill_ids: HashSet<String> = skill_backups
         .iter()
         .map(|skill| skill.skill.id.clone())
         .collect();
-    for skill in backup.skills {
+    for skill in &skill_backups {
         let relative_dir = normalize_relative_path(&skill.relative_dir)?;
         let is_resource_skill = skill.storage_kind == "resource";
         let target_root = if is_resource_skill {
@@ -1226,7 +1235,7 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
         let target_dir = target_root.join(relative_dir);
         replace_skill_directory(&target_dir, &skill.files)?;
 
-        let mut db_skill = skill.skill;
+        let mut db_skill = skill.skill.clone();
         db_skill.file_path = path_to_string(&target_dir.join("SKILL.md"));
         db_skill.canonical_path = Some(path_to_string(&target_dir));
         db_skill.is_central = !is_resource_skill;
@@ -1243,15 +1252,21 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
             .execute(pool)
             .await
             .map_err(|e| e.to_string())?;
-        if let Some(mut source) = sanitize_skill_source(skill.source) {
+        if let Some(mut source) = sanitize_skill_source(skill.source.clone()) {
             source.skill_id = db_skill.id.clone();
             db::upsert_skill_source(pool, &source).await?;
         }
-        if let Some(metadata) = skill.metadata {
+        if let Some(metadata) = skill.metadata.clone() {
             let tags = db::parse_skill_metadata_tags(Some(&metadata));
             db::upsert_skill_metadata(pool, &db_skill.id, metadata.notes.as_deref(), &tags).await?;
         }
     }
+
+    restore_central_skills_into_resource_library(
+        &resource_root,
+        &skill_backups,
+        &resource_skill_ids,
+    )?;
 
     for installation in backup.skill_installations {
         if !included_skill_ids.contains(&installation.skill_id) {
@@ -1327,6 +1342,39 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
 
 fn default_skill_backup_storage_kind() -> String {
     "central".to_string()
+}
+
+fn skill_from_resource_listing(skill: SkillWithLinks) -> Skill {
+    Skill {
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        file_path: skill.file_path,
+        canonical_path: skill.canonical_path,
+        is_central: skill.is_central,
+        source: skill.source,
+        content: None,
+        scanned_at: skill.scanned_at,
+    }
+}
+
+fn restore_central_skills_into_resource_library(
+    resource_root: &Path,
+    skill_backups: &[SkillBackup],
+    resource_skill_ids: &HashSet<String>,
+) -> Result<(), String> {
+    for skill in skill_backups {
+        if skill.storage_kind == "resource" || resource_skill_ids.contains(&skill.skill.id) {
+            continue;
+        }
+        let relative_dir = normalize_relative_path(&skill.relative_dir)?;
+        let target_dir = resource_root.join(relative_dir);
+        if target_dir.join("SKILL.md").is_file() {
+            continue;
+        }
+        replace_skill_directory(&target_dir, &skill.files)?;
+    }
+    Ok(())
 }
 
 async fn append_skill_backups(
@@ -2016,6 +2064,7 @@ fn is_portable_backup_path(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::linker::add_resource_skill_to_central_impl;
     use std::io::{Cursor, Read};
     use tempfile::tempdir;
 
@@ -2689,6 +2738,163 @@ mod tests {
             !restored.is_central,
             "resource library backups must restore as resource skills"
         );
+    }
+
+    #[tokio::test]
+    async fn backup_roundtrip_keeps_promoted_skills_in_resource_library() {
+        let (pool, dir) = setup_test_db().await;
+        let resource_root = dir.path().join("resource-library");
+        let central_root = dir.path().join("central");
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .expect("resource dir");
+        sqlx::query("UPDATE agents SET is_enabled = 0 WHERE id != 'central'")
+            .execute(&pool)
+            .await
+            .expect("disable platforms");
+
+        let resource_skill_dir = resource_root
+            .join("owner")
+            .join("repo")
+            .join("promoted-skill");
+        std::fs::create_dir_all(&resource_skill_dir).expect("skill dir");
+        std::fs::write(
+            resource_skill_dir.join("SKILL.md"),
+            "---\nname: Promoted Skill\n---\n\nKeep this in the resource library.\n",
+        )
+        .expect("skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "promoted-skill".to_string(),
+                name: "Promoted Skill".to_string(),
+                description: None,
+                file_path: path_to_string(&resource_skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&resource_skill_dir)),
+                is_central: false,
+                source: Some("github:owner/repo".to_string()),
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+        add_resource_skill_to_central_impl(&pool, "promoted-skill")
+            .await
+            .expect("promote");
+
+        let archive = export_app_backup_archive_impl(&pool, BackupOptions::default())
+            .await
+            .expect("archive export");
+        assert_eq!(
+            zip_entry_text(
+                &archive,
+                "resource-library/owner/repo/promoted-skill/SKILL.md"
+            ),
+            "---\nname: Promoted Skill\n---\n\nKeep this in the resource library.\n"
+        );
+        assert_eq!(
+            zip_entry_text(
+                &archive,
+                "central-library/owner/repo/promoted-skill/SKILL.md"
+            ),
+            "---\nname: Promoted Skill\n---\n\nKeep this in the resource library.\n"
+        );
+
+        std::fs::remove_dir_all(&resource_skill_dir).expect("remove resource files");
+        std::fs::remove_dir_all(central_root.join("owner")).expect("remove central files");
+        db::delete_skill(&pool, "promoted-skill")
+            .await
+            .expect("delete db");
+
+        import_app_backup_bytes_impl(&pool, &archive)
+            .await
+            .expect("archive import");
+
+        assert!(resource_skill_dir.join("SKILL.md").exists());
+        assert!(central_root
+            .join("owner")
+            .join("repo")
+            .join("promoted-skill")
+            .join("SKILL.md")
+            .exists());
+        let restored = db::get_skill_by_id(&pool, "promoted-skill")
+            .await
+            .expect("restored query")
+            .expect("restored skill");
+        assert!(restored.is_central);
+        let resource_skills = crate::commands::skills::get_resource_library_skills_impl(&pool)
+            .await
+            .expect("resource listing");
+        assert!(
+            resource_skills
+                .iter()
+                .any(|skill| skill.id == "promoted-skill"),
+            "promoted skills remain visible in the resource library after restore"
+        );
+    }
+
+    #[tokio::test]
+    async fn backup_restore_copies_central_only_skills_into_resource_library() {
+        let (pool, dir) = setup_test_db().await;
+        let resource_root = dir.path().join("resource-library");
+        let central_root = dir.path().join("central");
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .expect("resource dir");
+        let central_skill_dir = central_root.join("owner").join("repo").join("central-only");
+        std::fs::create_dir_all(&central_skill_dir).expect("central skill dir");
+        std::fs::write(
+            central_skill_dir.join("SKILL.md"),
+            "---\nname: Central Only\n---\n\nSource this from the resource library.\n",
+        )
+        .expect("skill");
+        db::upsert_skill(
+            &pool,
+            &Skill {
+                id: "central-only".to_string(),
+                name: "Central Only".to_string(),
+                description: None,
+                file_path: path_to_string(&central_skill_dir.join("SKILL.md")),
+                canonical_path: Some(path_to_string(&central_skill_dir)),
+                is_central: true,
+                source: Some("github:owner/repo".to_string()),
+                content: None,
+                scanned_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        )
+        .await
+        .expect("skill");
+
+        let archive = export_app_backup_archive_impl(&pool, BackupOptions::default())
+            .await
+            .expect("archive export");
+
+        std::fs::remove_dir_all(&central_skill_dir).expect("remove central files");
+        db::delete_skill(&pool, "central-only")
+            .await
+            .expect("delete db");
+
+        import_app_backup_bytes_impl(&pool, &archive)
+            .await
+            .expect("archive import");
+
+        let resource_skill_dir = resource_root.join("owner").join("repo").join("central-only");
+        assert!(
+            resource_skill_dir.join("SKILL.md").exists(),
+            "central skills are restored into the resource library as well"
+        );
+        let resource_skills = crate::commands::skills::get_resource_library_skills_impl(&pool)
+            .await
+            .expect("resource listing");
+        assert!(resource_skills
+            .iter()
+            .any(|skill| skill.id == "central-only"));
+        let restored = db::get_skill_by_id(&pool, "central-only")
+            .await
+            .expect("restored query")
+            .expect("restored skill");
+        assert!(restored.is_central);
     }
 
     #[tokio::test]

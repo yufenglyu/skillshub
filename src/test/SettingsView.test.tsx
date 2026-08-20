@@ -1129,7 +1129,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.50.0")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.50.1")).toBeTruthy();
   });
 
   it("shows an editable config folder path", () => {

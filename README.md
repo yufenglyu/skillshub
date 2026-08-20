@@ -104,7 +104,7 @@ Skills imported through `npx skills` keep the source repository, optional skill 
 
 SkillsHub can export and import complete local backup files. Local export opens a save dialog and writes the ZIP on disk. WebDAV support adds connection testing, remote listing, upload, selected restore, and selected delete. Remote backup times are shown in the local timezone.
 
-Backups include Resource Library and Central Skills files, source metadata, collections, custom platform settings, regular app settings, and installation state. Export indexes the Resource Library from disk first so the archive matches the count in the app. Restore writes into this computer's current library folders and does not reuse path settings from another OS. API keys, tokens, and passwords are excluded and must be re-entered after restore.
+Backups include Resource Library and Central Skills files, source metadata, collections, custom platform settings, regular app settings, and installation state. Export packs every skill still present in the Resource Library on disk, including skills that were added to Central Skills. Central Skills is a subset of the Resource Library, so restore writes those files into both libraries. Restore uses this computer's current library folders and does not reuse path settings from another OS. API keys, tokens, and passwords are excluded and must be re-entered after restore.
 
 - SkillsHub is local-first and does not include telemetry.
 - Network requests happen only for `npx skills` import/update, WebDAV backup, update checking, or AI-generated notes.
@@ -137,15 +137,15 @@ The Vite development server uses port `24200`.
 
 ## Release
 
-GitHub Actions publishes desktop packages when a version tag such as `v0.50.0` is pushed. The release workflow reads notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
+GitHub Actions publishes desktop packages when a version tag such as `v0.50.1` is pushed. The release workflow reads notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
 Local packaging scripts are still available for host-specific builds:
 
 | Platform | Command |
 |----------|---------|
-| Windows | `pnpm package:release:windows -- -Version 0.50.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.50.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.50.0` |
+| Windows | `pnpm package:release:windows -- -Version 0.50.1` |
+| macOS | `pnpm package:release:macos -- -Version 0.50.1` |
+| Linux | `pnpm package:release:linux -- -Version 0.50.1` |
 
 Use `-VersionOnly` when you only need to update version metadata before committing a release.
 

@@ -104,7 +104,7 @@ SkillsHub 把技能的长期保存，和工具真正读取技能的位置分开�
 
 SkillsHub 支持导出和导入完整本地备份。本地导出会打开系统保存对话框，直接把 ZIP 写到所选路径。WebDAV 备份支持测试连接、查看远端列表、上传、选择恢复和删除选中备份。远端备份时间按系统时区显示。
 
-备份包含技能资源库和中央技能库文件、来源信息、技能集合、自定义平台、普通应用配置和安装状态。导入时写回本机当前配置的资源库和中央库目录，不会改写这两处路径，因此 Windows 备份可以恢复到 macOS 上已设置的目录。API Key、Token 和密码类内容会被排除，恢复后需要重新填写。
+备份包含技能资源库和中央技能库文件、来源信息、技能集合、自定义平台、普通应用配置和安装状态。导出会把资源库磁盘上仍然存在的技能全部打进包，包括已经加入中央库的技能。中央技能库是资源库的子集，恢复时会同时写回这两处。导入写回本机当前的资源库和中央库目录，不会改写这两处路径，因此 Windows 备份可以恢复到 macOS 上已设置的目录。API Key、Token 和密码类内容会被排除，恢复后需要重新填写。
 
 - SkillsHub 本地优先，不包含遥测。
 - 只有在使用 `npx skills` 导入或更新、WebDAV 备份、检查更新或 AI 备注时才会发起网络请求。
@@ -137,15 +137,15 @@ Vite 开发服务器默认使用 `24200` 端口。
 
 ## 发布
 
-推送 `v0.50.0` 这样的版本 tag 后，GitHub Actions 会构建并发布桌面安装包。发布工作流会从 `CHANGELOG.md` 读取对应版本的 release notes，因此每次发布都必须有匹配的更新日志条目。
+推送 `v0.50.1` 这样的版本 tag 后，GitHub Actions 会构建并发布桌面安装包。发布工作流会从 `CHANGELOG.md` 读取对应版本的 release notes，因此每次发布都必须有匹配的更新日志条目。
 
 本地仍可使用分平台脚本打包：
 
 | 平台 | 命令 |
 |------|------|
-| Windows | `pnpm package:release:windows -- -Version 0.50.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.50.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.50.0` |
+| Windows | `pnpm package:release:windows -- -Version 0.50.1` |
+| macOS | `pnpm package:release:macos -- -Version 0.50.1` |
+| Linux | `pnpm package:release:linux -- -Version 0.50.1` |
 
 只需要更新版本元数据时使用 `-VersionOnly`。
 

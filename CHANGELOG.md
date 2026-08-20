@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.50.1 - 2026-08-20
+
+This release keeps Central Skills as a subset of the Resource Library across backup and restore.
+
+### Fixes
+
+- Include Resource Library copies of skills that were added to Central Skills in complete backups, so restore puts them back in both libraries.
+- When a backup only has the Central Skills copy, restore also writes that skill into the current Resource Library.
+
 ## 0.50.0 - 2026-08-20
 
 This release makes Settings path fields easier to use, keeps Collections in sync with a refresh control, and makes backups and the sidebar match what you see on disk.
