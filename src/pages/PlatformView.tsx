@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ArrowLeft, Blocks, FolderOpen, Trash2, X } from "lucide-react";
+import { ArrowLeft, Blocks, FolderOpen, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { usePlatformStore } from "@/stores/platformStore";
@@ -113,9 +113,6 @@ export function PlatformView() {
   const [activeFolderKey, setActiveFolderKey] = useState<string | null>(null);
   const [folderUninstallGroupPath, setFolderUninstallGroupPath] = useState<string | null>(null);
   const [returnFocusRowKey, setReturnFocusRowKey] = useState<string | null>(null);
-  const [selectedSkillKeys, setSelectedSkillKeys] = useState<Set<string>>(() => new Set());
-  const [isBulkConfirming, setIsBulkConfirming] = useState(false);
-  const [isBulkUninstalling, setIsBulkUninstalling] = useState(false);
   const [isFolderUninstalling, setIsFolderUninstalling] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const detailButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -162,7 +159,7 @@ export function PlatformView() {
     }
   }
 
-  function isBulkSelectable(skill: ScannedSkill) {
+  function isUninstallable(skill: ScannedSkill) {
     return !(skill.is_read_only ?? false);
   }
 
@@ -273,44 +270,13 @@ export function PlatformView() {
     return sortFoldersBySkillBrowserOrder(filteredFolderGroups, sortField, sortDirection);
   }, [filteredFolderGroups, sortDirection, sortField]);
 
-  const selectableVisibleSkills = useMemo(
-    () => sortedSkills.filter(isBulkSelectable),
-    [sortedSkills]
-  );
-  const selectableVisibleKeys = useMemo(
-    () => new Set(selectableVisibleSkills.map(getSkillRowKey)),
-    [selectableVisibleSkills]
-  );
-  const selectedSkills = useMemo(
-    () =>
-      skills.filter(
-        (skill) => isBulkSelectable(skill) && selectedSkillKeys.has(getSkillRowKey(skill))
-      ),
-    [selectedSkillKeys, skills]
-  );
-  const allVisibleSelected =
-    selectableVisibleSkills.length > 0 &&
-    selectableVisibleSkills.every((skill) => selectedSkillKeys.has(getSkillRowKey(skill)));
   const folderUninstallGroup = folderUninstallGroupPath
     ? platformFolderGroupsByPath.get(folderUninstallGroupPath) ?? null
     : null;
   const folderUninstallableSkills = useMemo(
-    () => (folderUninstallGroup?.skills ?? []).filter(isBulkSelectable),
+    () => (folderUninstallGroup?.skills ?? []).filter(isUninstallable),
     [folderUninstallGroup?.skills]
   );
-
-  useEffect(() => {
-    setSelectedSkillKeys((current) => {
-      const validKeys = new Set(skills.filter(isBulkSelectable).map(getSkillRowKey));
-      const next = new Set([...current].filter((key) => validKeys.has(key)));
-      return next.size === current.size ? current : next;
-    });
-  }, [skills]);
-
-  useEffect(() => {
-    setSelectedSkillKeys(new Set());
-    setIsBulkConfirming(false);
-  }, [agentId, sourceFilter, viewMode]);
 
   useEffect(() => {
     if (viewMode === "all") {
@@ -319,55 +285,6 @@ export function PlatformView() {
       setActiveFolderKey(null);
     }
   }, [activeFolderKey, platformFolderGroupsByPath, viewMode]);
-
-  function toggleSkillSelection(skill: ScannedSkill) {
-    if (!isBulkSelectable(skill)) return;
-    const rowKey = getSkillRowKey(skill);
-    setSelectedSkillKeys((current) => {
-      const next = new Set(current);
-      if (next.has(rowKey)) {
-        next.delete(rowKey);
-      } else {
-        next.add(rowKey);
-      }
-      return next;
-    });
-    setIsBulkConfirming(false);
-  }
-
-  function toggleVisibleSelection() {
-    setSelectedSkillKeys((current) => {
-      const next = new Set(current);
-      if (allVisibleSelected) {
-        for (const key of selectableVisibleKeys) {
-          next.delete(key);
-        }
-      } else {
-        for (const key of selectableVisibleKeys) {
-          next.add(key);
-        }
-      }
-      return next;
-    });
-    setIsBulkConfirming(false);
-  }
-
-  async function handleBulkUninstall() {
-    if (!agentId || selectedSkills.length === 0) return;
-    setIsBulkUninstalling(true);
-    try {
-      for (const skill of selectedSkills) {
-        await uninstallSkillFromAgent(skill.id, agentId);
-      }
-      setSelectedSkillKeys(new Set());
-      setIsBulkConfirming(false);
-      await refreshCounts();
-    } catch (err) {
-      toast.error(t("detail.uninstallError", { error: String(err) }));
-    } finally {
-      setIsBulkUninstalling(false);
-    }
-  }
 
   useEffect(() => {
     if (!drawerSkill) return;
@@ -406,7 +323,7 @@ export function PlatformView() {
 
   async function handleConfirmUninstallFolder() {
     if (!agentId || !folderUninstallGroup) return;
-    const removableSkills = folderUninstallGroup.skills.filter(isBulkSelectable);
+    const removableSkills = folderUninstallGroup.skills.filter(isUninstallable);
     if (removableSkills.length === 0) {
       setFolderUninstallGroupPath(null);
       return;
@@ -521,73 +438,6 @@ export function PlatformView() {
             className="shrink-0"
           />
         </div>
-        {(sortedSkills.length > 0 || sortedFolderGroups.length > 0) && (
-          <div
-            className="mt-3 flex flex-wrap items-center gap-2"
-            role="group"
-            aria-label={t("platform.bulkActionsLabel")}
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={selectableVisibleSkills.length === 0 || isBulkUninstalling}
-              onClick={toggleVisibleSelection}
-              className="h-8 gap-1.5"
-            >
-              {allVisibleSelected ? t("platform.deselectVisible") : t("platform.selectVisible")}
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              {t("platform.selectedCount", { count: selectedSkills.length })}
-            </span>
-            {selectableVisibleSkills.length === 0 && (
-              <span className="text-xs text-muted-foreground">
-                {t("platform.noUninstallableSkills")}
-              </span>
-            )}
-            {selectedSkills.length > 0 && (
-              <>
-                {isBulkConfirming ? (
-                  <>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      disabled={isBulkUninstalling}
-                      onClick={() => void handleBulkUninstall()}
-                      className="h-8 gap-1.5"
-                    >
-                      <Trash2 className="size-3.5" />
-                      {t("platform.confirmUninstall")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={isBulkUninstalling}
-                      onClick={() => setIsBulkConfirming(false)}
-                      className="h-8 gap-1.5"
-                    >
-                      <X className="size-3.5" />
-                      {t("common.cancel")}
-                    </Button>
-                  </>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setIsBulkConfirming(true)}
-                    className="h-8 gap-1.5"
-                  >
-                    <Trash2 className="size-3.5" />
-                    {t("platform.uninstallSelected")}
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Content */}
@@ -656,7 +506,7 @@ export function PlatformView() {
                       createdAt: earliestSkillCreatedAt(group.skills),
                       updatedAt: latestSkillUpdatedAt(group.skills),
                       onOpen: () => setActiveFolderKey(group.relativePath),
-                      onUninstall: group.skills.some(isBulkSelectable)
+                      onUninstall: group.skills.some(isUninstallable)
                         ? () => handleUninstallFolderClick(group.relativePath)
                         : undefined,
                       uninstallLabel: t("resource.uninstallFromTargetsAction"),
@@ -692,15 +542,6 @@ export function PlatformView() {
                     rowKey: getSkillRowKey(skill),
                     name: skill.name,
                     description: skill.description,
-                    checkbox: isBulkSelectable(skill)
-                      ? {
-                          checked: selectedSkillKeys.has(getSkillRowKey(skill)),
-                          onChange: () => toggleSkillSelection(skill),
-                          ariaLabel: t("platform.selectSkillLabel", {
-                            name: skill.name,
-                          }),
-                        }
-                      : undefined,
                     sourceType: skill.link_type as "symlink" | "copy" | "native",
                     sourceLocation: getSourceLocation(skill),
                     originKind: skill.source_kind ?? null,

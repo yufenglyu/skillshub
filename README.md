@@ -137,15 +137,15 @@ The Vite development server uses port `24200`.
 
 ## Release
 
-GitHub Actions publishes desktop packages when a version tag such as `v0.50.1` is pushed. The release workflow reads notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
+GitHub Actions publishes desktop packages when a version tag such as `v0.50.2` is pushed. The release workflow reads notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
 Local packaging scripts are still available for host-specific builds:
 
 | Platform | Command |
 |----------|---------|
-| Windows | `pnpm package:release:windows -- -Version 0.50.1` |
-| macOS | `pnpm package:release:macos -- -Version 0.50.1` |
-| Linux | `pnpm package:release:linux -- -Version 0.50.1` |
+| Windows | `pnpm package:release:windows -- -Version 0.50.2` |
+| macOS | `pnpm package:release:macos -- -Version 0.50.2` |
+| Linux | `pnpm package:release:linux -- -Version 0.50.2` |
 
 Use `-VersionOnly` when you only need to update version metadata before committing a release.
 

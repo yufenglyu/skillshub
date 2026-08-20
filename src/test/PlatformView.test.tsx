@@ -55,26 +55,6 @@ vi.mock("../components/skill/SkillDetailDrawer", () => ({
     ) : null,
 }));
 
-vi.mock("../components/skill/SkillFolderDrawer", () => ({
-  SkillFolderDrawer: ({
-    open,
-    title,
-    skills,
-  }: {
-    open: boolean;
-    title: string;
-    skills: Array<{ name: string }>;
-  }) =>
-    open ? (
-      <div data-testid="skill-folder-drawer">
-        <div>folder-title:{title}</div>
-        {skills.map((skill) => (
-          <div key={skill.name}>folder-skill:{skill.name}</div>
-        ))}
-      </div>
-    ) : null,
-}));
-
 import { usePlatformStore } from "../stores/platformStore";
 import { useSkillStore } from "../stores/skillStore";
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
@@ -879,53 +859,12 @@ describe("PlatformView", () => {
     expect(mockUninstallSkillFromAgent).not.toHaveBeenCalled();
   });
 
-  it("bulk uninstalls selected writable platform skills", async () => {
-    mockUninstallSkillFromAgent.mockResolvedValue(undefined);
+  it("does not offer bulk selection or bulk uninstall on platform and project views", () => {
     renderPlatformView();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: /选择 frontend-design/i }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /选择 code-reviewer/i }));
-
-    expect(screen.getByText(/已选择 2 个/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /卸载所选/i }));
-    fireEvent.click(screen.getByRole("button", { name: /确认卸载/i }));
-
-    await waitFor(() => {
-      expect(mockUninstallSkillFromAgent).toHaveBeenCalledWith(
-        "frontend-design",
-        "claude-code"
-      );
-      expect(mockUninstallSkillFromAgent).toHaveBeenCalledWith(
-        "code-reviewer",
-        "claude-code"
-      );
-    });
-    expect(mockRefreshCounts).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not offer bulk selection for read-only platform skills", () => {
-    mockUseSkillStore.mockImplementation((selector?: unknown) => {
-      const state = buildSkillStoreState({
-        skillsByAgent: { "claude-code": mockDuplicateClaudeSkills },
-      });
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
-    renderPlatformView();
-
-    expect(
-      screen.getByRole("checkbox", { name: /选择 shared-skill/i })
-    ).toBeInTheDocument();
-    const pluginCard = screen
-      .getAllByText(/插件来源|Plugin source/i)
-      .map((element) => element.closest("tr"))
-      .find((row): row is HTMLTableRowElement => row !== null);
-    expect(
-      within(pluginCard as HTMLElement).queryByRole("checkbox", {
-        name: /选择 shared-skill/i,
-      })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /选择 / })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /卸载所选/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /全选可见|Select visible/ })).not.toBeInTheDocument();
   });
 
   it("shows Claude-only source tabs with 全部 selected by default", () => {

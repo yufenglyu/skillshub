@@ -137,15 +137,15 @@ Vite 开发服务器默认使用 `24200` 端口。
 
 ## 发布
 
-推送 `v0.50.1` 这样的版本 tag 后，GitHub Actions 会构建并发布桌面安装包。发布工作流会从 `CHANGELOG.md` 读取对应版本的 release notes，因此每次发布都必须有匹配的更新日志条目。
+推送 `v0.50.2` 这样的版本 tag 后，GitHub Actions 会构建并发布桌面安装包。发布工作流会从 `CHANGELOG.md` 读取对应版本的 release notes，因此每次发布都必须有匹配的更新日志条目。
 
 本地仍可使用分平台脚本打包：
 
 | 平台 | 命令 |
 |------|------|
-| Windows | `pnpm package:release:windows -- -Version 0.50.1` |
-| macOS | `pnpm package:release:macos -- -Version 0.50.1` |
-| Linux | `pnpm package:release:linux -- -Version 0.50.1` |
+| Windows | `pnpm package:release:windows -- -Version 0.50.2` |
+| macOS | `pnpm package:release:macos -- -Version 0.50.2` |
+| Linux | `pnpm package:release:linux -- -Version 0.50.2` |
 
 只需要更新版本元数据时使用 `-VersionOnly`。
 

@@ -1,6 +1,6 @@
 [package]
 name = "skillshub"
-version = "0.50.1"
+version = "0.50.2"
 description = "AI Agent Skills Hub"
 authors = ["yufenglyu"]
 license = "Apache-2.0"

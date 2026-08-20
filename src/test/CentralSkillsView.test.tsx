@@ -49,24 +49,6 @@ vi.mock("../components/skill/SkillDetailDrawer", () => ({
     ) : null,
 }));
 
-vi.mock("../components/skill/SkillDetailView", () => ({
-  SkillDetailView: ({
-    skillId,
-    agentId,
-    rowId,
-  }: {
-    skillId?: string;
-    agentId?: string | null;
-    rowId?: string | null;
-  }) => (
-    <div data-testid="folder-skill-detail">
-      <div>folder-detail-skill:{skillId ?? "none"}</div>
-      <div>folder-detail-agent:{agentId ?? "none"}</div>
-      <div>folder-detail-row:{rowId ?? "none"}</div>
-    </div>
-  ),
-}));
-
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
 import { usePlatformStore } from "../stores/platformStore";
 import { useSkillStore } from "../stores/skillStore";
@@ -489,30 +471,36 @@ describe("CentralSkillsView", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens a bundle detail drawer showing skills and platform links", async () => {
+  it("opens a folder as an in-page skill table", () => {
     window.localStorage.setItem("skills-manage.skillListViewMode.central", "folders");
-    mockLoadCentralBundleDetail.mockResolvedValue(mockBundleDetail);
     renderCentralSkillsView({
       bundles: mockBundles,
-      bundleDetail: mockBundleDetail,
+      skills: [...mockSkills, ...mockBundleDetail.skills],
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Superpowers" }));
 
-    expect(mockLoadCentralBundleDetail).toHaveBeenCalledWith("Superpowers");
+    expect(mockLoadCentralBundleDetail).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: /Superpowers/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回目录" })).toBeInTheDocument();
     expect(
-      await screen.findByRole("dialog", { name: /Superpowers/ })
+      screen.getByRole("button", { name: /查看 using-superpowers 的详情/i })
     ).toBeInTheDocument();
-    expect(screen.getByText("using-superpowers")).toBeInTheDocument();
-    expect(screen.getByText("writing-plans")).toBeInTheDocument();
-    expect(screen.getByText("folder-detail-skill:using-superpowers")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /查看 writing-plans 的详情/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /查看 frontend-design 的详情/i })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Superpowers" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /writing-plans/i }));
+    fireEvent.click(screen.getByRole("button", { name: /查看 writing-plans 的详情/i }));
 
-    expect(screen.getByText("folder-detail-skill:writing-plans")).toBeInTheDocument();
+    expect(screen.getByTestId("skill-detail-drawer")).toBeInTheDocument();
+    expect(screen.getByText("drawer-skill:writing-plans")).toBeInTheDocument();
   });
 
-  it("keeps bundle delete icon from opening the detail drawer", async () => {
+  it("keeps bundle delete icon from opening the folder table", async () => {
     window.localStorage.setItem("skills-manage.skillListViewMode.central", "folders");
     mockPreviewDeleteCentralBundle.mockResolvedValue({
       bundle: mockBundles[0],
@@ -532,6 +520,7 @@ describe("CentralSkillsView", () => {
     ).toBeInTheDocument();
     expect(mockPreviewDeleteCentralBundle).toHaveBeenCalledWith("Superpowers");
     expect(mockLoadCentralBundleDetail).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "返回目录" })).not.toBeInTheDocument();
   });
 
   it("previews and deletes a central skill bundle after danger confirmation", async () => {

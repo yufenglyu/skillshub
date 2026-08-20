@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.50.2 - 2026-08-20
+
+This release makes Central Skills folders open in the same in-page table as other views, and removes bulk uninstall from software platforms and project directories.
+
+### Improvements
+
+- Open a Central Skills folder as an in-page skill table with a back button, matching the Resource Library, software platforms, and project directories.
+- Remove multi-select bulk uninstall from software platforms and project directories. Row uninstall and folder uninstall remain.
+
 ## 0.50.1 - 2026-08-20
 
 This release keeps Central Skills as a subset of the Resource Library across backup and restore.

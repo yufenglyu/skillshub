@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   Blocks,
   RefreshCw,
 } from "lucide-react";
@@ -9,12 +10,10 @@ import { useTranslation } from "react-i18next";
 
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { usePlatformStore } from "@/stores/platformStore";
-import { useSkillStore } from "@/stores/skillStore";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import { SkillBrowserTable, type FolderTableItem } from "@/components/skill/SkillBrowserTable";
 import { SkillBrowserViewHeading } from "@/components/skill/SkillBrowserViewHeading";
 import { InstallDialog } from "@/components/central/InstallDialog";
-import { CentralBundleDrawer } from "@/components/central/CentralBundleDrawer";
 import { PlatformInstallDrawer } from "@/components/central/PlatformInstallDrawer";
 import { SearchInput } from "@/components/ui/search-input";
 import { Button } from "@/components/ui/button";
@@ -94,9 +93,7 @@ const EMPTY_AGENTS: AgentWithStatus[] = [];
 const noopLoadCentralSkills = async () => {};
 const noopLoadCentralBundles = async () => {};
 const noopRefreshCounts = async () => {};
-const noopGetSkillsByAgent = async (_agentId: string) => {};
 const noopTogglePlatformLink = async (_skillId: string, _agentId: string) => {};
-const noopUninstallSkillsFromAgent = async (_skillIds: string[], _agentId: string) => {};
 const noopDeleteCentralSkill = async (
   _skillId: string,
   _options: { cascadeUninstall: boolean }
@@ -128,19 +125,6 @@ const noopDeleteCentralBundle = async (relativePath: string) => ({
   uninstalledAgents: [],
   skippedReadOnlyAgents: [],
 });
-const noopLoadCentralBundleDetail = async (relativePath: string) => ({
-  bundle: {
-    name: relativePath,
-    relativePath,
-    path: "",
-    isSymlink: false,
-    skillCount: 0,
-    linkedAgentCount: 0,
-    readOnlyAgentCount: 0,
-  },
-  skills: [],
-});
-const noopClearCentralBundleDetail = () => {};
 const noopClearBundleDeletePreview = () => {};
 const noopInstallSkill = async () => ({
   succeeded: [],
@@ -214,9 +198,6 @@ export function CentralSkillsView() {
   const togglePlatformLink =
     useCentralSkillsStore((state) => state.togglePlatformLink) ??
     noopTogglePlatformLink;
-  const uninstallSkillsFromAgent =
-    useCentralSkillsStore((state) => state.uninstallSkillsFromAgent) ??
-    noopUninstallSkillsFromAgent;
   const deleteCentralSkill =
     useCentralSkillsStore((state) => state.deleteCentralSkill) ??
     noopDeleteCentralSkill;
@@ -226,16 +207,6 @@ export function CentralSkillsView() {
   const deleteCentralBundle =
     useCentralSkillsStore((state) => state.deleteCentralBundle) ??
     noopDeleteCentralBundle;
-  const loadCentralBundleDetail =
-    useCentralSkillsStore((state) => state.loadCentralBundleDetail) ??
-    noopLoadCentralBundleDetail;
-  const clearCentralBundleDetail =
-    useCentralSkillsStore((state) => state.clearCentralBundleDetail) ??
-    noopClearCentralBundleDetail;
-  const bundleDetail = useCentralSkillsStore((state) => state.bundleDetail);
-  const loadingBundleDetailPath = useCentralSkillsStore(
-    (state) => state.loadingBundleDetailPath
-  );
   const clearBundleDeletePreview =
     useCentralSkillsStore((state) => state.clearBundleDeletePreview) ??
     noopClearBundleDeletePreview;
@@ -249,8 +220,6 @@ export function CentralSkillsView() {
   // Keep the platform sidebar counts in sync after install.
   const refreshCounts =
     usePlatformStore((state) => state.refreshCounts) ?? noopRefreshCounts;
-  const getSkillsByAgent =
-    useSkillStore((state) => state.getSkillsByAgent) ?? noopGetSkillsByAgent;
 
   const [viewMode, setViewMode] = useSkillListViewMode("central");
   const {
@@ -273,8 +242,7 @@ export function CentralSkillsView() {
     useState<SkillWithLinks | null>(null);
   const [deleteTargetBundle, setDeleteTargetBundle] =
     useState<CentralSkillBundle | null>(null);
-  const [isBundleDrawerOpen, setIsBundleDrawerOpen] = useState(false);
-  const [bundleDrawerPath, setBundleDrawerPath] = useState<string | null>(null);
+  const [activeFolderKey, setActiveFolderKey] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [drawerSkillId, setDrawerSkillId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -313,7 +281,20 @@ export function CentralSkillsView() {
       ),
     [centralFolderSplit.groups]
   );
-  const visibleSkills = viewMode === "folders" ? centralFolderSplit.rootSkills : skills;
+  const activeFolderGroup = activeFolderKey
+    ? centralFolderGroupsByPath.get(activeFolderKey) ?? null
+    : null;
+  const activeBundle = activeFolderKey
+    ? bundles.find((bundle) => bundle.relativePath === activeFolderKey) ?? null
+    : null;
+  const isFolderOpen = viewMode === "folders" && activeFolderKey !== null;
+  const activeFolderName =
+    activeFolderGroup?.name ?? activeBundle?.name ?? activeFolderKey;
+  const visibleSkills = viewMode === "folders"
+    ? isFolderOpen
+      ? (activeFolderGroup?.skills ?? [])
+      : centralFolderSplit.rootSkills
+    : skills;
   const searchableSkills = useMemo(
     () =>
       visibleSkills.map((skill) => ({
@@ -366,7 +347,7 @@ export function CentralSkillsView() {
   }, [normalizedSearchQuery, searchableSkills, selectedTag]);
 
   const filteredBundles = useMemo(() => {
-    if (viewMode !== "folders") return [];
+    if (viewMode !== "folders" || isFolderOpen) return [];
     return bundles.filter((bundle) => {
       const group = centralFolderGroupsByPath.get(bundle.relativePath);
       if (selectedTag) {
@@ -392,7 +373,7 @@ export function CentralSkillsView() {
         ) ?? false
       );
     });
-  }, [bundles, centralFolderGroupsByPath, normalizedSearchQuery, selectedTag, viewMode]);
+  }, [bundles, centralFolderGroupsByPath, isFolderOpen, normalizedSearchQuery, selectedTag, viewMode]);
 
   const sortedSkills = useMemo(() => {
     return sortBySkillBrowserOrder(filteredSkills, sortField, sortDirection);
@@ -419,6 +400,20 @@ export function CentralSkillsView() {
       return timeComparison === 0 ? nameComparison : timeComparison * multiplier;
     });
   }, [centralFolderGroupsByPath, filteredBundles, sortDirection, sortField]);
+
+  useEffect(() => {
+    if (viewMode === "all") {
+      setActiveFolderKey(null);
+      return;
+    }
+    if (
+      activeFolderKey &&
+      !centralFolderGroupsByPath.has(activeFolderKey) &&
+      !bundles.some((bundle) => bundle.relativePath === activeFolderKey)
+    ) {
+      setActiveFolderKey(null);
+    }
+  }, [activeFolderKey, bundles, centralFolderGroupsByPath, viewMode]);
 
   useEffect(() => {
     if (!isSearchActive || !contentRef.current) return;
@@ -491,18 +486,6 @@ export function CentralSkillsView() {
     void handleDeleteCentralSkill(skill, false);
   }
 
-  async function handleOpenBundleDrawer(bundle: CentralSkillBundle) {
-    setBundleDrawerPath(bundle.relativePath);
-    setIsBundleDrawerOpen(true);
-    try {
-      await loadCentralBundleDetail(bundle.relativePath);
-    } catch (err) {
-      setIsBundleDrawerOpen(false);
-      setBundleDrawerPath(null);
-      toast.error(t("central.bundleDetailError", { error: String(err) }));
-    }
-  }
-
   async function handleDeleteBundleClick(bundle: CentralSkillBundle) {
     try {
       await previewDeleteCentralBundle(bundle.relativePath);
@@ -519,6 +502,9 @@ export function CentralSkillsView() {
       toast.success(t("central.deleteBundleSuccess", { name: bundle.name }));
       setDeleteTargetBundle(null);
       clearBundleDeletePreview();
+      if (activeFolderKey === bundle.relativePath) {
+        setActiveFolderKey(null);
+      }
     } catch (err) {
       toast.error(t("central.deleteBundleError", { error: String(err) }));
     }
@@ -532,46 +518,6 @@ export function CentralSkillsView() {
       await Promise.all([loadCentralSkills(), loadCentralBundles()]);
     } catch (err) {
       toast.error(t("central.refreshError", { error: String(err) }));
-    }
-  }
-
-  async function handleInstallBundleSkills(
-    skillIds: string[],
-    agentIds: string[],
-    method: "symlink" | "copy"
-  ) {
-    try {
-      let failedCount = 0;
-      for (const skillId of skillIds) {
-        const result = await installSkill(skillId, agentIds, method);
-        failedCount += result.failed.length;
-      }
-      await Promise.all([
-        refreshCounts(),
-        ...agentIds.map((agentId) => getSkillsByAgent(agentId)),
-        bundleDrawerPath ? loadCentralBundleDetail(bundleDrawerPath) : Promise.resolve(),
-      ]);
-      if (failedCount > 0) {
-        toast.error(t("skillFolder.installFolderPartialFail", { count: failedCount }));
-        return;
-      }
-      toast.success(t("skillFolder.installFolderSuccess", { count: skillIds.length }));
-    } catch (err) {
-      toast.error(t("central.installError", { error: String(err) }));
-    }
-  }
-
-  async function handleUninstallBundleSkills(skillIds: string[], agentId: string) {
-    try {
-      await uninstallSkillsFromAgent(skillIds, agentId);
-      await Promise.all([
-        refreshCounts(),
-        getSkillsByAgent(agentId),
-        bundleDrawerPath ? loadCentralBundleDetail(bundleDrawerPath) : Promise.resolve(),
-      ]);
-      toast.success(t("skillFolder.uninstallFolderSuccess", { count: skillIds.length }));
-    } catch (err) {
-      toast.error(t("detail.uninstallError", { error: String(err) }));
     }
   }
 
@@ -669,7 +615,19 @@ export function CentralSkillsView() {
           <EmptyState message={t("central.noSkills")} />
         ) : (
           <div className="space-y-6">
-            {viewMode === "folders" && sortedBundles.length > 0 && (
+            {viewMode === "folders" && isFolderOpen && (
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setActiveFolderKey(null)}>
+                  <ArrowLeft className="size-4" />
+                  {t("resource.backToFolders")}
+                </Button>
+                <span className="text-sm font-medium text-muted-foreground">
+                  {activeFolderName}
+                </span>
+              </div>
+            )}
+
+            {viewMode === "folders" && !isFolderOpen && sortedBundles.length > 0 && (
               <section aria-label={t("central.bundlesSectionLabel")} className="space-y-3">
                 <SkillBrowserTable
                   kind="folder"
@@ -696,7 +654,7 @@ export function CentralSkillsView() {
                       previewNames: groupSkills.map((skill) => skill.name),
                       createdAt: earliestSkillCreatedAt(groupSkills),
                       updatedAt: latestSkillUpdatedAt(groupSkills),
-                      onOpen: () => void handleOpenBundleDrawer(bundle),
+                      onOpen: () => setActiveFolderKey(bundle.relativePath),
                       onDelete: () => void handleDeleteBundleClick(bundle),
                       deleteLabel: t("resource.deleteAction"),
                       isDeleting: deletingBundlePath === bundle.relativePath,
@@ -713,7 +671,9 @@ export function CentralSkillsView() {
                 {viewMode === "folders" && (
                   <div className="flex items-center gap-2">
                     <Blocks className="size-4 text-primary" />
-                    <h2 className="text-sm font-semibold">{t("skillFolder.topLevelSkills")}</h2>
+                    <h2 className="text-sm font-semibold">
+                      {isFolderOpen ? activeFolderName : t("skillFolder.topLevelSkills")}
+                    </h2>
                   </div>
                 )}
                 <SkillBrowserTable
@@ -791,31 +751,6 @@ export function CentralSkillsView() {
               }
             : undefined
         }
-      />
-
-      <CentralBundleDrawer
-        open={isBundleDrawerOpen}
-        detail={bundleDetail ?? null}
-        agents={agents}
-        loadingPath={loadingBundleDetailPath ?? bundleDrawerPath}
-        onOpenChange={(open) => {
-          setIsBundleDrawerOpen(open);
-          if (!open) {
-            setBundleDrawerPath(null);
-            clearCentralBundleDetail();
-          }
-        }}
-        onInstallationsChange={async () => {
-          await Promise.all([
-            loadCentralSkills(),
-            loadCentralBundles(),
-            bundleDrawerPath
-              ? loadCentralBundleDetail(bundleDrawerPath)
-              : Promise.resolve(null),
-          ]);
-        }}
-        onInstallSkills={handleInstallBundleSkills}
-        onUninstallSkillsFromAgent={handleUninstallBundleSkills}
       />
 
       <PlatformInstallDrawer
