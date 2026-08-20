@@ -324,6 +324,28 @@ describe("CollectionsListView", () => {
     expect(screen.getByText("Infra")).toBeInTheDocument();
   });
 
+  it("shows a refresh button next to the collections title", () => {
+    renderList();
+    expect(screen.getByRole("button", { name: "刷新技能集合" })).toBeInTheDocument();
+  });
+
+  it("reloads collections, the selected detail, and the resource library on refresh", async () => {
+    renderList();
+    mockLoadCollections.mockClear();
+    mockLoadCollectionDetail.mockClear();
+    mockLoadResourceLibrary.mockClear();
+    mockRefreshCounts.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "刷新技能集合" }));
+
+    await waitFor(() => {
+      expect(mockLoadCollections).toHaveBeenCalled();
+      expect(mockLoadResourceLibrary).toHaveBeenCalled();
+      expect(mockRefreshCounts).toHaveBeenCalled();
+      expect(mockLoadCollectionDetail).toHaveBeenCalledWith("col-1");
+    });
+  });
+
   it("auto-selects the first collection when no context is provided", () => {
     renderList();
     // loadCollectionDetail should have been called for the first collection.

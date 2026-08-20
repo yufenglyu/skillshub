@@ -1,7 +1,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input";
 import { AgentWithStatus, BackupOptions, ScanDirectory, WebDavBackupFile } from "@/types";
 import { AI_PROVIDERS, REGION_LABELS, RegionId } from "@/data/aiProviders";
 import { isInstallTargetAgent } from "@/lib/agents";
-import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay } from "@/lib/path";
+import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay, normalizePathForInputDisplay } from "@/lib/path";
 import { isProjectAgentId, projectDirectoryName } from "@/lib/projectTargets";
 import { webDavErrorDetail } from "@/lib/webdavError";
 import { defaultLocalBackupFilename, formatBackupTimestamp } from "@/lib/backupTime";
@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.40.0";
+const APP_VERSION = "0.50.0";
 const CONFIG_DIR_FALLBACK = "~/.skillshub";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
@@ -55,6 +55,90 @@ function HintIcon({ text, className }: { text: string; className?: string }) {
     >
       <CircleHelp className="size-3.5" />
     </span>
+  );
+}
+
+
+interface DirectoryPathFieldProps {
+  id: string;
+  value: string;
+  placeholder?: string;
+  disabled?: boolean;
+  browseAriaLabel: string;
+  openAriaLabel: string;
+  browseTitle: string;
+  onChange: (value: string) => void;
+  onCommit: (value: string) => Promise<void>;
+  onOpen: (value: string) => Promise<void>;
+}
+
+function DirectoryPathField({
+  id,
+  value,
+  placeholder,
+  disabled,
+  browseAriaLabel,
+  openAriaLabel,
+  browseTitle,
+  onChange,
+  onCommit,
+  onOpen,
+}: DirectoryPathFieldProps) {
+  const { t } = useTranslation();
+
+  async function handleBrowse() {
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      defaultPath: value.trim() || undefined,
+      title: browseTitle,
+    });
+    if (typeof selected !== "string") return;
+    const nextPath = normalizePathForInputDisplay(selected);
+    onChange(nextPath);
+    await onCommit(nextPath);
+  }
+
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <Input
+        id={id}
+        className="min-w-0 flex-1"
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          const trimmed = value.trim();
+          if (!trimmed || disabled) return;
+          void onCommit(trimmed);
+        }}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        className="shrink-0 sm:min-w-20"
+        onClick={() => void handleBrowse()}
+        disabled={disabled}
+        aria-label={browseAriaLabel}
+      >
+        {disabled ? <Loader2 className="size-4 animate-spin" /> : <FolderOpen className="size-4" />}
+        <span>{t("common.browse")}</span>
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className="shrink-0 sm:min-w-20"
+        onClick={() => void onOpen(value)}
+        disabled={disabled || !value.trim()}
+        aria-label={openAriaLabel}
+      >
+        <ExternalLink className="size-4" />
+        <span>{t("settings.openPath")}</span>
+      </Button>
+    </div>
   );
 }
 
@@ -656,18 +740,6 @@ export function SettingsView() {
   }, [webDavBaseUrl, webDavRemoteDir, webDavUsername, webDavPassword]);
 
   const isGitHubPatDirty = useMemo(() => githubPatInput.trim() !== githubPat, [githubPatInput, githubPat]);
-  const isCentralPathDirty = useMemo(
-    () => Boolean(centralAgent) && centralPathInput.trim() !== formatPathForDisplay(centralAgent?.global_skills_dir ?? ""),
-    [centralAgent, centralPathInput]
-  );
-  const isResourcePathDirty = useMemo(
-    () => resourcePathInput.trim() !== formatPathForDisplay(resourceLibraryDir),
-    [resourceLibraryDir, resourcePathInput]
-  );
-  const isConfigDirDirty = useMemo(
-    () => configDirInput.trim() !== configDirDisplay,
-    [configDirDisplay, configDirInput]
-  );
   const isWebDavConfigDirty = useMemo(
     () =>
       webDavBaseUrl.trim() !== webDavConfig.baseUrl ||
@@ -735,11 +807,13 @@ export function SettingsView() {
     }
   }
 
-  async function handleSaveCentralPath() {
+  async function handleSaveCentralPath(nextPath = centralPathInput) {
+    const trimmed = nextPath.trim();
+    if (!trimmed) return;
     setIsSavingCentralPath(true);
     setCentralPathMessage(null);
     try {
-      await updateCentralSkillsDir(centralPathInput);
+      await updateCentralSkillsDir(trimmed);
       await Promise.all([rescan(), loadScanDirectories(), loadCentralSkills()]);
       const message = t("settings.centralPathSaved");
       setCentralPathMessage({ type: "success", text: message });
@@ -753,11 +827,13 @@ export function SettingsView() {
     }
   }
 
-  async function handleSaveResourcePath() {
+  async function handleSaveResourcePath(nextPath = resourcePathInput) {
+    const trimmed = nextPath.trim();
+    if (!trimmed) return;
     setIsSavingResourcePath(true);
     setResourcePathMessage(null);
     try {
-      await updateResourceLibraryDir(resourcePathInput);
+      await updateResourceLibraryDir(trimmed);
       await loadResourceLibrary();
       const message = t("settings.resourcePathSaved");
       setResourcePathMessage({ type: "success", text: message });
@@ -771,11 +847,13 @@ export function SettingsView() {
     }
   }
 
-  async function handleSaveConfigDir() {
+  async function handleSaveConfigDir(nextPath = configDirInput) {
+    const trimmed = nextPath.trim();
+    if (!trimmed) return;
     setIsSavingConfigDir(true);
     setConfigDirMessage(null);
     try {
-      await updateConfigDir(configDirInput);
+      await updateConfigDir(trimmed);
       const message = t("settings.configDirSaved");
       setConfigDirMessage({ type: "success", text: message });
       toast.success(message);
@@ -785,6 +863,16 @@ export function SettingsView() {
       toast.error(message);
     } finally {
       setIsSavingConfigDir(false);
+    }
+  }
+
+  async function handleOpenDirectoryPath(path: string) {
+    const trimmed = path.trim();
+    if (!trimmed) return;
+    try {
+      await invoke("open_in_file_manager", { path: trimmed });
+    } catch (err) {
+      toast.error(t("settings.openPathError", { error: String(err) }));
     }
   }
 
@@ -1110,26 +1198,18 @@ export function SettingsView() {
                   <span>{t("settings.configDirLabel")}</span>
                   <HintIcon text={t("settings.configDirHint")} className="size-4" />
                 </label>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <Input
-                    id="config-dir"
-                    className="min-w-0 flex-1"
-                    value={configDirInput}
-                    onChange={(event) => setConfigDirInput(event.target.value)}
-                    disabled={isSavingConfigDir}
-                    placeholder={CONFIG_DIR_FALLBACK}
-                  />
-                  <Button
-                    variant="outline"
-                    className="shrink-0 sm:min-w-20"
-                    onClick={handleSaveConfigDir}
-                    disabled={isSavingConfigDir || !isConfigDirDirty || !configDirInput.trim()}
-                    aria-label={t("settings.saveConfigDir")}
-                  >
-                    {isSavingConfigDir ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                    <span>{t("common.save")}</span>
-                  </Button>
-                </div>
+                <DirectoryPathField
+                  id="config-dir"
+                  value={configDirInput}
+                  placeholder={CONFIG_DIR_FALLBACK}
+                  disabled={isSavingConfigDir}
+                  browseAriaLabel={t("settings.browseConfigDir")}
+                  openAriaLabel={t("settings.openConfigDir")}
+                  browseTitle={t("settings.browsePathTitle")}
+                  onChange={setConfigDirInput}
+                  onCommit={handleSaveConfigDir}
+                  onOpen={handleOpenDirectoryPath}
+                />
               </div>
               {configDirMessage ? (
                 <p
@@ -1163,26 +1243,18 @@ export function SettingsView() {
                   <span>{t("settings.resourcePathLabel")}</span>
                   <HintIcon text={t("settings.resourcePathHint")} className="size-4" />
                 </label>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <Input
-                    id="skill-resource-library-dir"
-                    className="min-w-0 flex-1"
-                    value={resourcePathInput}
-                    onChange={(event) => setResourcePathInput(event.target.value)}
-                    disabled={isSavingResourcePath}
-                    placeholder={`${CONFIG_DIR_FALLBACK}/library`}
-                  />
-                  <Button
-                    variant="outline"
-                    className="shrink-0 sm:min-w-20"
-                    onClick={handleSaveResourcePath}
-                    disabled={isSavingResourcePath || !isResourcePathDirty || !resourcePathInput.trim()}
-                    aria-label={t("settings.saveResourcePath")}
-                  >
-                    {isSavingResourcePath ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                    <span>{t("common.save")}</span>
-                  </Button>
-                </div>
+                <DirectoryPathField
+                  id="skill-resource-library-dir"
+                  value={resourcePathInput}
+                  placeholder={`${CONFIG_DIR_FALLBACK}/library`}
+                  disabled={isSavingResourcePath}
+                  browseAriaLabel={t("settings.browseResourcePath")}
+                  openAriaLabel={t("settings.openResourcePath")}
+                  browseTitle={t("settings.browsePathTitle")}
+                  onChange={setResourcePathInput}
+                  onCommit={handleSaveResourcePath}
+                  onOpen={handleOpenDirectoryPath}
+                />
               </div>
               {resourcePathMessage ? (
                 <p
@@ -1216,26 +1288,18 @@ export function SettingsView() {
                   <span>{t("settings.centralPathLabel")}</span>
                   <HintIcon text={t("settings.centralPathHint")} className="size-4" />
                 </label>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <Input
-                    id="central-skills-dir"
-                    className="min-w-0 flex-1"
-                    value={centralPathInput}
-                    onChange={(event) => setCentralPathInput(event.target.value)}
-                    disabled={isSavingCentralPath}
-                    placeholder={`${CONFIG_DIR_FALLBACK}/central-skills`}
-                  />
-                  <Button
-                    variant="outline"
-                    className="shrink-0 sm:min-w-20"
-                    onClick={handleSaveCentralPath}
-                    disabled={isSavingCentralPath || !isCentralPathDirty || !centralPathInput.trim()}
-                    aria-label={t("settings.saveCentralPath")}
-                  >
-                    {isSavingCentralPath ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                    <span>{t("common.save")}</span>
-                  </Button>
-                </div>
+                <DirectoryPathField
+                  id="central-skills-dir"
+                  value={centralPathInput}
+                  placeholder={`${CONFIG_DIR_FALLBACK}/central-skills`}
+                  disabled={isSavingCentralPath}
+                  browseAriaLabel={t("settings.browseCentralPath")}
+                  openAriaLabel={t("settings.openCentralPath")}
+                  browseTitle={t("settings.browsePathTitle")}
+                  onChange={setCentralPathInput}
+                  onCommit={handleSaveCentralPath}
+                  onOpen={handleOpenDirectoryPath}
+                />
               </div>
               {centralPathMessage ? (
                 <p

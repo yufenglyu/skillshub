@@ -892,10 +892,10 @@ export function SkillBrowserTable({
                       }
                       if (column === "name") {
                         return (
-                          <td key={column} className="px-3 py-2">
+                          <td key={column} className="overflow-hidden px-3 py-2">
                             <button
                               type="button"
-                              className="block max-w-full truncate text-left font-medium text-foreground hover:text-primary hover:underline"
+                              className="block w-0 min-w-full truncate text-left font-medium text-foreground hover:text-primary hover:underline"
                               onClick={folder.onOpen}
                             >
                               {folder.name}
@@ -904,14 +904,24 @@ export function SkillBrowserTable({
                         );
                       }
                       if (column === "path") {
+                        const displayedPath = formatPathForDisplay(folder.path);
                         return (
-                          <td key={column} className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                            {formatPathForDisplay(folder.path)}
+                          <td
+                            key={column}
+                            className="overflow-hidden px-3 py-2 font-mono text-xs text-muted-foreground"
+                          >
+                            <span className="block w-0 min-w-full truncate" title={displayedPath}>
+                              {displayedPath}
+                            </span>
                           </td>
                         );
                       }
                       if (column === "skillCount") {
-                        return <td key={column} className="px-3 py-2 text-muted-foreground">{folder.skillCount}</td>;
+                        return (
+                          <td key={column} className="relative overflow-hidden px-3 py-2 text-muted-foreground">
+                            {folder.skillCount}
+                          </td>
+                        );
                       }
                       if (column === "installSummary") {
                         const summaryProps = folderInstallSummaryProps(folder);

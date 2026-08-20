@@ -34,8 +34,8 @@ Application data lives in a `.skillshub` folder (`~/.skillshub` by default). Put
 - Resource Library skills can install directly to selected platforms or projects without being forced into Central Skills.
 - Promoting a skill to Central Skills writes it to `~/.agents/skills`. When Central Skills already has managed skills, newly detected platforms and configured project directories are included in central synchronization.
 - If a platform or project uses the shared `.agents/skills` path, installing there is treated as **Add to Central Skills**, not as a self-referencing platform install. Already-central skills show as shared through Central Skills.
-- Collections stay compact: create, edit, delete, batch-install, and add skills. Collection browsing is a single flat table.
-- Settings cover the config folder (including portable mode), Resource Library and Central Skills paths, editable built-in platforms, custom platforms, named project directories, local ZIP / WebDAV backup, and update checking. Backups exclude API keys, tokens, and password-like values.
+- Collections stay compact: create, edit, delete, batch-install, add skills, and refresh. Collection browsing is a single flat table.
+- Settings cover the config folder (including portable mode), Resource Library and Central Skills paths with Browse and Open, editable built-in platforms, custom platforms, named project directories, local ZIP / WebDAV backup, and update checking. Browse a folder to save it immediately, or paste a path and press Enter. Backups exclude API keys, tokens, and password-like values, and do not copy this computer's library folder paths to another machine.
 
 ## Screenshots
 
@@ -91,7 +91,7 @@ Built-in platform definitions can be edited or removed in Settings. Changes are 
 | Lobster | OpenClaw, AutoClaw, EasyClaw, QClaw, WorkBuddy, and related Lobster-style platforms |
 | Custom | Any local platform with a stable skills directory |
 
-The sidebar shows a built-in platform only when its configured skills directory exists locally, unless you choose to show all platforms. Lobster and Coding platform lists are indented under their category headers, like Project Directories. Software platform groups and project directory lists collapse independently. Configured project directories are not treated as custom coding platforms.
+The sidebar shows a built-in platform only when its configured skills directory exists locally, unless you choose to show all platforms. Lobster and Coding platform lists are indented under their category headers, like Project Directories. Software platform groups and project directory lists collapse independently. Configured project directories are not treated as custom coding platforms. Obsidian appears under Software Platforms only for official iCloud vaults (`Library/Mobile Documents/iCloud~md~obsidian/Documents`); local or OneDrive vaults stay in Project Directories when you add them there.
 
 ## Importing And Adding Skills
 
@@ -104,7 +104,7 @@ Skills imported through `npx skills` keep the source repository, optional skill 
 
 SkillsHub can export and import complete local backup files. Local export opens a save dialog and writes the ZIP on disk. WebDAV support adds connection testing, remote listing, upload, selected restore, and selected delete. Remote backup times are shown in the local timezone.
 
-Backups include skills, source metadata, collections, custom platform settings, regular app settings, and installation state. API keys, tokens, and passwords are excluded and must be re-entered after restore.
+Backups include Resource Library and Central Skills files, source metadata, collections, custom platform settings, regular app settings, and installation state. Export indexes the Resource Library from disk first so the archive matches the count in the app. Restore writes into this computer's current library folders and does not reuse path settings from another OS. API keys, tokens, and passwords are excluded and must be re-entered after restore.
 
 - SkillsHub is local-first and does not include telemetry.
 - Network requests happen only for `npx skills` import/update, WebDAV backup, update checking, or AI-generated notes.
@@ -137,15 +137,15 @@ The Vite development server uses port `24200`.
 
 ## Release
 
-GitHub Actions publishes desktop packages when a version tag such as `v0.40.0` is pushed. The release workflow reads notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
+GitHub Actions publishes desktop packages when a version tag such as `v0.50.0` is pushed. The release workflow reads notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
 Local packaging scripts are still available for host-specific builds:
 
 | Platform | Command |
 |----------|---------|
-| Windows | `pnpm package:release:windows -- -Version 0.40.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.40.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.40.0` |
+| Windows | `pnpm package:release:windows -- -Version 0.50.0` |
+| macOS | `pnpm package:release:macos -- -Version 0.50.0` |
+| Linux | `pnpm package:release:linux -- -Version 0.50.0` |
 
 Use `-VersionOnly` when you only need to update version metadata before committing a release.
 

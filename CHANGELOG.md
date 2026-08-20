@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.50.0 - 2026-08-20
+
+This release makes Settings path fields easier to use, keeps Collections in sync with a refresh control, and makes backups and the sidebar match what you see on disk.
+
+### Features
+
+- Add Browse and Open next to the config folder, Resource Library, and Central Skills paths in Settings. Choosing a folder saves immediately; pasting or typing a path and pressing Enter also saves.
+- Add a refresh button on the Collections page, matching the Resource Library and Central Skills headers.
+
+### Improvements
+
+- Keep complete local and WebDAV backups: Resource Library, Central Skills, collections, custom platforms, source caches, existing platform installs, and ordinary settings. Restore writes into this computer's current library folders and does not copy Windows or macOS path settings.
+- Index the Resource Library from disk before export so the backup matches the skill count shown in the app.
+- Refresh English and Chinese README content and screenshots for Settings path actions, Collections refresh, sidebar platforms, and backup restore.
+
+### Fixes
+
+- Clip long folder paths in the skill table so they no longer overlap the skill-count column when the path column is narrowed.
+- Show Obsidian under Software Platforms only for official iCloud Obsidian document vaults. OneDrive or local vaults stay in Project Directories when they are added there.
+- Hide an Obsidian vault row when the same folder is already a project directory.
+
 ## 0.40.0 - 2026-08-19
 
 This release makes the app config folder portable, keeps project directories out of the software-platform list, and makes local backups save through a native file dialog.

@@ -750,6 +750,39 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: /App/ })).not.toBeInTheDocument();
   });
 
+  it("hides Obsidian vaults that are already project directories", () => {
+    const vaultPath = "/Users/lyf/Library/CloudStorage/OneDrive-个人/Obsidian";
+    renderSidebar("/central", {
+      obsidianVaults: [
+        { id: "onedrive", name: "Obsidian", path: vaultPath, skill_count: 36 },
+      ],
+      platformState: {
+        ...defaultStoreState,
+        agents: [
+          ...defaultStoreState.agents,
+          {
+            id: "project:9",
+            display_name: "Notes",
+            category: "project",
+            global_skills_dir: `${vaultPath}/.agents/skills`,
+            project_skills_dir: ".agents/skills",
+            is_detected: true,
+            is_builtin: false,
+            is_enabled: true,
+          },
+        ],
+        skillsByAgent: {
+          ...defaultStoreState.skillsByAgent,
+          "project:9": 36,
+        },
+      },
+    });
+
+    expect(screen.queryByRole("button", { name: /Obsidian 仓库/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Obsidian")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Notes/ })).toBeInTheDocument();
+  });
+
   it("renders Obsidian vaults from the vault store instead of discovered projects", () => {
     renderSidebar("/central", {
       discoverProjects: [

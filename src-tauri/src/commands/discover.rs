@@ -631,13 +631,15 @@ fn is_obsidian_icloud_documents_child(path: &Path) -> bool {
     false
 }
 
-fn select_obsidian_registry_vault_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
-    let icloud_paths: Vec<PathBuf> = paths
-        .iter()
+fn obsidian_icloud_registry_vault_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    paths
+        .into_iter()
         .filter(|path| is_obsidian_icloud_documents_child(path))
-        .cloned()
-        .collect();
+        .collect()
+}
 
+fn select_obsidian_registry_vault_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let icloud_paths = obsidian_icloud_registry_vault_paths(paths.clone());
     if icloud_paths.is_empty() {
         paths
     } else {
@@ -650,7 +652,7 @@ fn obsidian_source_vault_paths_with_registry(
     fallback_icloud_parent: &Path,
 ) -> Vec<PathBuf> {
     let registry_paths =
-        select_obsidian_registry_vault_paths(read_obsidian_registry_vault_paths(registry_path));
+        obsidian_icloud_registry_vault_paths(read_obsidian_registry_vault_paths(registry_path));
     if !registry_paths.is_empty() {
         return registry_paths;
     }
@@ -2124,6 +2126,39 @@ mod tests {
         names.sort();
 
         assert_eq!(names, vec!["happy-geek", "make-money", "wiznote-bak"]);
+    }
+
+    #[test]
+    fn obsidian_platform_sources_ignore_onedrive_and_local_vaults() {
+        let icloud = PathBuf::from(
+            "/Users/lyf/Library/Mobile Documents/iCloud~md~obsidian/Documents/Notes",
+        );
+        let onedrive =
+            PathBuf::from("/Users/lyf/Library/CloudStorage/OneDrive-个人/Obsidian");
+        assert_eq!(
+            obsidian_icloud_registry_vault_paths(vec![icloud.clone(), onedrive.clone()]),
+            vec![icloud]
+        );
+        assert!(obsidian_icloud_registry_vault_paths(vec![onedrive.clone()]).is_empty());
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let registry_path = tmp.path().join("obsidian.json");
+        std::fs::write(
+            &registry_path,
+            serde_json::json!({
+                "vaults": {
+                    "od": { "path": onedrive.to_string_lossy() }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let empty_icloud = tmp
+            .path()
+            .join("Library/Mobile Documents/iCloud~md~obsidian/Documents");
+        assert!(
+            obsidian_source_vault_paths_with_registry(&registry_path, &empty_icloud).is_empty()
+        );
     }
 
     #[tokio::test]

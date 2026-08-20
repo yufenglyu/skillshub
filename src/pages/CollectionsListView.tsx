@@ -7,6 +7,7 @@ import {
   Pencil,
   Trash2,
   PackagePlus,
+  RefreshCw,
 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
@@ -350,6 +351,17 @@ export function CollectionsListView() {
     }
   }
 
+  async function handleRefresh() {
+    try {
+      await Promise.all([loadCollections(), loadResourceLibrary(), refreshCounts()]);
+      if (selectedId) {
+        await loadCollectionDetail(selectedId);
+      }
+    } catch (err) {
+      toast.error(t("collection.refreshError", { error: String(err) }));
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -357,7 +369,20 @@ export function CollectionsListView() {
       {/* Header */}
       <div className="border-b border-border px-6 py-4">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-xl font-semibold">{t("sidebar.collections")}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold">{t("sidebar.collections")}</h1>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => void handleRefresh()}
+              disabled={isLoading || isLoadingDetail}
+              aria-label={t("collection.refresh")}
+            >
+              <RefreshCw
+                className={cn("size-4", (isLoading || isLoadingDetail) && "animate-spin")}
+              />
+            </Button>
+          </div>
           <Button
             variant="default"
             size="sm"

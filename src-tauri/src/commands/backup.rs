@@ -893,6 +893,7 @@ async fn export_app_backup_data_impl(
         .await?;
     }
     if options.include_resource_library {
+        crate::commands::skills::get_resource_library_skills_impl(pool).await?;
         let resource_skills = db::get_resource_library_skills(pool).await?;
         append_skill_backups(
             pool,
@@ -1319,6 +1320,8 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
         .map_err(|e| e.to_string())?;
     }
 
+    crate::commands::skills::get_resource_library_skills_impl(pool).await?;
+
     Ok(())
 }
 
@@ -1378,6 +1381,35 @@ fn relative_to_root(path: &Path, root: &Path) -> Option<String> {
     path.strip_prefix(root)
         .ok()
         .and_then(path_to_portable_relative)
+        .or_else(|| relative_to_root_from_keys(&path.to_string_lossy(), &root.to_string_lossy()))
+}
+
+fn relative_to_root_from_keys(path: &str, root: &str) -> Option<String> {
+    let path_norm = normalize_backup_path_key(path);
+    let root_norm = normalize_backup_path_key(root);
+    if path_norm.len() <= root_norm.len() {
+        return None;
+    }
+    let matches_root = if cfg!(windows) {
+        path_norm
+            .get(..root_norm.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&root_norm))
+            && path_norm.as_bytes().get(root_norm.len()) == Some(&b'/')
+    } else {
+        path_norm.starts_with(&root_norm) && path_norm.as_bytes().get(root_norm.len()) == Some(&b'/')
+    };
+    if !matches_root {
+        return None;
+    }
+    let rest = &path_norm[root_norm.len() + 1..];
+    if rest.is_empty() || rest.contains(':') {
+        return None;
+    }
+    Some(rest.to_string())
+}
+
+fn normalize_backup_path_key(path: &str) -> String {
+    path.replace('\\', "/").trim_end_matches('/').to_string()
 }
 
 fn collect_files(root: &Path) -> Result<Vec<SkillFileBackup>, String> {
@@ -2143,6 +2175,47 @@ mod tests {
 
         let manifest = zip_entry_text(&archive, "manifest.json");
         assert!(!manifest.contains("gone-skill"));
+    }
+
+    #[tokio::test]
+    async fn archive_export_includes_resource_skills_present_on_disk_but_missing_from_db() {
+        let (pool, dir) = setup_test_db().await;
+        let resource_root = dir.path().join("resource-library");
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .expect("resource dir");
+        let skill_dir = resource_root
+            .join("author")
+            .join("repo")
+            .join("disk-only-skill");
+        std::fs::create_dir_all(&skill_dir).expect("skill dir");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: Disk Only Skill\ndescription: Indexed during backup export\n---\n",
+        )
+        .expect("skill");
+
+        let archive = export_app_backup_archive_impl(
+            &pool,
+            BackupOptions {
+                include_resource_library: true,
+                include_central_library: false,
+                include_app_config: false,
+                include_installations: false,
+            },
+        )
+        .await
+        .expect("archive export");
+
+        let manifest = zip_entry_text(&archive, "manifest.json");
+        assert!(manifest.contains("\"relative_dir\": \"author/repo/disk-only-skill\""));
+        assert_eq!(
+            zip_entry_text(
+                &archive,
+                "resource-library/author/repo/disk-only-skill/SKILL.md"
+            ),
+            "---\nname: Disk Only Skill\ndescription: Indexed during backup export\n---\n"
+        );
     }
 
     #[tokio::test]
@@ -4116,6 +4189,22 @@ mod tests {
     #[test]
     fn normalize_relative_path_rejects_nested_windows_drive_segments() {
         assert!(normalize_relative_path("safe/C:/escape").is_err());
+    }
+
+    #[test]
+    fn relative_to_root_from_keys_accepts_mixed_windows_separators() {
+        assert_eq!(
+            relative_to_root_from_keys(
+                r"D:\Skills\library\owner\repo\demo",
+                "D:/Skills/library"
+            )
+            .as_deref(),
+            Some("owner/repo/demo")
+        );
+        assert_eq!(
+            relative_to_root_from_keys(r"D:\Skills\library-extra\demo", r"D:\Skills\library"),
+            None
+        );
     }
 
     #[tokio::test]

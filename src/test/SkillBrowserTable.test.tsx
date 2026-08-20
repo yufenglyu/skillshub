@@ -141,6 +141,29 @@ describe("SkillBrowserTable", () => {
     expect(onToggleColumn).toHaveBeenCalledWith("path");
   });
 
+  it("clips folder paths inside the path column so they do not overlap skill counts", () => {
+    render(
+      <SkillBrowserTable
+        kind="folder"
+        visibleColumns={new Set(["name", "path", "skillCount"])}
+        folders={[
+          {
+            key: "owner/repo",
+            name: "addyosmani/agent-skills",
+            path: "D:\\Data\\Codes\\AI\\Skills\\addyosmani\\agent-skills",
+            skillCount: 24,
+            onOpen: vi.fn(),
+          },
+        ]}
+      />
+    );
+
+    const pathCell = screen.getByText("D:\\Data\\Codes\\AI\\Skills\\addyosmani\\agent-skills");
+    expect(pathCell).toHaveClass("truncate", "w-0", "min-w-full");
+    expect(pathCell.parentElement).toHaveClass("overflow-hidden");
+    expect(screen.getByText("24")).toBeInTheDocument();
+  });
+
   it("shows only aggregate counts in the install summary column", () => {
     const onToggle = vi.fn();
     render(

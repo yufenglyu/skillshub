@@ -21,6 +21,10 @@ vi.mock("../stores/centralSkillsStore", () => ({
   useCentralSkillsStore: vi.fn(),
 }));
 
+vi.mock("../stores/resourceLibraryStore", () => ({
+  useResourceLibraryStore: vi.fn(),
+}));
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
@@ -40,6 +44,7 @@ vi.mock("sonner", () => ({
 import { useSettingsStore } from "../stores/settingsStore";
 import { usePlatformStore } from "../stores/platformStore";
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
+import { useResourceLibraryStore } from "../stores/resourceLibraryStore";
 import { toast } from "sonner";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -208,6 +213,12 @@ function setupMocks({
   vi.mocked(useCentralSkillsStore).mockImplementation((selector) =>
     selector({
       loadCentralSkills,
+    } as never)
+  );
+
+  vi.mocked(useResourceLibraryStore).mockImplementation((selector) =>
+    selector({
+      loadResourceLibrary: vi.fn(),
     } as never)
   );
 }
@@ -1118,7 +1129,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.40.0")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.50.0")).toBeTruthy();
   });
 
   it("shows an editable config folder path", () => {
@@ -1129,6 +1140,12 @@ describe("SettingsView", () => {
     });
     renderSettingsView();
     expect(screen.getByLabelText("配置文件路径")).toHaveValue("/Users/test/.skillshub");
+    expect(screen.getByRole("button", { name: "浏览配置文件路径" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "打开配置文件路径" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "浏览技能资源库路径" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "打开技能资源库路径" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "浏览中央技能库路径" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "打开中央技能库路径" })).toBeTruthy();
   });
 
   it("saves a custom config folder path", async () => {
@@ -1142,12 +1159,41 @@ describe("SettingsView", () => {
     fireEvent.change(screen.getByLabelText("配置文件路径"), {
       target: { value: "D:/Apps/SkillsHub" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存配置文件路径" }));
+    fireEvent.keyDown(screen.getByLabelText("配置文件路径"), { key: "Enter" });
 
     await waitFor(() => {
       expect(updateConfigDir).toHaveBeenCalledWith("D:/Apps/SkillsHub");
     });
     expect(await screen.findByText("配置文件路径已保存，请重启应用后生效")).toBeTruthy();
+  });
+
+  it("browses a config folder and saves the selected path", async () => {
+    const updateConfigDir = vi.fn().mockResolvedValue("D:/Apps/SkillsHub/.skillshub");
+    mockOpenDialog.mockResolvedValueOnce("D:/Apps/SkillsHub");
+    setupMocks({
+      configDir: "/Users/test/.skillshub",
+      updateConfigDir,
+    });
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("button", { name: "浏览配置文件路径" }));
+
+    await waitFor(() => {
+      expect(updateConfigDir).toHaveBeenCalledWith("D:\\Apps\\SkillsHub");
+    });
+  });
+
+  it("opens the config folder in the file manager", async () => {
+    setupMocks({ configDir: "/Users/test/.skillshub" });
+    renderSettingsView();
+
+    fireEvent.click(screen.getByRole("button", { name: "打开配置文件路径" }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("open_in_file_manager", {
+        path: "/Users/test/.skillshub",
+      });
+    });
   });
 
   it("shows version label", () => {

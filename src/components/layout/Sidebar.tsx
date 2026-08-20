@@ -32,6 +32,18 @@ import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 
 const OBSIDIAN_PLATFORM_ID = "obsidian";
 
+function isVaultCoveredByProjectDirectory(
+  vaultPath: string,
+  projectAgents: Array<{ global_skills_dir: string }>
+): boolean {
+  const vault = vaultPath.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  if (!vault) return false;
+  return projectAgents.some((agent) => {
+    const skillsDir = agent.global_skills_dir.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    return skillsDir === vault || skillsDir.startsWith(`${vault}/`);
+  });
+}
+
 function getActiveObsidianVaultId(pathname: string): string | null {
   const obsidianPrefix = "/obsidian/";
   if (!pathname.startsWith(obsidianPrefix)) {
@@ -241,7 +253,14 @@ export function Sidebar() {
   );
   const lobsterAgents = platformAgents.filter((a) => a.category === "lobster");
   const codingAgents = platformAgents.filter((a) => a.category !== "lobster");
-  const populatedObsidianVaults = obsidianVaults.filter((vault) => vault.skill_count > 0);
+  const populatedObsidianVaults = obsidianVaults.filter(
+    (vault) =>
+      vault.skill_count > 0 &&
+      !isVaultCoveredByProjectDirectory(
+        vault.path,
+        agents.filter((agent) => isProjectAgentId(agent.id))
+      )
+  );
   const activeObsidianVaultId = getActiveObsidianVaultId(pathname);
 
   const isCollectionActive = pathname === "/collections";
@@ -375,7 +394,7 @@ export function Sidebar() {
           </div>
         ) : (
           <>
-            {!softwareCollapsed && populatedObsidianVaults.length > 0 && (
+                {!softwareCollapsed && populatedObsidianVaults.length > 0 && (
               <>
                 {expanded ? (
                   <div className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground/75">
@@ -384,26 +403,28 @@ export function Sidebar() {
                 ) : (
                   <div className="border-t border-sidebar-border/40 my-1.5" />
                 )}
-                {populatedObsidianVaults.map((vault) => {
-                  const vaultAccessibleLabel = t("sidebar.obsidianVaultLabel", {
-                    name: vault.name,
-                    count: vault.skill_count,
-                    path: vault.path,
-                  });
-                  return (
-                    <NavItem
-                      key={vault.id}
-                      label={vault.name}
-                      ariaLabel={vaultAccessibleLabel}
-                      title={vaultAccessibleLabel}
-                      isActive={activeObsidianVaultId === vault.id}
-                      onClick={() => navigate(`/obsidian/${encodeURIComponent(vault.id)}`)}
-                      icon={<PlatformIcon agentId={OBSIDIAN_PLATFORM_ID} className="size-4" />}
-                      expanded={expanded}
-                      count={vault.skill_count}
-                    />
-                  );
-                })}
+                <div className={expanded ? "ml-3 border-l border-sidebar-border/70 pl-2" : ""}>
+                  {populatedObsidianVaults.map((vault) => {
+                    const vaultAccessibleLabel = t("sidebar.obsidianVaultLabel", {
+                      name: vault.name,
+                      count: vault.skill_count,
+                      path: vault.path,
+                    });
+                    return (
+                      <NavItem
+                        key={vault.id}
+                        label={vault.name}
+                        ariaLabel={vaultAccessibleLabel}
+                        title={vaultAccessibleLabel}
+                        isActive={activeObsidianVaultId === vault.id}
+                        onClick={() => navigate(`/obsidian/${encodeURIComponent(vault.id)}`)}
+                        icon={<PlatformIcon agentId={OBSIDIAN_PLATFORM_ID} className="size-4" />}
+                        expanded={expanded}
+                        count={vault.skill_count}
+                      />
+                    );
+                  })}
+                </div>
               </>
             )}
 
