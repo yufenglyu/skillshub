@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { isProjectAgentId } from "@/lib/projectTargets";
 import { ScannedSkill } from "@/types";
+import { getSkillSourceLocation } from "@/lib/skillSourceDisplay";
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
@@ -363,14 +364,14 @@ export function PlatformView() {
     {
       id: "user",
       label: t("platform.sourceFilter.user", {
-        defaultValue: i18n.language.startsWith("zh") ? "用户来源" : "User source",
+        defaultValue: i18n.language.startsWith("zh") ? "用户目录" : "User folder",
       }),
       count: sourceCounts.user,
     },
     {
       id: "plugin",
       label: t("platform.sourceFilter.plugin", {
-        defaultValue: i18n.language.startsWith("zh") ? "插件来源" : "Plugin source",
+        defaultValue: i18n.language.startsWith("zh") ? "插件" : "Plugins",
       }),
       count: sourceCounts.plugin,
     },
@@ -543,7 +544,7 @@ export function PlatformView() {
                     name: skill.name,
                     description: skill.description,
                     sourceType: skill.link_type as "symlink" | "copy" | "native",
-                    sourceLocation: getSourceLocation(skill),
+                    sourceLocation: getSkillSourceLocation(skill),
                     originKind: skill.source_kind ?? null,
                     isReadOnly: skill.is_read_only ?? false,
                     installAgents: agents,
@@ -642,23 +643,4 @@ export function PlatformView() {
       </Dialog>
     </div>
   );
-}
-
-function getSourceLocation(
-  skill: Pick<ScannedSkill, "is_central" | "source" | "source_url" | "source_repo">
-): "central" | "resource-library" | "standalone" {
-  if (skill.is_central) return "central";
-
-  const source = skill.source?.toLowerCase();
-  if (
-    source === "resource-library" ||
-    source === "manual" ||
-    source?.startsWith("github:") ||
-    skill.source_url ||
-    skill.source_repo
-  ) {
-    return "resource-library";
-  }
-
-  return "standalone";
 }

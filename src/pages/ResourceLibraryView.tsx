@@ -132,7 +132,9 @@ function earliestSkillCreatedAt(skills: SkillWithLinks[]) {
 
 function formatTaskError(error: unknown): string {
   const message = toErrorMessage(error).replace(/^Error:\s*/i, "").trim();
-  return message || "Unknown error";
+  if (!message) return "Unknown error";
+  if (message.length <= 1200) return message;
+  return `…${message.slice(-1200)}`;
 }
 
 export function ResourceLibraryView() {
@@ -753,7 +755,7 @@ export function ResourceLibraryView() {
     } catch (err) {
       const errorMessage = formatTaskError(err);
       failStatusTask({ detail: errorMessage, error: errorMessage });
-      toast.error(t("resource.npxImportError", { error: String(err) }));
+      toast.error(t("resource.npxImportError", { error: errorMessage }));
     } finally {
       setIsNpxImporting(false);
     }

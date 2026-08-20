@@ -1065,6 +1065,78 @@ fn collect_snapshot_source_files(
     Ok(files)
 }
 
+/// Materialize repo skills into `dest_skills_dir/{skill_id}/` using the same
+/// GitHub archive + mirror path as the dedicated GitHub importer. Used when
+/// `npx skills` cannot `git clone` github.com.
+pub(crate) async fn stage_repo_skills_into_dir(
+    pool: &DbPool,
+    package: &str,
+    skill_filter: Option<&str>,
+    dest_skills_dir: &Path,
+) -> Result<usize, String> {
+    let auth = github_direct_auth_from_settings(pool).await?;
+    let repo_url = format!("https://github.com/{package}");
+    let repo = resolve_repo_ref(&repo_url, auth.as_deref()).await?;
+    let client = github_client()?;
+    let snapshot = download_repo_snapshot(&client, &repo, auth.as_deref()).await?;
+    let mut candidates = build_repo_skill_candidates_from_snapshot(&repo, &snapshot)?;
+    if let Some(filter) = skill_filter
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        candidates.retain(|candidate| {
+            candidate.skill_id.eq_ignore_ascii_case(filter)
+                || candidate.skill_directory_name.eq_ignore_ascii_case(filter)
+                || candidate.source_path.eq_ignore_ascii_case(filter)
+        });
+        if candidates.is_empty() {
+            return Err(format!("Skill '{filter}' was not found in {package}."));
+        }
+    }
+    if candidates.is_empty() {
+        return Err(format!(
+            "No importable skills found in {package}. Supported layouts are repo-root skill directories or a top-level skills/ directory."
+        ));
+    }
+
+    if dest_skills_dir.exists() {
+        std::fs::remove_dir_all(dest_skills_dir).map_err(|error| {
+            format!(
+                "Failed to reset skills CLI staging directory '{}': {}",
+                dest_skills_dir.display(),
+                error
+            )
+        })?;
+    }
+    std::fs::create_dir_all(dest_skills_dir).map_err(|error| {
+        format!(
+            "Failed to create skills CLI staging directory '{}': {}",
+            dest_skills_dir.display(),
+            error
+        )
+    })?;
+
+    let mut progress_state = GitHubImportProgressState {
+        completed_files: 0,
+        total_files: 0,
+        completed_bytes: 0,
+        total_bytes: 0,
+    };
+    for candidate in &candidates {
+        let files = collect_snapshot_source_files(&snapshot, &candidate.source_path)?;
+        let target = dest_skills_dir.join(&candidate.skill_id);
+        write_snapshot_source_to_target(
+            &snapshot,
+            &files,
+            &target,
+            &candidate.source_path,
+            &mut progress_state,
+            None,
+        )?;
+    }
+    Ok(candidates.len())
+}
+
 fn write_snapshot_source_to_target(
     snapshot: &GitHubRepoSnapshot,
     files: &[SnapshotSourceFile],

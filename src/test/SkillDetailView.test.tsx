@@ -541,7 +541,7 @@ describe("SkillDetailView", () => {
 
     const sourceStatusRegion = screen.getByRole("region", { name: /来源状态|Source status/i });
     expect(
-      within(sourceStatusRegion).getByText(/插件来源|Plugin source/i)
+      within(sourceStatusRegion).getByText(/Claude 插件|Claude plugin/i)
     ).toBeInTheDocument();
     expect(
       within(sourceStatusRegion).getByText(/只读来源|Read-only source/i)
@@ -584,7 +584,8 @@ describe("SkillDetailView", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText(/用户来源|User source/i)).toBeInTheDocument();
+    const sourceStatusRegion = screen.getByRole("region", { name: /来源状态|Source status/i });
+    expect(within(sourceStatusRegion).getByText("用户目录")).toBeInTheDocument();
     expect(screen.queryByText(/只读来源|Read-only source/i)).toBeNull();
     expect(screen.getByText("~/.claude/skills/frontend-design/SKILL.md")).toBeInTheDocument();
     expect(screen.getByText("~/.claude/skills")).toBeInTheDocument();

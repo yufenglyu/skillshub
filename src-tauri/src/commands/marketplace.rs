@@ -2526,9 +2526,9 @@ mod tests {
     use super::{
         add_registry_impl, cache_skill_explanation, classify_reqwest_error,
         detect_explanation_api_protocol, format_reqwest_error, get_fallback_endpoint,
-        github_raw_update_urls, install_marketplace_skill_content_impl,
-        is_local_only_skill_source, is_updatable_skill_source_url,
-        load_cached_skill_explanation, marketplace_skills_from_candidates, registry_has_cached_skills,
+        github_raw_update_urls, install_marketplace_skill_content_impl, is_local_only_skill_source,
+        is_updatable_skill_source_url, load_cached_skill_explanation,
+        marketplace_skills_from_candidates, registry_has_cached_skills,
         relocated_github_skill_md_url, search_marketplace_skills_impl, skill_markdown_is_current,
         sync_registry_impl, validate_update_skill_markdown, ExplanationApiProtocol,
         ExplanationErrorKind, RegistryCacheMetadata, RegistrySyncStatus, SyncRegistryOptions,

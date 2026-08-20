@@ -15,10 +15,13 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::{
-    commands::linker::{install_skill_to_agent_copy_impl, install_skill_to_agent_impl},
+    commands::linker::{
+        create_symlink, install_skill_to_agent_copy_impl, install_skill_to_agent_impl,
+        symlink_target_path,
+    },
     commands::skills::SkillWithLinks,
     db::{self, Agent, Collection, DbPool, ScanDirectory, Skill, SkillMetadata, SkillSource},
-    path_utils::path_to_string,
+    path_utils::{path_to_string, remove_symlink_path},
     AppState,
 };
 
@@ -363,7 +366,9 @@ fn apply_webdav_auth(
         (Some(username), Some(password)) if !username.is_empty() || !password.is_empty() => {
             builder.basic_auth(username.to_string(), Some(password.to_string()))
         }
-        (Some(username), None) if !username.is_empty() => builder.basic_auth(username, None::<String>),
+        (Some(username), None) if !username.is_empty() => {
+            builder.basic_auth(username, None::<String>)
+        }
         (None, Some(password)) if !password.is_empty() => {
             builder.basic_auth("", Some(password.to_string()))
         }
@@ -371,7 +376,10 @@ fn apply_webdav_auth(
     }
 }
 
-fn build_webdav_collection_url(config: &WebDavConfig, relative_dir: &str) -> Result<String, String> {
+fn build_webdav_collection_url(
+    config: &WebDavConfig,
+    relative_dir: &str,
+) -> Result<String, String> {
     let base = normalize_webdav_base_url(&config.base_url)?;
     let relative_dir = normalize_webdav_remote_path(relative_dir)?;
     let mut url = Url::parse(&base).map_err(|_| "WebDAV URL is invalid".to_string())?;
@@ -827,13 +835,8 @@ fn write_backup_archive_to_path(dest_path: &str, archive: &[u8]) -> Result<(), S
             })?;
         }
     }
-    std::fs::write(&path, archive).map_err(|e| {
-        format!(
-            "Failed to write backup file '{}': {}",
-            path.display(),
-            e
-        )
-    })
+    std::fs::write(&path, archive)
+        .map_err(|e| format!("Failed to write backup file '{}': {}", path.display(), e))
 }
 
 fn webdav_entry_to_backup_file(
@@ -908,6 +911,7 @@ async fn export_app_backup_data_impl(
         )
         .await?;
     }
+    fill_central_symlink_files_without_resource(&mut skill_backups, &central_root)?;
 
     let (
         collections,
@@ -1224,7 +1228,15 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
         .iter()
         .map(|skill| skill.skill.id.clone())
         .collect();
-    for skill in &skill_backups {
+    let restore_order = skill_backups
+        .iter()
+        .filter(|skill| skill.storage_kind == "resource")
+        .chain(
+            skill_backups
+                .iter()
+                .filter(|skill| skill.storage_kind != "resource"),
+        );
+    for skill in restore_order {
         let relative_dir = normalize_relative_path(&skill.relative_dir)?;
         let is_resource_skill = skill.storage_kind == "resource";
         let target_root = if is_resource_skill {
@@ -1232,8 +1244,12 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
         } else {
             &central_root
         };
-        let target_dir = target_root.join(relative_dir);
-        replace_skill_directory(&target_dir, &skill.files)?;
+        let target_dir = target_root.join(&relative_dir);
+        if !is_resource_skill && skill.files.is_empty() {
+            restore_central_skill_as_symlink(&target_dir, &resource_root.join(&relative_dir))?;
+        } else {
+            replace_skill_directory(&target_dir, &skill.files)?;
+        }
 
         let mut db_skill = skill.skill.clone();
         db_skill.file_path = path_to_string(&target_dir.join("SKILL.md"));
@@ -1364,7 +1380,10 @@ fn restore_central_skills_into_resource_library(
     resource_skill_ids: &HashSet<String>,
 ) -> Result<(), String> {
     for skill in skill_backups {
-        if skill.storage_kind == "resource" || resource_skill_ids.contains(&skill.skill.id) {
+        if skill.storage_kind == "resource"
+            || resource_skill_ids.contains(&skill.skill.id)
+            || skill.files.is_empty()
+        {
             continue;
         }
         let relative_dir = normalize_relative_path(&skill.relative_dir)?;
@@ -1386,11 +1405,23 @@ async fn append_skill_backups(
 ) -> Result<(), String> {
     for skill in skills {
         let skill_dir = skill_directory(&skill);
-        if !skill_dir.is_dir() {
+        let metadata = match std::fs::symlink_metadata(&skill_dir) {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        if metadata.file_type().is_symlink() {
+            if !skill_dir.join("SKILL.md").is_file() {
+                continue;
+            }
+        } else if !metadata.is_dir() {
             continue;
         }
         let relative_dir = relative_to_root(&skill_dir, root).unwrap_or_else(|| skill.id.clone());
-        let files = collect_files(&skill_dir)?;
+        let files = if metadata.file_type().is_symlink() {
+            Vec::new()
+        } else {
+            collect_files(&skill_dir)?
+        };
         let source = sanitize_skill_source(db::get_skill_source(pool, &skill.id).await?);
         let metadata = db::get_skill_metadata(pool, &skill.id).await?;
         let mut exported_skill = skill;
@@ -1407,6 +1438,73 @@ async fn append_skill_backups(
         });
     }
     Ok(())
+}
+
+fn fill_central_symlink_files_without_resource(
+    skill_backups: &mut [SkillBackup],
+    central_root: &Path,
+) -> Result<(), String> {
+    let resource_ids: HashSet<String> = skill_backups
+        .iter()
+        .filter(|skill| skill.storage_kind == "resource")
+        .map(|skill| skill.skill.id.clone())
+        .collect();
+    for skill in skill_backups.iter_mut() {
+        if skill.storage_kind == "resource" || !skill.files.is_empty() {
+            continue;
+        }
+        if resource_ids.contains(&skill.skill.id) {
+            continue;
+        }
+        let skill_dir = central_root.join(normalize_relative_path(&skill.relative_dir)?);
+        if skill_dir.join("SKILL.md").is_file() {
+            skill.files = collect_files(&skill_dir)?;
+        }
+    }
+    Ok(())
+}
+
+fn restore_central_skill_as_symlink(central_dir: &Path, resource_dir: &Path) -> Result<(), String> {
+    if !resource_dir.join("SKILL.md").is_file() {
+        return Err(format!(
+            "Cannot restore Central Skills symlink '{}': resource skill '{}' is missing SKILL.md",
+            central_dir.display(),
+            resource_dir.display()
+        ));
+    }
+    if let Some(parent) = central_dir.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Failed to create Central Skills parent directory '{}': {}",
+                parent.display(),
+                error
+            )
+        })?;
+    }
+    if let Ok(metadata) = std::fs::symlink_metadata(central_dir) {
+        if metadata.file_type().is_symlink() {
+            remove_symlink_path(central_dir)?;
+        } else if metadata.is_dir() {
+            std::fs::remove_dir_all(central_dir).map_err(|error| {
+                format!(
+                    "Failed to remove existing Central Skills directory '{}': {}",
+                    central_dir.display(),
+                    error
+                )
+            })?;
+        } else {
+            std::fs::remove_file(central_dir).map_err(|error| {
+                format!(
+                    "Failed to remove existing Central Skills path '{}': {}",
+                    central_dir.display(),
+                    error
+                )
+            })?;
+        }
+    }
+    let from_dir = central_dir.parent().unwrap_or(central_dir);
+    let relative_target = symlink_target_path(from_dir, resource_dir);
+    create_symlink(&relative_target, central_dir)
 }
 
 async fn central_root(pool: &DbPool) -> Result<PathBuf, String> {
@@ -1444,7 +1542,8 @@ fn relative_to_root_from_keys(path: &str, root: &str) -> Option<String> {
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&root_norm))
             && path_norm.as_bytes().get(root_norm.len()) == Some(&b'/')
     } else {
-        path_norm.starts_with(&root_norm) && path_norm.as_bytes().get(root_norm.len()) == Some(&b'/')
+        path_norm.starts_with(&root_norm)
+            && path_norm.as_bytes().get(root_norm.len()) == Some(&b'/')
     };
     if !matches_root {
         return None;
@@ -1581,6 +1680,12 @@ fn validate_skill_backup(skill: &SkillBackup) -> Result<(), String> {
         }
         paths.push((relative_path, key));
     }
+    if skill.files.is_empty() {
+        if skill.storage_kind == "resource" {
+            return Err("Backup skill is missing SKILL.md".to_string());
+        }
+        return Ok(());
+    }
     if !has_skill_md {
         return Err("Backup skill is missing SKILL.md".to_string());
     }
@@ -1621,9 +1726,22 @@ fn validate_skill_md_content(content: &str) -> Result<(), String> {
 }
 
 fn validate_restore_plan(skills: &[SkillBackup]) -> Result<(), String> {
+    let resource_ids: HashSet<String> = skills
+        .iter()
+        .filter(|skill| skill.storage_kind == "resource")
+        .map(|skill| skill.skill.id.clone())
+        .collect();
     let mut targets = Vec::new();
     for skill in skills {
         validate_skill_backup(skill)?;
+        if skill.storage_kind != "resource"
+            && skill.files.is_empty()
+            && !resource_ids.contains(&skill.skill.id)
+        {
+            return Err(
+                "Central skill backup is a symlink placeholder without resource files".to_string(),
+            );
+        }
         let relative_dir = normalize_relative_path(&skill.relative_dir)?;
         let storage = if skill.storage_kind == "resource" {
             "resource"
@@ -2117,6 +2235,13 @@ mod tests {
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).expect("zip bytes");
         bytes
+    }
+
+    fn zip_has_entry(archive: &[u8], name: &str) -> bool {
+        let reader = Cursor::new(archive);
+        let zip = zip::ZipArchive::new(reader).expect("zip archive");
+        let found = zip.file_names().any(|entry| entry == name);
+        found
     }
 
     fn zip_entry_text(archive: &[u8], name: &str) -> String {
@@ -2793,16 +2918,16 @@ mod tests {
             ),
             "---\nname: Promoted Skill\n---\n\nKeep this in the resource library.\n"
         );
-        assert_eq!(
-            zip_entry_text(
+        assert!(
+            !zip_has_entry(
                 &archive,
                 "central-library/owner/repo/promoted-skill/SKILL.md"
             ),
-            "---\nname: Promoted Skill\n---\n\nKeep this in the resource library.\n"
+            "Central Skills symlink entries should not duplicate resource files in the archive"
         );
 
-        std::fs::remove_dir_all(&resource_skill_dir).expect("remove resource files");
         std::fs::remove_dir_all(central_root.join("owner")).expect("remove central files");
+        std::fs::remove_dir_all(&resource_skill_dir).expect("remove resource files");
         db::delete_skill(&pool, "promoted-skill")
             .await
             .expect("delete db");
@@ -2812,12 +2937,21 @@ mod tests {
             .expect("archive import");
 
         assert!(resource_skill_dir.join("SKILL.md").exists());
-        assert!(central_root
+        let restored_central = central_root
             .join("owner")
             .join("repo")
-            .join("promoted-skill")
-            .join("SKILL.md")
-            .exists());
+            .join("promoted-skill");
+        assert!(
+            restored_central.join("SKILL.md").exists(),
+            "promoted skills should still be visible through the Central Skills symlink"
+        );
+        assert!(
+            std::fs::symlink_metadata(&restored_central)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "restored Central Skills entries should be symlinks to the resource library"
+        );
         let restored = db::get_skill_by_id(&pool, "promoted-skill")
             .await
             .expect("restored query")
@@ -2879,7 +3013,10 @@ mod tests {
             .await
             .expect("archive import");
 
-        let resource_skill_dir = resource_root.join("owner").join("repo").join("central-only");
+        let resource_skill_dir = resource_root
+            .join("owner")
+            .join("repo")
+            .join("central-only");
         assert!(
             resource_skill_dir.join("SKILL.md").exists(),
             "central skills are restored into the resource library as well"
@@ -3687,8 +3824,7 @@ mod tests {
     fn write_backup_archive_to_path_creates_the_zip() {
         let dir = tempdir().expect("tempdir");
         let path = dir.path().join("out").join("backup.zip");
-        write_backup_archive_to_path(&path.to_string_lossy(), b"PK\x03\x04")
-            .expect("write backup");
+        write_backup_archive_to_path(&path.to_string_lossy(), b"PK\x03\x04").expect("write backup");
         assert_eq!(std::fs::read(&path).expect("read backup"), b"PK\x03\x04");
     }
 
@@ -4400,11 +4536,8 @@ mod tests {
     #[test]
     fn relative_to_root_from_keys_accepts_mixed_windows_separators() {
         assert_eq!(
-            relative_to_root_from_keys(
-                r"D:\Skills\library\owner\repo\demo",
-                "D:/Skills/library"
-            )
-            .as_deref(),
+            relative_to_root_from_keys(r"D:\Skills\library\owner\repo\demo", "D:/Skills/library")
+                .as_deref(),
             Some("owner/repo/demo")
         );
         assert_eq!(
@@ -4542,9 +4675,7 @@ mod tests {
         let requests_clone = Arc::clone(&requests);
         let accepted_clone = Arc::clone(&accepted);
 
-        listener
-            .set_nonblocking(false)
-            .expect("blocking listener");
+        listener.set_nonblocking(false).expect("blocking listener");
         let server = std::thread::spawn(move || {
             while accepted_clone.load(Ordering::SeqCst) < 2 {
                 let (mut stream, _) = listener.accept().expect("accept");

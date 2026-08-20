@@ -24,6 +24,10 @@ import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import type { AgentWithStatus, ClaudeSourceKind } from "@/types";
 import { cn } from "@/lib/utils";
 import { isInstallTargetAgent } from "@/lib/agents";
+import {
+  getSkillSourceLineKeys,
+  isExceptionalSkillOrigin,
+} from "@/lib/skillSourceDisplay";
 
 const FEATURED_CODING_AGENT_IDS = [
   "cursor",
@@ -407,7 +411,9 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
 
           {/* Row 3: Info badges */}
           <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
-            {originKind && <SourceOriginBadge originKind={originKind} />}
+            {isExceptionalSkillOrigin(originKind) && (
+              <SourceOriginBadge originKind={originKind} />
+            )}
             {isReadOnly && <ReadOnlyBadge />}
 
             {/* Source indicator (platform) */}
@@ -589,21 +595,9 @@ function SourceIndicator({
   sourceType: string;
   sourceLocation?: "central" | "resource-library" | "standalone";
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const isSymlink = sourceType === "symlink";
-  const isNative = sourceType === "native";
-  const primaryLabel = sourceLocation === "central"
-    ? t("platform.sourceCentral")
-    : sourceLocation === "resource-library"
-      ? t("platform.sourceResourceLibrary")
-      : t("platform.sourceStandalone");
-  const secondaryLabel = isSymlink
-    ? t("platform.sourceSymlinkLabel")
-    : isNative
-      ? t("platform.sourceNativeLabel", {
-          defaultValue: i18n.language.startsWith("zh") ? "原生" : "native",
-        })
-      : t("platform.sourceCopyLabel");
+  const { label, hint } = getSkillSourceLineKeys(sourceType, sourceLocation);
 
   return (
     <div
@@ -611,25 +605,32 @@ function SourceIndicator({
         "inline-flex items-center gap-1 text-xs font-medium",
         isSymlink ? "text-primary/80" : "text-muted-foreground"
       )}
+      title={t(hint)}
     >
       {isSymlink ? <Link2 className="size-3 shrink-0" /> : <FolderOpen className="size-3 shrink-0" />}
-      <div className="inline-flex items-center gap-1">
-        <span>{primaryLabel}</span>
-        <span aria-hidden="true" className="h-px w-3 shrink-0 rounded-full bg-current opacity-40" />
-        <span className="sr-only"> - </span>
-        <span>{secondaryLabel}</span>
-      </div>
+      <span>{t(label)}</span>
     </div>
   );
 }
 
 function SourceOriginBadge({ originKind }: { originKind: ClaudeSourceKind }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const isPlugin = originKind === "plugin";
   const isCompatibility = originKind === "compatibility";
+  const label = isPlugin
+    ? t("platform.originPlugin")
+    : isCompatibility
+      ? t("platform.originCompatibility")
+      : t("platform.originUser");
+  const hint = isPlugin
+    ? t("platform.originPluginHint")
+    : isCompatibility
+      ? t("platform.originCompatibilityHint")
+      : t("platform.originUserHint");
 
   return (
     <span
+      title={hint}
       className={cn(
         "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1",
         isPlugin
@@ -639,19 +640,7 @@ function SourceOriginBadge({ originKind }: { originKind: ClaudeSourceKind }) {
           : "bg-sky-500/10 text-sky-700 ring-sky-500/20 dark:text-sky-300"
       )}
     >
-      {isPlugin
-        ? t("platform.originPlugin", {
-            defaultValue: i18n.language.startsWith("zh") ? "插件来源" : "Plugin source",
-          })
-        : isCompatibility
-          ? t("platform.originCompatibility", {
-              defaultValue: i18n.language.startsWith("zh")
-                ? "中央库兼容可见"
-                : "Visible from Central",
-            })
-        : t("platform.originUser", {
-            defaultValue: i18n.language.startsWith("zh") ? "用户来源" : "User source",
-          })}
+      {label}
     </span>
   );
 }

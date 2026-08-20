@@ -213,6 +213,7 @@ describe("platformStore", () => {
 
     vi.mocked(invoke)
       .mockResolvedValueOnce(mockAgents)
+      .mockResolvedValueOnce(mockAgents)
       .mockResolvedValueOnce(mockScanDirectories)
       .mockResolvedValueOnce(updatedScanResult);
 
@@ -227,5 +228,9 @@ describe("platformStore", () => {
     expect(state.isLoading).toBe(false);
     expect(state.isRefreshing).toBe(false);
     expect(state.scanGeneration).toBe(2);
+    expect(invoke).toHaveBeenCalledWith("detect_agents");
+    expect(invoke).toHaveBeenCalledWith("get_agents");
+    expect(invoke).toHaveBeenCalledWith("get_scan_directories");
+    expect(invoke).toHaveBeenCalledWith("scan_all_skills");
   });
 });

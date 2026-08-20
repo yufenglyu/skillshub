@@ -999,6 +999,31 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: /Claude Code/ })).toBeInTheDocument();
   });
 
+  it("marks independent and shared software platforms after the name", () => {
+    renderSidebar("/central", {
+      platformState: {
+        ...defaultStoreState,
+        agents: [
+          { ...mockAgents[0], shares_central_skills: false },
+          { ...mockAgents[1], shares_central_skills: true },
+          mockAgents[2],
+        ],
+      },
+    });
+
+    const independent = screen.getByRole("button", { name: /Claude Code — 独立目录/ });
+    const shared = screen.getByRole("button", { name: /Cursor — 共享目录/ });
+    expect(independent).toHaveAttribute(
+      "title",
+      expect.stringContaining("该平台使用独立的技能目录")
+    );
+    expect(shared).toHaveAttribute(
+      "title",
+      expect.stringContaining("该平台技能目录与中央技能库指向同一位置")
+    );
+    expect(screen.getByRole("button", { name: "中央技能库" })).toBeInTheDocument();
+  });
+
   // ── Collapse Toggle ───────────────────────────────────────────────────────
 
   it("renders collapse toggle button", () => {

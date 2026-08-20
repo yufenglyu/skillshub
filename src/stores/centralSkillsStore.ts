@@ -25,6 +25,7 @@ export const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
     is_detected: true,
     is_builtin: true,
     is_enabled: true,
+    shares_central_skills: false,
   },
   {
     id: "cursor",
@@ -34,6 +35,7 @@ export const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
     is_detected: true,
     is_builtin: true,
     is_enabled: true,
+    shares_central_skills: true,
   },
   {
     id: "central",

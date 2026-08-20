@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { InstallTargetList } from "@/components/central/InstallTargetList";
 import { AgentWithStatus, CollectionBatchInstallResult } from "@/types";
-import { isInstallTargetAgent } from "@/lib/agents";
+import { CENTRAL_AGENT_ID, isCollectionInstallTargetAgent } from "@/lib/agents";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -41,27 +41,21 @@ export function CollectionInstallDialog({
   onInstall,
 }: CollectionInstallDialogProps) {
   const { t } = useTranslation();
-  const targetAgents = agents.filter(isInstallTargetAgent);
+  const targetAgents = agents.filter(isCollectionInstallTargetAgent);
 
   const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CollectionBatchInstallResult | null>(null);
 
-  // Reset when dialog opens. Shared `.agents/skills` targets are opt-in because
-  // they centralize rather than install to a single platform.
+  // Reset when dialog opens. Install targets always start empty so the user
+  // explicitly chooses software platforms, project directories, and Central Skills.
   useEffect(() => {
     if (open) {
-      const initial = new Set<string>(
-        targetAgents
-          .filter((agent) => agent.is_detected && !agent.shares_central_skills)
-          .map((agent) => agent.id)
-      );
-      setSelectedAgentIds(initial);
+      setSelectedAgentIds(new Set());
       setError(null);
       setResult(null);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   function handleToggle(agentId: string, checked: boolean) {
@@ -105,7 +99,9 @@ export function CollectionInstallDialog({
 
   const selectedInstallableCount = getSelectedInstallableAgentIds().length;
   const hasSharedSelection = targetAgents.some(
-    (agent) => agent.shares_central_skills && selectedAgentIds.has(agent.id)
+    (agent) =>
+      (agent.shares_central_skills || agent.id === CENTRAL_AGENT_ID) &&
+      selectedAgentIds.has(agent.id)
   );
 
   return (
@@ -126,6 +122,7 @@ export function CollectionInstallDialog({
             selectedAgentIds={selectedAgentIds}
             onToggleAgent={handleToggle}
             isCentral={isCentral}
+            includeCentral
             emptyMessage={t("batchInstall.noPlatforms")}
             ariaLabel={t("batchInstall.selectPlatforms")}
           />

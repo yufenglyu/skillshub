@@ -209,6 +209,9 @@ function setupMocks({
       refreshCounts,
     })
   );
+  Object.assign(usePlatformStore, {
+    getState: () => ({ error: null, isRefreshing: false }),
+  });
 
   vi.mocked(useCentralSkillsStore).mockImplementation((selector) =>
     selector({
@@ -1124,12 +1127,82 @@ describe("SettingsView", () => {
     expect(screen.getByText(mockCustomDir.path)).toBeTruthy();
   });
 
+  it("shows independent and shared directory labels on software platforms", () => {
+    const sharedAgent: AgentWithStatus = {
+      ...mockMissingBuiltinAgent,
+      shares_central_skills: true,
+    };
+    setupMocks({
+      agents: [{ ...mockBuiltinAgent, shares_central_skills: false }, sharedAgent],
+    });
+    renderSettingsView();
+    expandPlatformGroup("编程类");
+
+    expect(screen.getByText("独立目录")).toBeTruthy();
+    expect(screen.getByText("共享目录")).toBeTruthy();
+  });
+
+  it("refreshes software platforms and project directories together", async () => {
+    const refreshCounts = vi.fn().mockResolvedValue(undefined);
+    const loadScanDirectories = vi.fn().mockResolvedValue(undefined);
+    setupMocks({
+      agents: [mockBuiltinAgent],
+      scanDirs: [mockCustomDir],
+      refreshCounts,
+      loadScanDirectories,
+    });
+    renderSettingsView();
+    const loadCallsAfterMount = loadScanDirectories.mock.calls.length;
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "刷新平台与项目目录" })
+    );
+
+    await waitFor(() => {
+      expect(refreshCounts).toHaveBeenCalledTimes(1);
+      expect(loadScanDirectories.mock.calls.length).toBeGreaterThan(loadCallsAfterMount);
+    });
+    expect(screen.getByRole("button", { name: "刷新平台与项目目录" })).toHaveTextContent(
+      "刷新"
+    );
+  });
+
+  it("disables the locations refresh button while a scan is in flight", async () => {
+    let resolveRefresh: () => void = () => {};
+    const refreshCounts = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRefresh = resolve;
+        })
+    );
+    setupMocks({
+      agents: [mockBuiltinAgent, mockMissingBuiltinAgent],
+      scanDirs: [mockCustomDir],
+      refreshCounts,
+    });
+    renderSettingsView();
+
+    const refreshButton = screen.getByRole("button", { name: "刷新平台与项目目录" });
+    fireEvent.click(refreshButton);
+    fireEvent.click(refreshButton);
+
+    await waitFor(() => {
+      expect(refreshButton).toBeDisabled();
+    });
+    expect(refreshCounts).toHaveBeenCalledTimes(1);
+
+    resolveRefresh();
+    await waitFor(() => {
+      expect(refreshButton).not.toBeDisabled();
+    });
+  });
+
   // ── About section ─────────────────────────────────────────────────────────
 
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.50.2")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.60.0")).toBeTruthy();
   });
 
   it("shows an editable config folder path", () => {

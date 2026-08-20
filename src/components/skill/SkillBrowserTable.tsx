@@ -31,6 +31,10 @@ import { FIXED_SKILL_COLUMNS } from "@/hooks/useSkillTableColumns";
 import { optionsForSkillTable } from "@/components/skill/skillColumnOptions";
 import { formatPathForDisplay } from "@/lib/path";
 import {
+  getSkillSourceLineKeys,
+  isExceptionalSkillOrigin,
+} from "@/lib/skillSourceDisplay";
+import {
   nextSkillSortDirection,
   type SkillSortDirection,
   type SkillSortField,
@@ -365,49 +369,48 @@ function SourceIndicator({
   sourceType: "symlink" | "copy" | "native";
   sourceLocation?: "central" | "resource-library" | "standalone";
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const isSymlink = sourceType === "symlink";
-  const isNative = sourceType === "native";
-  const primaryLabel =
-    sourceLocation === "central"
-      ? t("platform.sourceCentral")
-      : sourceLocation === "resource-library"
-        ? t("platform.sourceResourceLibrary")
-        : t("platform.sourceStandalone");
-  const secondaryLabel = isSymlink
-    ? t("platform.sourceSymlinkLabel")
-    : isNative
-      ? t("platform.sourceNativeLabel", {
-          defaultValue: i18n.language.startsWith("zh") ? "原生" : "native",
-        })
-      : t("platform.sourceCopyLabel");
+  const { label, hint } = getSkillSourceLineKeys(sourceType, sourceLocation);
 
   return (
-    <div className={cn("inline-flex items-center gap-1 text-xs font-medium", isSymlink ? "text-primary/80" : "text-muted-foreground")}>
+    <div
+      className={cn("inline-flex items-center gap-1 text-xs font-medium", isSymlink ? "text-primary/80" : "text-muted-foreground")}
+      title={t(hint)}
+    >
       {isSymlink ? <Link2 className="size-3 shrink-0" /> : <FolderOpen className="size-3 shrink-0" />}
-      <span>{primaryLabel} - {secondaryLabel}</span>
+      <span>{t(label)}</span>
     </div>
   );
 }
 
 function SourceOriginBadge({ originKind }: { originKind: ClaudeSourceKind }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const isPlugin = originKind === "plugin";
   const isCompatibility = originKind === "compatibility";
+  const label = isPlugin
+    ? t("platform.originPlugin")
+    : isCompatibility
+      ? t("platform.originCompatibility")
+      : t("platform.originUser");
+  const hint = isPlugin
+    ? t("platform.originPluginHint")
+    : isCompatibility
+      ? t("platform.originCompatibilityHint")
+      : t("platform.originUserHint");
   return (
-    <span className={cn(
+    <span
+      title={hint}
+      className={cn(
       "inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1",
       isPlugin
         ? "bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300"
         : isCompatibility
           ? "bg-violet-500/10 text-violet-700 ring-violet-500/20 dark:text-violet-300"
           : "bg-sky-500/10 text-sky-700 ring-sky-500/20 dark:text-sky-300"
-    )}>
-      {isPlugin
-        ? t("platform.originPlugin", { defaultValue: i18n.language.startsWith("zh") ? "插件来源" : "Plugin source" })
-        : isCompatibility
-          ? t("platform.originCompatibility", { defaultValue: i18n.language.startsWith("zh") ? "中央库兼容可见" : "Visible from Central" })
-          : t("platform.originUser", { defaultValue: i18n.language.startsWith("zh") ? "用户来源" : "User source" })}
+    )}
+    >
+      {label}
     </span>
   );
 }
@@ -832,7 +835,7 @@ export function SkillBrowserTable({
                                   sourceLocation={skill.sourceLocation}
                                 />
                               ) : null}
-                              {skill.originKind ? (
+                              {isExceptionalSkillOrigin(skill.originKind) ? (
                                 <SourceOriginBadge originKind={skill.originKind} />
                               ) : null}
                               {skill.isReadOnly ? <ReadOnlyBadge /> : null}

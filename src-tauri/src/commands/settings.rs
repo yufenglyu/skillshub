@@ -2,8 +2,8 @@ use tauri::State;
 
 use crate::db::{self, Agent, DbPool, ScanDirectory};
 use crate::path_utils::{
-    copy_app_data_dir, expand_home_path, normalize_app_data_dir, path_to_string,
-    app_data_dir, write_app_data_dir_override,
+    app_data_dir, copy_app_data_dir, expand_home_path, normalize_app_data_dir, path_to_string,
+    write_app_data_dir_override,
 };
 use crate::AppState;
 

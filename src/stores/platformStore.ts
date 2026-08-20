@@ -12,6 +12,7 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
     is_detected: true,
     is_builtin: true,
     is_enabled: true,
+    shares_central_skills: false,
   },
   {
     id: "cursor",
@@ -21,6 +22,7 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
     is_detected: true,
     is_builtin: true,
     is_enabled: true,
+    shares_central_skills: true,
   },
   {
     id: "central",
@@ -158,6 +160,7 @@ export const usePlatformStore = create<PlatformState>((set) => ({
       return;
     }
     try {
+      await invoke("detect_agents");
       const [agents, scanDirectories, scanResult] = await Promise.all([
         invoke<AgentWithStatus[]>("get_agents"),
         invoke<ScanDirectory[]>("get_scan_directories"),

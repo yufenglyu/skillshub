@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.60.0 - 2026-08-20
+
+This release makes Central Skills a symlink into the Resource Library, labels independent vs shared platform directories, and cleans up leftover folders when you uninstall a Central Skills group.
+
+### Features
+
+- Add a Resource Library skill to Central Skills as a symlink instead of a copy. Removing it from Central Skills deletes the link and leaves the original files.
+- Mark software platforms that share `~/.agents/skills` as Shared, and others as Independent, in Settings and as a color dot in the sidebar.
+- Add one Refresh control on Settings → Platforms and Project Directories to re-detect which platforms exist and reload project directories.
+- Rename collection batch install to Install. The dialog can target software platforms, project directories, and Central Skills, and starts with nothing selected.
+
+### Improvements
+
+- Keep source-column labels aligned with the actual symlink target (Resource Library vs Central Skills).
+- After uninstalling a Central Skills folder, remove leftover empty folders and dangling links from platform and project skills directories.
+- Fall back to a GitHub API download when `npx skills` cannot clone github.com, and pass a saved PAT into git.
+- Refresh English and Chinese README content and screenshots for Central Skills links, Settings refresh, shared-directory labels, and collection install.
+
+### Fixes
+
+- Stop a Resource Library scan from dropping legitimate Central Skills → Resource Library symlinks, which made Central Skills entries disappear after adding them.
+- Do not leave Central Skills table rows behind after deleting a parent folder of symlink children.
+- Do not fail a Central Skills folder delete when leftover cleanup on one platform cannot remove a directory.
+- Truncate oversized import error toasts when GitHub is unreachable.
+
 ## 0.50.2 - 2026-08-20
 
 This release makes Central Skills folders open in the same in-page table as other views, and removes bulk uninstall from software platforms and project directories.

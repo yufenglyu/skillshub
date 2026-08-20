@@ -114,7 +114,9 @@ fn skills_add_args(target: &SkillsCliImportTarget) -> Vec<String> {
 }
 
 fn create_skills_cli_staging_dir() -> Result<PathBuf, String> {
-    let staging_root = path_utils::app_data_dir().join("staging").join("skills-cli");
+    let staging_root = path_utils::app_data_dir()
+        .join("staging")
+        .join("skills-cli");
     std::fs::create_dir_all(&staging_root)
         .map_err(|e| format!("Failed to create skills CLI staging directory: {}", e))?;
     let dir = staging_root.join(format!(
@@ -200,6 +202,148 @@ fn run_command_capture(mut command: Command) -> Result<String, String> {
     }
 }
 
+fn apply_github_clone_env(command: &mut Command, token: Option<&str>) {
+    command.env("GIT_TERMINAL_PROMPT", "0");
+    command.env("GCM_INTERACTIVE", "never");
+    let Some(token) = token.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    command.env("GITHUB_TOKEN", token);
+    command.env("GH_TOKEN", token);
+    command.env("GIT_CONFIG_COUNT", "1");
+    command.env("GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader");
+    command.env(
+        "GIT_CONFIG_VALUE_0",
+        format!("AUTHORIZATION: bearer {token}"),
+    );
+}
+
+fn strip_ansi_codes(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\u{1b}' {
+            out.push(ch);
+            continue;
+        }
+        match chars.peek().copied() {
+            Some('[') => {
+                chars.next();
+                for next in chars.by_ref() {
+                    if next.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                chars.next();
+                for next in chars.by_ref() {
+                    if next == '\u{7}' || next == '\\' {
+                        break;
+                    }
+                }
+            }
+            Some(_) => {
+                chars.next();
+            }
+            None => {}
+        }
+    }
+    out
+}
+
+fn is_git_progress_noise(line: &str) -> bool {
+    let compact: String = line
+        .chars()
+        .filter(|ch| !matches!(ch, '[' | ']' | '\u{1b}'))
+        .collect();
+    let lower = compact.to_ascii_lowercase();
+    let looks_like_progress = lower.contains("cloning")
+        || lower.contains("counting objects")
+        || lower.contains("compressing objects")
+        || lower.contains("receiving objects")
+        || lower.contains("resolving deltas")
+        || lower.contains("remote:");
+    looks_like_progress
+        && !lower.contains("fatal")
+        && !lower.contains("error")
+        && !lower.contains("unable to access")
+        && !lower.contains("failed to connect")
+}
+
+fn sanitize_cli_output(text: &str) -> String {
+    let stripped = strip_ansi_codes(text);
+    let mut lines: Vec<String> = Vec::new();
+    for raw_line in stripped.split('\n') {
+        let line = raw_line.rsplit('\r').next().unwrap_or(raw_line).trim();
+        if line.is_empty() || is_git_progress_noise(line) {
+            continue;
+        }
+        if lines.last().is_some_and(|previous| previous == line) {
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+    const MAX: usize = 1600;
+    let joined = lines.join("\n");
+    if joined.len() <= MAX {
+        return joined;
+    }
+    let start = joined
+        .char_indices()
+        .map(|(index, _)| index)
+        .find(|index| *index >= joined.len().saturating_sub(MAX))
+        .unwrap_or(0);
+    format!("…{}", &joined[start..])
+}
+
+fn looks_like_github_connectivity_error(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("authentication failed") || lower.contains("could not read username") {
+        return false;
+    }
+    let mentions_github = lower.contains("github.com") || lower.contains("github");
+    let mentions_network = [
+        "failed to connect",
+        "could not connect",
+        "unable to access",
+        "timed out",
+        "timeout",
+        "network is unreachable",
+        "connection refused",
+        "no route to host",
+        "failed to clone",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker));
+    mentions_github && mentions_network
+}
+
+fn format_npx_import_failure(npx_error: &str, archive_fallback_error: Option<&str>) -> String {
+    let sanitized = sanitize_cli_output(npx_error);
+    let connectivity = looks_like_github_connectivity_error(&sanitized)
+        || looks_like_github_connectivity_error(npx_error);
+    if connectivity {
+        let mut message = "Could not connect to GitHub (timed out or blocked on port 443). Check your network, proxy, or GitHub token in Settings.".to_string();
+        if let Some(fallback) = archive_fallback_error {
+            let fallback = sanitize_cli_output(fallback);
+            if !fallback.is_empty() {
+                message.push_str(" Archive download also failed: ");
+                message.push_str(&fallback);
+            }
+        } else if !sanitized.is_empty() {
+            message.push('\n');
+            message.push_str(&sanitized);
+        }
+        return message;
+    }
+    if sanitized.is_empty() {
+        npx_error.trim().to_string()
+    } else {
+        sanitized
+    }
+}
+
 fn skills_cli_version() -> Option<String> {
     let mut command = npx_command().ok()?;
     command.args(["-y", "skills", "--version"]);
@@ -225,10 +369,12 @@ async fn fetch_import_remote_ref(pool: &DbPool, package: &str) -> Option<String>
 fn run_skills_add_in_staging(
     target: &SkillsCliImportTarget,
     staging_dir: &Path,
+    github_token: Option<&str>,
 ) -> Result<(), String> {
     let mut command = npx_command()?;
     command.args(skills_add_args(target));
     command.current_dir(staging_dir);
+    apply_github_clone_env(&mut command, github_token);
     run_command_capture(command).map(|_| ())
 }
 
@@ -285,14 +431,29 @@ pub async fn import_skills_via_npx_impl(
 ) -> Result<ImportSkillsViaNpxResult, String> {
     let target = parse_npx_import_target(&input.input, input.skill.as_deref())?;
     let cli_version = skills_cli_version();
+    let github_token = github_import::github_direct_auth_from_settings(pool).await?;
     let remote_ref = fetch_import_remote_ref(pool, &target.package).await;
     let staging_dir = create_skills_cli_staging_dir()?;
-    if let Err(error) = run_skills_add_in_staging(&target, &staging_dir) {
-        let _ = std::fs::remove_dir_all(&staging_dir);
-        return Err(error);
+    let staged_skills_dir = staging_dir.join(".agents").join("skills");
+    if let Err(error) = run_skills_add_in_staging(&target, &staging_dir, github_token.as_deref()) {
+        if looks_like_github_connectivity_error(&error) {
+            if let Err(fallback_error) = github_import::stage_repo_skills_into_dir(
+                pool,
+                &target.package,
+                target.skill.as_deref(),
+                &staged_skills_dir,
+            )
+            .await
+            {
+                let _ = std::fs::remove_dir_all(&staging_dir);
+                return Err(format_npx_import_failure(&error, Some(&fallback_error)));
+            }
+        } else {
+            let _ = std::fs::remove_dir_all(&staging_dir);
+            return Err(format_npx_import_failure(&error, None));
+        }
     }
 
-    let staged_skills_dir = staging_dir.join(".agents").join("skills");
     if !staged_skills_dir.is_dir() {
         let _ = std::fs::remove_dir_all(&staging_dir);
         return Err("npx skills did not create a .agents/skills staging directory".to_string());
@@ -422,5 +583,33 @@ mod tests {
         };
 
         assert!(npx_update_request_from_source(&source).is_none());
+    }
+
+    #[test]
+    fn sanitize_cli_output_drops_git_progress_and_keeps_fatal() {
+        let raw = "[1G][]0 Cloning\r[1G][]0 Cloning\r[1G][]0 Cloning\nCloning into 'C:\\Users\\LYF\\AppData\\Local\\Temp\\skills-QF9ZEp'...\nfatal: unable to access 'https://github.com/forrestchang/andrej-karpathy-skills.git/': Failed to connect to github.com port 443 after 21093 ms: Could not connect to server";
+        let sanitized = sanitize_cli_output(raw);
+        assert!(!sanitized.contains("[1G]"));
+        assert!(!sanitized.to_ascii_lowercase().contains("cloning into"));
+        assert!(sanitized.contains("Failed to connect to github.com"));
+    }
+
+    #[test]
+    fn format_npx_import_failure_explains_github_timeout() {
+        let raw = "Failed to clone repository...\nfatal: unable to access 'https://github.com/forrestchang/andrej-karpathy-skills.git/': Failed to connect to github.com port 443 after 21093 ms: Could not connect to server";
+        let formatted = format_npx_import_failure(raw, None);
+        assert!(formatted.contains("Could not connect to GitHub"));
+        assert!(formatted.contains("Failed to connect to github.com"));
+        assert!(!formatted.contains("[1G]"));
+    }
+
+    #[test]
+    fn looks_like_github_connectivity_error_ignores_auth_failures() {
+        assert!(!looks_like_github_connectivity_error(
+            "fatal: Authentication failed for 'https://github.com/owner/repo.git/'"
+        ));
+        assert!(looks_like_github_connectivity_error(
+            "fatal: unable to access 'https://github.com/owner/repo.git/': Failed to connect to github.com port 443"
+        ));
     }
 }

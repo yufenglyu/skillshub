@@ -12,6 +12,13 @@ export function isInstallTargetAgent(agent: Pick<AgentWithStatus, "id">): boolea
   return !NON_INSTALL_TARGET_AGENT_IDS.has(agent.id);
 }
 
+/** Collection batch install may also target Central Skills. */
+export function isCollectionInstallTargetAgent(
+  agent: Pick<AgentWithStatus, "id">
+): boolean {
+  return agent.id !== OBSIDIAN_AGENT_ID;
+}
+
 export function isEnabledInstallTargetAgent(
   agent: Pick<AgentWithStatus, "id" | "is_enabled">
 ): boolean {

@@ -32,10 +32,10 @@ Application data lives in a `.skillshub` folder (`~/.skillshub` by default). Put
 - **Add Skills** copies a prepared local skill or skill-pack folder and marks it as a local addition, separate from source-tracked npx imports.
 - **Update Skills** checks the saved repository marker first and only re-downloads when the source changed. The status bar reports live import, update, and install progress.
 - Resource Library skills can install directly to selected platforms or projects without being forced into Central Skills.
-- Promoting a skill to Central Skills writes it to `~/.agents/skills`. When Central Skills already has managed skills, newly detected platforms and configured project directories are included in central synchronization.
-- If a platform or project uses the shared `.agents/skills` path, installing there is treated as **Add to Central Skills**, not as a self-referencing platform install. Already-central skills show as shared through Central Skills.
-- Collections stay compact: create, edit, delete, batch-install, add skills, and refresh. Collection browsing is a single flat table.
-- Settings cover the config folder (including portable mode), Resource Library and Central Skills paths with Browse and Open, editable built-in platforms, custom platforms, named project directories, local ZIP / WebDAV backup, and update checking. Browse a folder to save it immediately, or paste a path and press Enter. Backups exclude API keys, tokens, and password-like values, and do not copy this computer's library folder paths to another machine.
+- Promoting a skill to Central Skills creates a symlink under `~/.agents/skills` that points at the Resource Library copy. Removing it from Central Skills deletes the link only. When Central Skills already has managed skills, newly detected platforms and configured project directories are included in central synchronization.
+- If a platform or project uses the shared `.agents/skills` path, installing there is treated as **Add to Central Skills**, not as a self-referencing platform install. Already-central skills show as shared through Central Skills. Settings labels those platforms **Shared** and others **Independent**; the sidebar shows a color dot after the platform name.
+- Collections stay compact: create, edit, delete, install, add skills, and refresh. **Install** opens a target picker for software platforms, project directories, and Central Skills, with nothing selected by default.
+- Settings cover the config folder (including portable mode), Resource Library and Central Skills paths with Browse and Open, editable built-in platforms, custom platforms, named project directories, local ZIP / WebDAV backup, and update checking. Refresh on Platforms and Project Directories re-detects which platforms exist. Browse a folder to save it immediately, or paste a path and press Enter. Backups exclude API keys, tokens, and password-like values, and do not copy this computer's library folder paths to another machine.
 
 ## Screenshots
 
@@ -77,8 +77,9 @@ Resource Library ── install ──► selected platforms / project directori
 ```
 
 - Direct Resource Library installs write only to the targets you select.
-- Adding to Central Skills writes the central copy. Shared-root platforms (their skills directory resolves to `~/.agents/skills`) do not get a second copy; they become available through Central Skills.
-- Collections store skill references. The picker reads from the Resource Library; installing a collection or a member skill distributes that Resource Library skill to the selected targets.
+- Adding to Central Skills creates a symlink in the central directory. Shared-root platforms (their skills directory resolves to `~/.agents/skills`) do not get a second copy; they become available through Central Skills.
+- Uninstalling a Central Skills folder also removes matching installs from independent platforms and project directories, then prunes leftover empty folders.
+- Collections store skill references. The picker reads from the Resource Library; installing a collection distributes that Resource Library skill to the platforms, projects, and optional Central Skills target you check.
 - Changing a Resource Library, Central Skills, platform, or project path does not rewrite existing symlinks or copies. Reinstall affected skills after you move those directories.
 
 ## Supported Platforms
@@ -137,15 +138,15 @@ The Vite development server uses port `24200`.
 
 ## Release
 
-GitHub Actions publishes desktop packages when a version tag such as `v0.50.2` is pushed. The release workflow reads notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
+GitHub Actions publishes desktop packages when a version tag such as `v0.60.0` is pushed. The release workflow reads notes from `CHANGELOG.md`, so every release version must have a matching changelog section.
 
 Local packaging scripts are still available for host-specific builds:
 
 | Platform | Command |
 |----------|---------|
-| Windows | `pnpm package:release:windows -- -Version 0.50.2` |
-| macOS | `pnpm package:release:macos -- -Version 0.50.2` |
-| Linux | `pnpm package:release:linux -- -Version 0.50.2` |
+| Windows | `pnpm package:release:windows -- -Version 0.60.0` |
+| macOS | `pnpm package:release:macos -- -Version 0.60.0` |
+| Linux | `pnpm package:release:linux -- -Version 0.60.0` |
 
 Use `-VersionOnly` when you only need to update version metadata before committing a release.
 

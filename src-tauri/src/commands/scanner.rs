@@ -7,6 +7,7 @@ use tauri::State;
 
 use crate::commands::linker;
 use crate::db::{self, AgentSkillObservation, DbPool, Skill, SkillInstallation};
+use crate::path_utils;
 use crate::AppState;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -570,9 +571,9 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
     let agents = db::get_all_agents(pool).await?;
     let custom_dirs = db::get_scan_directories(pool).await?;
 
-    // Central Skills are the shared source for local platforms. A full scan is
-    // the point where newly detected platform directories become known, so keep
-    // existing Central Skills synchronized before counting platform skills.
+    // Heal Central Skills whose parent folder was deleted without updating DB rows,
+    // then re-sync whatever is still actually present under ~/.agents/skills.
+    let _ = linker::reconcile_orphaned_central_skills(pool).await;
     let _ = linker::sync_all_central_skills_to_detected_platforms(pool).await;
 
     let mut total_skills: usize = 0;
@@ -586,6 +587,11 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
     for skill in scan_skill_root(&resource_root, false, ScanDirectoryOptions::nested()) {
         all_found_skill_ids.insert(skill.id);
     }
+
+    let central_root = agents
+        .iter()
+        .find(|agent| agent.category == "central")
+        .map(|agent| PathBuf::from(&agent.global_skills_dir));
 
     // ── Per-agent scans ───────────────────────────────────────────────────────
     for agent in &agents {
@@ -698,6 +704,16 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
         total_skills += scanned.len();
         let managed_count = db::count_managed_skill_installations(pool, &agent.id).await?;
         skills_by_agent.insert(agent.id.clone(), managed_count as usize);
+
+        if !is_central {
+            let agent_root = Path::new(&agent.global_skills_dir);
+            let shares_central = central_root
+                .as_ref()
+                .is_some_and(|central| paths_resolve_to_same_entry(agent_root, central));
+            if agent_root.exists() && !shares_central {
+                path_utils::prune_empty_directories_under(agent_root);
+            }
+        }
     }
 
     // ── Project directory targets ─────────────────────────────────────────────
@@ -754,6 +770,13 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
         let scanned_count = scanned.len();
         total_skills += scanned_count;
         skills_by_agent.insert(target.id, scanned_count);
+
+        let shares_central = central_root
+            .as_ref()
+            .is_some_and(|central| paths_resolve_to_same_entry(&target.skills_dir, central));
+        if target.skills_dir.exists() && !shares_central {
+            path_utils::prune_empty_directories_under(&target.skills_dir);
+        }
     }
 
     // ── Global reconciliation ─────────────────────────────────────────────────
@@ -765,8 +788,7 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
     let found_ids_vec: Vec<String> = all_found_skill_ids.into_iter().collect();
     db::delete_skills_not_in_scope(pool, &found_ids_vec).await?;
 
-    if let Some(central_agent) = agents.iter().find(|agent| agent.category == "central") {
-        let central_root = Path::new(&central_agent.global_skills_dir);
+    if let Some(central_root) = central_root.as_ref() {
         let central_count = db::get_central_skills(pool).await?.len();
         if central_count > 0 {
             for agent in &agents {
@@ -1331,6 +1353,45 @@ mod tests {
         assert_eq!(r.total_skills, 0);
         assert_eq!(r.agents_scanned, 1);
         assert_eq!(r.skills_by_agent.get("empty-agent").copied(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_scan_all_skills_impl_prunes_empty_leftover_dirs() {
+        use crate::db;
+
+        let tmp = TempDir::new().unwrap();
+        let pool = setup_test_db().await;
+        isolate_scan_test(&pool).await;
+
+        let skills_dir = tmp.path().join("skills");
+        let leftover = skills_dir.join("old-author").join("skills");
+        fs::create_dir_all(&leftover).unwrap();
+        create_skill_dir(
+            &skills_dir,
+            "keep-me",
+            &valid_skill_md("Keep Me", "Still installed"),
+        );
+
+        let test_agent = db::Agent {
+            id: "prune-agent".to_string(),
+            display_name: "Prune Agent".to_string(),
+            category: "coding".to_string(),
+            global_skills_dir: skills_dir.to_string_lossy().into_owned(),
+            project_skills_dir: None,
+            icon_name: None,
+            is_detected: false,
+            is_builtin: false,
+            is_enabled: true,
+        };
+        db::insert_custom_agent(&pool, &test_agent).await.unwrap();
+
+        scan_all_skills_impl(&pool).await.unwrap();
+
+        assert!(skills_dir.join("keep-me").join("SKILL.md").exists());
+        assert!(
+            !skills_dir.join("old-author").exists(),
+            "scan should prune historical empty skill folders"
+        );
     }
 
     #[tokio::test]

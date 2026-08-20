@@ -2,7 +2,11 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Checkbox } from "@/components/ui/checkbox";
-import { isInstallTargetAgent } from "@/lib/agents";
+import {
+  CENTRAL_AGENT_ID,
+  isCollectionInstallTargetAgent,
+  isInstallTargetAgent,
+} from "@/lib/agents";
 import type { AgentWithStatus } from "@/types";
 
 interface InstallTargetListProps {
@@ -12,6 +16,7 @@ interface InstallTargetListProps {
   linkedAgentIds?: Set<string>;
   readOnlyAgentIds?: Set<string>;
   isCentral?: boolean;
+  includeCentral?: boolean;
   emptyMessage?: string;
   ariaLabel: string;
 }
@@ -30,21 +35,27 @@ export function InstallTargetList({
   linkedAgentIds = new Set(),
   readOnlyAgentIds = new Set(),
   isCentral = false,
+  includeCentral = false,
   emptyMessage,
   ariaLabel,
 }: InstallTargetListProps) {
   const { t } = useTranslation();
   const groupedTargets = useMemo(() => {
-    const targets = agents.filter(isInstallTargetAgent);
+    const targets = agents.filter((agent) =>
+      includeCentral ? isCollectionInstallTargetAgent(agent) : isInstallTargetAgent(agent)
+    );
     return {
       software: targets
-        .filter((agent) => agent.category !== "project")
+        .filter((agent) => agent.category !== "project" && agent.id !== CENTRAL_AGENT_ID)
         .sort(byDisplayName),
       projects: targets
         .filter((agent) => agent.category === "project")
         .sort(byDisplayName),
+      central: includeCentral
+        ? targets.filter((agent) => agent.id === CENTRAL_AGENT_ID)
+        : [],
     };
-  }, [agents]);
+  }, [agents, includeCentral]);
 
   const sections = [
     {
@@ -56,6 +67,11 @@ export function InstallTargetList({
       key: "projects",
       title: t("installDialog.projectDirectories"),
       agents: groupedTargets.projects,
+    },
+    {
+      key: "central",
+      title: t("installDialog.centralSkills"),
+      agents: groupedTargets.central,
     },
   ].filter((section) => section.agents.length > 0);
 
@@ -83,6 +99,10 @@ export function InstallTargetList({
             {section.agents.map((agent) => {
               const isLinked = linkedAgentIds.has(agent.id);
               const isReadOnly = readOnlyAgentIds.has(agent.id);
+              const isCentralTarget = agent.id === CENTRAL_AGENT_ID;
+              const label = isCentralTarget
+                ? t("installDialog.centralSkills")
+                : agent.display_name;
               const isSharedPlatform = !!agent.shares_central_skills;
               const isSharedThroughCentral = isSharedPlatform && isCentral;
               const isDisabled = isReadOnly || isSharedThroughCentral;
@@ -94,7 +114,7 @@ export function InstallTargetList({
                     checked={isChecked}
                     disabled={isDisabled}
                     onCheckedChange={(checked) => onToggleAgent(agent.id, !!checked)}
-                    aria-label={agent.display_name}
+                    aria-label={label}
                   />
                   <span
                     className={
@@ -106,7 +126,7 @@ export function InstallTargetList({
                       if (!isDisabled) onToggleAgent(agent.id, !isChecked);
                     }}
                   >
-                    {agent.display_name}
+                    {label}
                   </span>
                   {isSharedThroughCentral ? (
                     <span className="shrink-0 text-xs text-primary">

@@ -60,8 +60,8 @@ import { useSkillStore } from "../stores/skillStore";
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
 import * as tauriBridge from "@/lib/tauri";
 
-const userSourceText = /用户来源|User source/i;
-const pluginSourceText = /插件来源|Plugin source/i;
+const userSourceText = /用户目录|User folder/i;
+const pluginSourceText = /Claude 插件|Claude plugin/i;
 const readOnlyText = /只读|Read-only/i;
 const badgeQueryOptions = { selector: "span" } as const;
 const claudeTabName = (label: string, count?: number) =>
@@ -544,17 +544,68 @@ describe("PlatformView", () => {
   it("shows source indicator on skill cards", () => {
     renderPlatformView();
     expect(
-      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "中央技能库 - 符号链接")
+      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到中央库")
         .length
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "独立安装 - 复制安装")
+      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "本平台副本")
         .length
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "技能资源库 - 符号链接")
+      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到资源库")
         .length
     ).toBeGreaterThan(0);
+  });
+
+  it("labels a shared Central Skills symlink as linked from the resource library", () => {
+    const antigravityAgent: AgentWithStatus = {
+      id: "antigravity",
+      display_name: "Antigravity",
+      category: "coding",
+      global_skills_dir: "/Users/test/.agents/skills/",
+      is_detected: true,
+      is_builtin: true,
+      is_enabled: true,
+    };
+    mockUsePlatformStore.mockImplementation((selector?: unknown) => {
+      const state = buildPlatformStoreState({
+        agents: [antigravityAgent],
+        skillsByAgent: { antigravity: 1 },
+      });
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+    mockUseSkillStore.mockImplementation((selector?: unknown) => {
+      const state = buildSkillStoreState({
+        skillsByAgent: {
+          antigravity: [
+            {
+              id: "promoted-skill",
+              name: "promoted-skill",
+              description: "Promoted from the resource library",
+              file_path: "~/.agents/skills/promoted-skill/SKILL.md",
+              dir_path: "~/.agents/skills/promoted-skill",
+              link_type: "symlink",
+              symlink_target: "~/.skillshub/library/promoted-skill",
+              is_central: true,
+              source: "resource-library",
+            },
+          ],
+        },
+      });
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+
+    renderPlatformView("antigravity");
+
+    expect(
+      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到资源库")
+        .length
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "文件在中央库")
+    ).not.toBeInTheDocument();
   });
 
   it("renders browser fixture installed card on the localhost validation surface without Tauri", async () => {
@@ -591,7 +642,7 @@ describe("PlatformView", () => {
 
     expect(await screen.findByRole("button", { name: /查看 fixture-central-skill 的详情/i })).toBeInTheDocument();
     expect(
-      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "中央技能库 - 符号链接")
+      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到中央库")
         .length
     ).toBeGreaterThan(0);
 
@@ -765,15 +816,17 @@ describe("PlatformView", () => {
 
     expect(screen.getAllByRole("button", { name: /查看 shared-skill 的详情/i })).toHaveLength(2);
 
-    const [userBadge] = getCardBadgeMatches(userSourceText);
     const [pluginBadge] = getCardBadgeMatches(pluginSourceText);
     const [readOnlyBadge] = getCardBadgeMatches(readOnlyText);
+    expect(getCardBadgeMatches(userSourceText)).toHaveLength(0);
 
-    expect(userBadge).toBeDefined();
     expect(pluginBadge).toBeDefined();
     expect(readOnlyBadge).toBeDefined();
-    const userCard = userBadge.closest("tr");
     const pluginCard = pluginBadge.closest("tr");
+    const userCard = screen
+      .getAllByRole("button", { name: /查看 shared-skill 的详情/i })
+      .map((button) => button.closest("tr"))
+      .find((row) => row !== pluginCard);
 
     expect(userCard).not.toBeNull();
     expect(pluginCard).not.toBeNull();
@@ -879,8 +932,8 @@ describe("PlatformView", () => {
     renderPlatformView();
 
     expect(screen.getByRole("tab", { name: claudeTabName("全部", 3) })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: claudeTabName("用户来源", 1) })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: claudeTabName("插件来源", 2) })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: claudeTabName("用户目录", 1) })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: claudeTabName("插件", 2) })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /查看 shared-skill 的详情/i })).toHaveLength(3);
   });
 
@@ -895,7 +948,7 @@ describe("PlatformView", () => {
 
     renderPlatformView();
 
-    fireEvent.click(screen.getByRole("tab", { name: claudeTabName("插件来源", 2) }));
+    fireEvent.click(screen.getByRole("tab", { name: claudeTabName("插件", 2) }));
 
     await waitFor(() => {
       expect(screen.getAllByRole("button", { name: /查看 shared-skill 的详情/i })).toHaveLength(2);
@@ -905,13 +958,13 @@ describe("PlatformView", () => {
     expect(getCardBadgeMatches(pluginSourceText)).toHaveLength(2);
     expect(getCardBadgeMatches(readOnlyText)).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("tab", { name: claudeTabName("用户来源", 1) }));
+    fireEvent.click(screen.getByRole("tab", { name: claudeTabName("用户目录", 1) }));
 
     await waitFor(() => {
       expect(screen.getAllByRole("button", { name: /查看 shared-skill 的详情/i })).toHaveLength(1);
     });
 
-    expect(getCardBadgeMatches(userSourceText)).toHaveLength(1);
+    expect(getCardBadgeMatches(userSourceText)).toHaveLength(0);
     expect(getCardBadgeMatches(pluginSourceText)).toHaveLength(0);
     expect(getCardBadgeMatches(readOnlyText)).toHaveLength(0);
   });
@@ -927,7 +980,7 @@ describe("PlatformView", () => {
 
     renderPlatformView();
 
-    fireEvent.click(screen.getByRole("tab", { name: claudeTabName("用户来源", 1) }));
+    fireEvent.click(screen.getByRole("tab", { name: claudeTabName("用户目录", 1) }));
     fireEvent.change(screen.getByPlaceholderText(/搜索技能/), {
       target: { value: "shared-skill" },
     });
@@ -936,7 +989,7 @@ describe("PlatformView", () => {
       expect(screen.getAllByRole("button", { name: /查看 shared-skill 的详情/i })).toHaveLength(1);
     });
 
-    expect(getCardBadgeMatches(userSourceText)).toHaveLength(1);
+    expect(getCardBadgeMatches(userSourceText)).toHaveLength(0);
     expect(getCardBadgeMatches(pluginSourceText)).toHaveLength(0);
     expect(getCardBadgeMatches(readOnlyText)).toHaveLength(0);
   });
@@ -962,7 +1015,7 @@ describe("PlatformView", () => {
       ).toHaveLength(2);
     });
 
-    expect(getCardBadgeMatches(userSourceText)).toHaveLength(1);
+    expect(getCardBadgeMatches(userSourceText)).toHaveLength(0);
     expect(getCardBadgeMatches(pluginSourceText)).toHaveLength(1);
     expect(getCardBadgeMatches(readOnlyText)).toHaveLength(1);
   });
@@ -997,8 +1050,8 @@ describe("PlatformView", () => {
     renderPlatformView("cursor");
 
     expect(screen.queryByRole("tab", { name: claudeTabName("全部") })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: claudeTabName("用户来源") })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: claudeTabName("插件来源") })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: claudeTabName("用户目录") })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: claudeTabName("插件") })).not.toBeInTheDocument();
   });
 
   it("preserves platform search and scroll state when closing the drawer and restores focus", async () => {

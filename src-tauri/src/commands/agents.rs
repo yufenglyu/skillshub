@@ -5,7 +5,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::db::{self, Agent, DbPool};
-use crate::path_utils::{expand_home_path, path_to_string};
+use crate::path_utils::{expand_home_path, path_to_string, paths_resolve_to_same_entry};
 use crate::AppState;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -76,20 +76,7 @@ fn paths_share_skills_root(left: &str, right: Option<&str>) -> bool {
     let Some(right) = right else {
         return false;
     };
-    let left = expand_home_path(left);
-    let right = expand_home_path(right);
-    match (left.canonicalize(), right.canonicalize()) {
-        (Ok(left), Ok(right)) => left == right,
-        _ => {
-            let normalize = |path: &Path| {
-                let value = path.to_string_lossy().replace('\\', "/");
-                #[cfg(windows)]
-                let value = value.to_lowercase();
-                value.trim_end_matches('/').to_string()
-            };
-            normalize(&left) == normalize(&right)
-        }
-    }
+    paths_resolve_to_same_entry(&expand_home_path(left), &expand_home_path(right))
 }
 
 fn agent_to_with_status(agent: Agent, central_root: Option<&str>) -> AgentWithStatus {
@@ -137,23 +124,9 @@ pub async fn detect_agents_impl(pool: &DbPool) -> Result<Vec<AgentWithStatus>, S
 
     for agent in agents {
         let is_detected = is_agent_detected(&agent.global_skills_dir);
-        let shares_central_skills = agent.id != "central"
-            && paths_share_skills_root(&agent.global_skills_dir, central_root.as_deref());
         // Best-effort update; ignore errors (e.g., read-only DB in tests).
         let _ = db::update_agent_detected(pool, &agent.id, is_detected).await;
-
-        result.push(AgentWithStatus {
-            id: agent.id,
-            display_name: agent.display_name,
-            category: agent.category,
-            global_skills_dir: agent.global_skills_dir,
-            project_skills_dir: agent.project_skills_dir,
-            icon_name: agent.icon_name,
-            is_detected,
-            is_builtin: agent.is_builtin,
-            is_enabled: agent.is_enabled,
-            shares_central_skills,
-        });
+        result.push(agent_to_with_status(agent, central_root.as_deref()));
     }
 
     Ok(result)
@@ -421,6 +394,124 @@ mod tests {
         assert!(cursor.shares_central_skills);
         assert!(!claude.shares_central_skills);
         assert!(!central_agent.shares_central_skills);
+    }
+
+    #[tokio::test]
+    async fn test_get_agents_shared_dir_matches_trailing_slash_and_windows_prefix() {
+        let tmp = TempDir::new().unwrap();
+        let central = tmp.path().join("central");
+        fs::create_dir_all(&central).unwrap();
+        let pool = setup_test_db().await;
+
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
+            .bind(central.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let trailing = format!("{}/", central.to_str().unwrap().replace('\\', "/"));
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'cursor'")
+            .bind(&trailing)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let agents = get_agents_impl(&pool).await.unwrap();
+        let cursor = agents.iter().find(|agent| agent.id == "cursor").unwrap();
+        assert!(
+            cursor.shares_central_skills,
+            "trailing separators should still resolve to the same skills directory"
+        );
+
+        #[cfg(windows)]
+        {
+            let prefixed = format!(r"\\?\{}", central.to_str().unwrap());
+            sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'claude-code'")
+                .bind(&prefixed)
+                .execute(&pool)
+                .await
+                .unwrap();
+            let agents = get_agents_impl(&pool).await.unwrap();
+            let claude = agents
+                .iter()
+                .find(|agent| agent.id == "claude-code")
+                .unwrap();
+            assert!(
+                claude.shares_central_skills,
+                "Windows verbatim prefixes should still resolve to the same skills directory"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_agents_nested_central_subdir_is_independent() {
+        let tmp = TempDir::new().unwrap();
+        let central = tmp.path().join("central");
+        let nested = central.join(".agents").join("skills");
+        fs::create_dir_all(&nested).unwrap();
+        let pool = setup_test_db().await;
+
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
+            .bind(central.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'cursor'")
+            .bind(nested.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let agents = get_agents_impl(&pool).await.unwrap();
+        let cursor = agents.iter().find(|agent| agent.id == "cursor").unwrap();
+        assert!(
+            !cursor.shares_central_skills,
+            "a nested .agents/skills folder is a different entry unless it canonicalizes to central"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_custom_agent_refreshes_shares_central_after_path_change() {
+        let tmp = TempDir::new().unwrap();
+        let central = tmp.path().join("central");
+        fs::create_dir_all(&central).unwrap();
+        let pool = setup_test_db().await;
+
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
+            .bind(central.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let independent = tmp.path().join("cursor-skills");
+        fs::create_dir_all(&independent).unwrap();
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'cursor'")
+            .bind(independent.to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let before = get_agents_impl(&pool).await.unwrap();
+        assert!(
+            !before
+                .iter()
+                .find(|agent| agent.id == "cursor")
+                .unwrap()
+                .shares_central_skills
+        );
+
+        let updated = update_custom_agent_impl(
+            &pool,
+            "cursor",
+            UpdateCustomAgentConfig {
+                display_name: "Cursor".to_string(),
+                category: Some("coding".to_string()),
+                global_skills_dir: central.to_str().unwrap().to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(updated.shares_central_skills);
     }
 
     // ── detect_agents_impl ────────────────────────────────────────────────────

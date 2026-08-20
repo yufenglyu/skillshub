@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -110,9 +111,8 @@ fn auto_app_data_dir_without_pointer(exe_dir: Option<&Path>, home_dir: &Path) ->
 
 fn remove_pointer_file(file: &Path) -> Result<(), String> {
     if file.exists() {
-        std::fs::remove_file(file).map_err(|e| {
-            format!("Failed to clear config path override: {}", e)
-        })?;
+        std::fs::remove_file(file)
+            .map_err(|e| format!("Failed to clear config path override: {}", e))?;
     }
     Ok(())
 }
@@ -133,9 +133,8 @@ pub fn write_app_data_dir_override_with(
     }
 
     let serialized = path_to_string(path);
-    std::fs::write(&home_pointer, &serialized).map_err(|e| {
-        format!("Failed to save config path: {}", e)
-    })?;
+    std::fs::write(&home_pointer, &serialized)
+        .map_err(|e| format!("Failed to save config path: {}", e))?;
     if let Some(pointer) = exe_pointer {
         let _ = std::fs::write(pointer, &serialized);
     }
@@ -166,9 +165,8 @@ pub fn copy_sqlite_database(from: &Path, to: &Path) -> Result<(), String> {
         return Ok(());
     }
     if let Some(parent) = to.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            format!("Failed to create database directory: {}", e)
-        })?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create database directory: {}", e))?;
     }
     for (source, dest) in sqlite_sidecar_paths(from)
         .into_iter()
@@ -177,13 +175,8 @@ pub fn copy_sqlite_database(from: &Path, to: &Path) -> Result<(), String> {
         if !source.exists() {
             continue;
         }
-        std::fs::copy(&source, &dest).map_err(|e| {
-            format!(
-                "Failed to copy database file '{}': {}",
-                source.display(),
-                e
-            )
-        })?;
+        std::fs::copy(&source, &dest)
+            .map_err(|e| format!("Failed to copy database file '{}': {}", source.display(), e))?;
     }
     Ok(())
 }
@@ -193,20 +186,22 @@ pub fn copy_app_data_dir(from: &Path, to: &Path) -> Result<(), String> {
         return Ok(());
     }
     if to.starts_with(from) {
-        return Err(
-            "Config directory cannot be inside the current config directory".to_string(),
-        );
+        return Err("Config directory cannot be inside the current config directory".to_string());
     }
     copy_app_data_dir_recursive(from, to)
 }
 
 fn copy_app_data_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dst).map_err(|e| {
-        format!("Failed to create config directory '{}': {}", dst.display(), e)
+        format!(
+            "Failed to create config directory '{}': {}",
+            dst.display(),
+            e
+        )
     })?;
-    for entry in std::fs::read_dir(src).map_err(|e| {
-        format!("Failed to read config directory '{}': {}", src.display(), e)
-    })? {
+    for entry in std::fs::read_dir(src)
+        .map_err(|e| format!("Failed to read config directory '{}': {}", src.display(), e))?
+    {
         let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
         let name = entry.file_name();
         if name == "database-path" {
@@ -266,15 +261,148 @@ pub fn path_to_string(path: &Path) -> String {
 }
 
 #[cfg(windows)]
+mod windows_symlink {
+    use std::io;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+    use std::ptr;
+
+    const INVALID_FILE_ATTRIBUTES: u32 = u32::MAX;
+    const FILE_ATTRIBUTE_READONLY: u32 = 0x0000_0001;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+    const OPEN_EXISTING: u32 = 3;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const DELETE: u32 = 0x0001_0000;
+    const INVALID_HANDLE_VALUE: isize = -1;
+    const FILE_DISPOSITION_INFO_CLASS: i32 = 4;
+
+    #[repr(C)]
+    struct FileDispositionInfo {
+        delete_file: u8,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetFileAttributesW(lp_file_name: *const u16) -> u32;
+        fn SetFileAttributesW(lp_file_name: *const u16, dw_file_attributes: u32) -> i32;
+        fn CreateFileW(
+            lp_file_name: *const u16,
+            dw_desired_access: u32,
+            dw_share_mode: u32,
+            lp_security_attributes: *mut core::ffi::c_void,
+            dw_creation_disposition: u32,
+            dw_flags_and_attributes: u32,
+            h_template_file: *mut core::ffi::c_void,
+        ) -> isize;
+        fn SetFileInformationByHandle(
+            h_file: isize,
+            file_information_class: i32,
+            lp_file_information: *const core::ffi::c_void,
+            dw_buffer_size: u32,
+        ) -> i32;
+        fn CloseHandle(h_object: isize) -> i32;
+    }
+
+    fn to_wide(path: &Path) -> Vec<u16> {
+        path.as_os_str().encode_wide().chain([0]).collect()
+    }
+
+    pub fn set_readonly(path: &Path, readonly: bool) -> io::Result<()> {
+        let wide = to_wide(path);
+        unsafe {
+            let attrs = GetFileAttributesW(wide.as_ptr());
+            if attrs == INVALID_FILE_ATTRIBUTES {
+                return Err(io::Error::last_os_error());
+            }
+            let next = if readonly {
+                attrs | FILE_ATTRIBUTE_READONLY
+            } else {
+                attrs & !FILE_ATTRIBUTE_READONLY
+            };
+            if next == attrs {
+                return Ok(());
+            }
+            if SetFileAttributesW(wide.as_ptr(), next) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
+
+    pub fn clear_readonly(path: &Path) {
+        let _ = set_readonly(path, false);
+    }
+
+    #[cfg(test)]
+    pub fn set_readonly_for_test(path: &Path, readonly: bool) -> io::Result<()> {
+        set_readonly(path, readonly)
+    }
+
+    pub fn is_reparse_point(path: &Path) -> bool {
+        let wide = to_wide(path);
+        unsafe {
+            let attrs = GetFileAttributesW(wide.as_ptr());
+            attrs != INVALID_FILE_ATTRIBUTES && attrs & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        }
+    }
+
+    pub fn delete_reparse_point(path: &Path) -> io::Result<()> {
+        let wide = to_wide(path);
+        unsafe {
+            let handle = CreateFileW(
+                wide.as_ptr(),
+                DELETE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                ptr::null_mut(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                ptr::null_mut(),
+            );
+            if handle == 0 || handle == INVALID_HANDLE_VALUE {
+                return Err(io::Error::last_os_error());
+            }
+            let info = FileDispositionInfo { delete_file: 1 };
+            let ok = SetFileInformationByHandle(
+                handle,
+                FILE_DISPOSITION_INFO_CLASS,
+                &info as *const FileDispositionInfo as *const core::ffi::c_void,
+                std::mem::size_of::<FileDispositionInfo>() as u32,
+            );
+            CloseHandle(handle);
+            if ok == 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
 pub fn remove_symlink_path(path: &Path) -> Result<(), String> {
+    windows_symlink::clear_readonly(path);
     match std::fs::remove_dir(path) {
         Ok(()) => Ok(()),
         Err(dir_error) => match std::fs::remove_file(path) {
             Ok(()) => Ok(()),
-            Err(file_error) => Err(format!(
-                "directory symlink removal failed: {}; file symlink removal failed: {}",
-                dir_error, file_error
-            )),
+            Err(file_error) => {
+                if windows_symlink::is_reparse_point(path) {
+                    windows_symlink::delete_reparse_point(path).map_err(|reparse_error| {
+                        format!(
+                            "directory symlink removal failed: {}; file symlink removal failed: {}; reparse point deletion failed: {}",
+                            dir_error, file_error, reparse_error
+                        )
+                    })
+                } else {
+                    Err(format!(
+                        "directory symlink removal failed: {}; file symlink removal failed: {}",
+                        dir_error, file_error
+                    ))
+                }
+            }
         },
     }
 }
@@ -282,6 +410,219 @@ pub fn remove_symlink_path(path: &Path) -> Result<(), String> {
 #[cfg(not(windows))]
 pub fn remove_symlink_path(path: &Path) -> Result<(), String> {
     std::fs::remove_file(path).map_err(|e| e.to_string())
+}
+
+fn path_without_verbatim_prefix(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let display = path.to_string_lossy();
+        if let Some(stripped) = display.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{stripped}"));
+        }
+        if let Some(stripped) = display.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    path.to_path_buf()
+}
+
+fn normalize_path_for_comparison(path: &Path) -> String {
+    let value = path_without_verbatim_prefix(path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    #[cfg(windows)]
+    let value = value.to_lowercase();
+    value.trim_end_matches('/').to_string()
+}
+
+/// True when `left` and `right` resolve to the same filesystem entry.
+///
+/// Prefer canonicalize so Windows `\\?\` prefixes, trailing separators, and
+/// equivalent spellings of the same directory compare as one entry. If either
+/// path cannot be canonicalized (for example it does not exist yet), fall back
+/// to a normalized lexical comparison after stripping verbatim prefixes.
+pub fn paths_resolve_to_same_entry(left: &Path, right: &Path) -> bool {
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => {
+            path_without_verbatim_prefix(&left) == path_without_verbatim_prefix(&right)
+        }
+        _ => normalize_path_for_comparison(left) == normalize_path_for_comparison(right),
+    }
+}
+
+/// Remove empty real directories walking from `removed`'s parent up to, but
+/// not including, `stop_at`. Symlinks and non-empty folders are left intact.
+pub fn prune_empty_parent_dirs(removed: &Path, stop_at: &Path) -> Result<(), String> {
+    let stop_at = path_without_verbatim_prefix(stop_at);
+    let mut current = match removed.parent() {
+        Some(parent) => parent.to_path_buf(),
+        None => return Ok(()),
+    };
+
+    loop {
+        let current_normalized = path_without_verbatim_prefix(&current);
+        if current_normalized == stop_at || !current_normalized.starts_with(&stop_at) {
+            break;
+        }
+
+        let Ok(meta) = std::fs::symlink_metadata(&current) else {
+            current = match current.parent() {
+                Some(parent) => parent.to_path_buf(),
+                None => break,
+            };
+            continue;
+        };
+        if meta.file_type().is_symlink() || !meta.is_dir() {
+            break;
+        }
+
+        let is_empty = match std::fs::read_dir(&current) {
+            Ok(mut entries) => entries.next().is_none(),
+            Err(_) => break,
+        };
+        if !is_empty {
+            break;
+        }
+
+        std::fs::remove_dir(&current).map_err(|error| {
+            format!(
+                "Failed to remove leftover empty directory '{}': {}",
+                current.display(),
+                error
+            )
+        })?;
+
+        current = match current.parent() {
+            Some(parent) => parent.to_path_buf(),
+            None => break,
+        };
+    }
+
+    Ok(())
+}
+
+/// Recursively remove empty real directories under `root`, leaving `root` itself.
+pub fn prune_empty_directories_under(root: &Path) {
+    let _ = prune_empty_directories_under_inner(root, true);
+}
+
+fn prune_empty_directories_under_inner(path: &Path, is_root: bool) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return true;
+    };
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return false;
+    }
+
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return false;
+    };
+    let children: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
+    for child in children {
+        prune_empty_directories_under_inner(&child, false);
+    }
+
+    if is_root {
+        return false;
+    }
+
+    match std::fs::read_dir(path) {
+        Ok(remaining) => {
+            if remaining.count() == 0 {
+                std::fs::remove_dir(path).is_ok()
+            } else {
+                false
+            }
+        }
+        Err(_) => false,
+    }
+}
+
+fn contains_skill_markdown(path: &Path, visited: &mut HashSet<PathBuf>) -> bool {
+    if path.join("SKILL.md").is_file() {
+        return true;
+    }
+
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    let is_dir = if meta.file_type().is_symlink() {
+        std::fs::metadata(path)
+            .map(|resolved| resolved.is_dir())
+            .unwrap_or(false)
+    } else {
+        meta.is_dir()
+    };
+    if !is_dir {
+        return false;
+    }
+
+    if let Ok(canonical) = std::fs::canonicalize(path) {
+        if !visited.insert(canonical) {
+            return false;
+        }
+    }
+
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return false;
+    };
+    entries
+        .flatten()
+        .any(|entry| contains_skill_markdown(&entry.path(), visited))
+}
+
+fn remove_leftover_skill_group(path: &Path) -> Result<(), String> {
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(_) => return Ok(()),
+    };
+    if meta.file_type().is_symlink() {
+        return remove_symlink_path(path);
+    }
+    if meta.is_dir() {
+        let children: Vec<_> = std::fs::read_dir(path)
+            .map_err(|error| {
+                format!(
+                    "Failed to read leftover skill group '{}': {}",
+                    path.display(),
+                    error
+                )
+            })?
+            .flatten()
+            .map(|entry| entry.path())
+            .collect();
+        for child in children {
+            remove_leftover_skill_group(&child)?;
+        }
+        return std::fs::remove_dir(path).map_err(|error| {
+            format!(
+                "Failed to remove leftover skill group '{}': {}",
+                path.display(),
+                error
+            )
+        });
+    }
+
+    std::fs::remove_file(path).map_err(|error| {
+        format!(
+            "Failed to remove leftover skill file '{}': {}",
+            path.display(),
+            error
+        )
+    })
+}
+
+/// Delete a mirrored skill group if it no longer contains any `SKILL.md`.
+/// Empty leftover directories and dangling symlinks are removed; live skills stay.
+pub fn remove_path_if_no_skill_markdown(path: &Path) -> Result<(), String> {
+    if std::fs::symlink_metadata(path).is_err() {
+        return Ok(());
+    }
+    if contains_skill_markdown(path, &mut HashSet::new()) {
+        prune_empty_directories_under(path);
+        return Ok(());
+    }
+    remove_leftover_skill_group(path)
 }
 
 pub fn sanitize_path_segment(value: &str) -> String {
@@ -330,6 +671,33 @@ pub fn source_grouped_skill_dir(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paths_resolve_to_same_entry_matches_canonical_and_raw() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path();
+        let canonical = std::fs::canonicalize(path).expect("canonicalize");
+        assert!(paths_resolve_to_same_entry(path, &canonical));
+        assert!(paths_resolve_to_same_entry(&path.join("."), path,));
+    }
+
+    #[test]
+    fn paths_resolve_to_same_entry_rejects_distinct_dirs() {
+        let left = tempfile::tempdir().expect("left");
+        let right = tempfile::tempdir().expect("right");
+        assert!(!paths_resolve_to_same_entry(left.path(), right.path()));
+    }
+
+    #[test]
+    fn paths_resolve_to_same_entry_normalizes_missing_windows_prefixes() {
+        let left = Path::new(r"\\?\C:\Users\alice\.agents\skills");
+        let right = Path::new(r"C:\Users\alice\.agents\skills\");
+        assert_eq!(
+            normalize_path_for_comparison(left),
+            normalize_path_for_comparison(right)
+        );
+        assert!(paths_resolve_to_same_entry(left, right));
+    }
 
     #[test]
     fn resolve_home_dir_prefers_home() {
@@ -404,18 +772,15 @@ mod tests {
 
     #[test]
     fn normalize_app_data_dir_appends_skillshub_folder() {
-        let path = normalize_app_data_dir_with_home("~/data", Path::new("/tmp/home"))
-            .expect("path");
+        let path =
+            normalize_app_data_dir_with_home("~/data", Path::new("/tmp/home")).expect("path");
         assert_eq!(path, PathBuf::from("/tmp/home/data/.skillshub"));
     }
 
     #[test]
     fn normalize_app_data_dir_keeps_skillshub_folder() {
-        let path = normalize_app_data_dir_with_home(
-            "~/custom/.skillshub",
-            Path::new("/tmp/home"),
-        )
-        .expect("path");
+        let path = normalize_app_data_dir_with_home("~/custom/.skillshub", Path::new("/tmp/home"))
+            .expect("path");
         assert_eq!(path, PathBuf::from("/tmp/home/custom/.skillshub"));
     }
 
@@ -436,8 +801,11 @@ mod tests {
         let portable = exe_dir.join(".skillshub");
         let custom = dir.path().join("custom").join(".skillshub");
         std::fs::create_dir_all(&portable).expect("portable");
-        std::fs::write(exe_dir.join("skillshub-config-path"), custom.to_str().unwrap())
-            .expect("pointer");
+        std::fs::write(
+            exe_dir.join("skillshub-config-path"),
+            custom.to_str().unwrap(),
+        )
+        .expect("pointer");
         let resolved = resolve_app_data_dir_from(Some(&exe_dir), Path::new("/tmp/home"));
         assert_eq!(resolved, custom);
     }
@@ -447,8 +815,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let home = dir.path().join("home");
         std::fs::create_dir_all(&home).expect("home");
-        std::fs::write(home.join(".skillshub-config-path"), "D:/data/.skillshub")
-            .expect("pointer");
+        std::fs::write(home.join(".skillshub-config-path"), "D:/data/.skillshub").expect("pointer");
         let resolved = resolve_app_data_dir_from(None, &home);
         assert_eq!(resolved, PathBuf::from("D:/data/.skillshub"));
     }
@@ -479,7 +846,10 @@ mod tests {
         std::fs::write(from.join("database-path"), "stale").expect("legacy");
         std::fs::write(from.join("library").join("skill.md"), "skill").expect("library");
         copy_app_data_dir(&from, &to).expect("copy");
-        assert_eq!(std::fs::read_to_string(to.join("db.sqlite")).unwrap(), "main-db");
+        assert_eq!(
+            std::fs::read_to_string(to.join("db.sqlite")).unwrap(),
+            "main-db"
+        );
         assert_eq!(
             std::fs::read_to_string(to.join("library").join("skill.md")).unwrap(),
             "skill"
@@ -501,5 +871,83 @@ mod tests {
 
         assert!(std::fs::symlink_metadata(&link).is_err());
         assert!(target.join("SKILL.md").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn remove_symlink_path_removes_readonly_windows_directory_symlink() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let target = dir.path().join("target");
+        let link = dir.path().join("link");
+        std::fs::create_dir_all(&target).expect("target");
+        std::fs::write(target.join("SKILL.md"), "---\nname: linked\n---\n").expect("skill");
+        std::os::windows::fs::symlink_dir(&target, &link).expect("symlink");
+        windows_symlink::set_readonly_for_test(&link, true).expect("mark readonly");
+
+        remove_symlink_path(&link).expect("remove readonly symlink");
+
+        assert!(std::fs::symlink_metadata(&link).is_err());
+        assert!(
+            target.join("SKILL.md").exists(),
+            "removing the symlink must not delete the skill files it points to"
+        );
+    }
+
+    #[test]
+    fn prune_empty_parent_dirs_removes_nested_empty_parents() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let stop_at = dir.path().join("skills");
+        let skill = stop_at.join("author").join("repo").join("skill");
+        std::fs::create_dir_all(&skill).expect("nested");
+        std::fs::remove_dir(&skill).expect("remove skill");
+
+        prune_empty_parent_dirs(&skill, &stop_at).expect("prune");
+
+        assert!(!stop_at.join("author").exists());
+        assert!(stop_at.exists());
+    }
+
+    #[test]
+    fn prune_empty_parent_dirs_keeps_non_empty_parent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let stop_at = dir.path().join("skills");
+        let sibling = stop_at.join("author").join("keep");
+        let removed = stop_at.join("author").join("gone");
+        std::fs::create_dir_all(&sibling).expect("sibling");
+        std::fs::create_dir_all(&removed).expect("removed");
+        std::fs::write(sibling.join("SKILL.md"), "---\nname: keep\n---\n").expect("skill");
+        std::fs::remove_dir(&removed).expect("remove gone");
+
+        prune_empty_parent_dirs(&removed, &stop_at).expect("prune");
+
+        assert!(sibling.join("SKILL.md").exists());
+        assert!(stop_at.join("author").exists());
+        assert!(!removed.exists());
+    }
+
+    #[test]
+    fn remove_path_if_no_skill_markdown_deletes_empty_group() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let group = dir.path().join("author");
+        std::fs::create_dir_all(group.join("skills")).expect("empty group");
+
+        remove_path_if_no_skill_markdown(&group).expect("remove");
+
+        assert!(!group.exists());
+    }
+
+    #[test]
+    fn remove_path_if_no_skill_markdown_keeps_live_skill_and_prunes_empties() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let group = dir.path().join("author");
+        let skill = group.join("skills").join("keep");
+        std::fs::create_dir_all(&skill).expect("skill");
+        std::fs::write(skill.join("SKILL.md"), "---\nname: keep\n---\n").expect("md");
+        std::fs::create_dir_all(group.join("empty-leftover")).expect("empty");
+
+        remove_path_if_no_skill_markdown(&group).expect("prune empties only");
+
+        assert!(skill.join("SKILL.md").exists());
+        assert!(!group.join("empty-leftover").exists());
     }
 }

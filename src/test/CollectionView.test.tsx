@@ -307,7 +307,7 @@ describe("CollectionView", () => {
 
   // ── Action Buttons ─────────────────────────────────────────────────────────
 
-  it("renders Edit, Delete, Add Skill, and Batch Install buttons", () => {
+  it("renders Edit, Delete, Add Skill, and Install buttons", () => {
     renderCollectionView();
     expect(screen.getByRole("heading", { name: /Frontend · 2/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /编辑技能集/i })).toBeInTheDocument();
@@ -315,7 +315,18 @@ describe("CollectionView", () => {
     expect(screen.queryByRole("button", { name: /导出技能集/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /导入技能集/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /添加技能到技能集/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /批量安装技能集/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^安装$/ })).toBeInTheDocument();
+  });
+
+  it("opens the install dialog with Central Skills and every target unchecked", async () => {
+    renderCollectionView();
+    fireEvent.click(screen.getByRole("button", { name: /^安装$/ }));
+
+    const dialog = await screen.findByRole("dialog", { name: /批量安装 — Frontend/i });
+    expect(within(dialog).getByRole("heading", { name: "中央技能库" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Claude Code")).not.toBeChecked();
+    expect(within(dialog).getByLabelText("Cursor")).not.toBeChecked();
+    expect(within(dialog).getByLabelText("中央技能库")).not.toBeChecked();
   });
 
   // ── Error State ───────────────────────────────────────────────────────────

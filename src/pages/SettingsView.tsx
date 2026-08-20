@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.50.2";
+const APP_VERSION = "0.60.0";
 const CONFIG_DIR_FALLBACK = "~/.skillshub";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
@@ -142,6 +142,41 @@ function DirectoryPathField({
   );
 }
 
+function RefreshItemButton({
+  label,
+  ariaLabel,
+  isLoading,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  ariaLabel: string;
+  isLoading: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-7 shrink-0"
+      onClick={onClick}
+      disabled={disabled || isLoading}
+      aria-label={ariaLabel}
+      aria-busy={isLoading}
+      title={ariaLabel}
+    >
+      {isLoading ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <RefreshCw className="size-3.5" />
+      )}
+      <span>{label}</span>
+    </Button>
+  );
+}
+
 
 // ─── ScanDirectoryRow ─────────────────────────────────────────────────────────
 
@@ -153,7 +188,13 @@ interface ScanDirectoryRowProps {
   isRemoving: boolean;
 }
 
-function ScanDirectoryRow({ dir, onEdit, onRemove, onToggle, isRemoving }: ScanDirectoryRowProps) {
+function ScanDirectoryRow({
+  dir,
+  onEdit,
+  onRemove,
+  onToggle,
+  isRemoving,
+}: ScanDirectoryRowProps) {
   const { t } = useTranslation();
   const action = dir.is_active ? t("settings.enabled") : t("settings.disabled");
   const displayName = projectDirectoryName(dir);
@@ -218,9 +259,16 @@ interface SoftwarePlatformRowProps {
   isRemoving: boolean;
 }
 
-function SoftwarePlatformRow({ agent, onEdit, onRemove, isRemoving }: SoftwarePlatformRowProps) {
+function SoftwarePlatformRow({
+  agent,
+  onEdit,
+  onRemove,
+  isRemoving,
+}: SoftwarePlatformRowProps) {
   const { t } = useTranslation();
   const showBuiltinDetection = agent.is_builtin;
+  const sharesCentral = !!agent.shares_central_skills;
+  const dirKindLabel = sharesCentral ? t("settings.sharedDir") : t("settings.independentDir");
   return (
     <div
       className={cn(
@@ -241,12 +289,23 @@ function SoftwarePlatformRow({ agent, onEdit, onRemove, isRemoving }: SoftwarePl
         )}
       />
       <div className="flex-1 min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="truncate text-sm font-medium">
             {agent.display_name}
           </div>
           <span className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
             {agent.is_builtin ? t("settings.builtinPlatform") : t("settings.customPlatform")}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 rounded border px-1.5 py-0.5 text-[10px] leading-none",
+              sharesCentral
+                ? "border-chart-4/40 bg-chart-4/10 text-chart-4"
+                : "border-primary/30 bg-primary/10 text-primary"
+            )}
+            title={dirKindLabel}
+          >
+            {dirKindLabel}
           </span>
           {showBuiltinDetection && (
             <span
@@ -378,6 +437,8 @@ interface SoftwarePlatformsCardProps {
   onToggleDirectory: (path: string, active: boolean) => void;
   onEditPlatform: (agent: AgentWithStatus) => void;
   onRemovePlatform: (agentId: string) => void;
+  onRefreshLocations: () => void;
+  isRefreshingLocations: boolean;
 }
 
 function SoftwarePlatformsCard({
@@ -395,6 +456,8 @@ function SoftwarePlatformsCard({
   onToggleDirectory,
   onEditPlatform,
   onRemovePlatform,
+  onRefreshLocations,
+  isRefreshingLocations,
 }: SoftwarePlatformsCardProps) {
   const { t } = useTranslation();
   const customDirs = scanDirectories.filter((d) => !d.is_builtin);
@@ -404,13 +467,18 @@ function SoftwarePlatformsCard({
   return (
     <Card>
       <CardHeader>
-        <div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <CardTitle role="heading" aria-level={2}>{t("settings.platformProjectLocations")}</CardTitle>
-              <HintIcon text={t("settings.platformProjectLocationsDesc")} />
-            </div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <CardTitle role="heading" aria-level={2}>{t("settings.platformProjectLocations")}</CardTitle>
+            <HintIcon text={t("settings.platformProjectLocationsDesc")} />
           </div>
+          <RefreshItemButton
+            label={t("common.refresh")}
+            ariaLabel={t("settings.refreshPlatformsAndProjects")}
+            isLoading={isRefreshingLocations}
+            disabled={isRefreshingLocations}
+            onClick={onRefreshLocations}
+          />
         </div>
       </CardHeader>
       <CardContent>
@@ -561,6 +629,7 @@ export function SettingsView() {
 
   const rescan = usePlatformStore((s) => s.rescan);
   const refreshCounts = usePlatformStore((s) => s.refreshCounts);
+  const isRefreshingSkills = usePlatformStore((s) => s.isRefreshing);
   const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
   const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
 
@@ -664,6 +733,8 @@ export function SettingsView() {
   const [editingPlatform, setEditingPlatform] = useState<AgentWithStatus | null>(null);
   const [removingDir, setRemovingDir] = useState<string | null>(null);
   const [removingAgent, setRemovingAgent] = useState<string | null>(null);
+  const [isRefreshingLocations, setIsRefreshingLocations] = useState(false);
+  const refreshingLocationsRef = useRef(false);
   const [scanDirError, setScanDirError] = useState<string | null>(null);
   const [platformError, setPlatformError] = useState<string | null>(null);
   const [githubPatInput, setGitHubPatInput] = useState("");
@@ -804,6 +875,28 @@ export function SettingsView() {
     } catch (err) {
       setScanDirError(String(err));
       toast.error(String(err));
+    }
+  }
+
+  async function handleRefreshPlatformsAndProjects() {
+    if (refreshingLocationsRef.current || isRefreshingLocations || isRefreshingSkills) return;
+    refreshingLocationsRef.current = true;
+    setIsRefreshingLocations(true);
+    setScanDirError(null);
+    setPlatformError(null);
+    try {
+      await Promise.all([refreshCounts(), loadScanDirectories()]);
+      const scanError = usePlatformStore.getState()?.error;
+      if (scanError) {
+        toast.error(t("settings.refreshError", { error: scanError }));
+        return;
+      }
+      toast.success(t("settings.refreshPlatformsAndProjectsSuccess"));
+    } catch (err) {
+      toast.error(t("settings.refreshError", { error: String(err) }));
+    } finally {
+      refreshingLocationsRef.current = false;
+      setIsRefreshingLocations(false);
     }
   }
 
@@ -1334,6 +1427,8 @@ export function SettingsView() {
           onToggleDirectory={handleToggleDirectory}
           onEditPlatform={handleOpenEditPlatform}
           onRemovePlatform={handleRemovePlatform}
+          onRefreshLocations={handleRefreshPlatformsAndProjects}
+          isRefreshingLocations={isRefreshingLocations || isRefreshingSkills}
         />
 
         {/* Section 2: Backup and migration */}

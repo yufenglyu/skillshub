@@ -365,8 +365,21 @@ describe("CollectionsListView", () => {
     expect(screen.getByRole("button", { name: /新建技能集/i })).toBeInTheDocument();
     expect(within(toolbar as HTMLElement).getByRole("button", { name: /^编辑$/ })).toBeInTheDocument();
     expect(within(toolbar as HTMLElement).getByRole("button", { name: /^删除$/ })).toBeInTheDocument();
-    expect(within(toolbar as HTMLElement).getByRole("button", { name: /批量安装/i })).toBeInTheDocument();
+    expect(within(toolbar as HTMLElement).getByRole("button", { name: /^安装$/ })).toBeInTheDocument();
     expect(within(toolbar as HTMLElement).getByRole("button", { name: /添加技能/i })).toBeInTheDocument();
+  });
+
+  it("opens the install dialog with Central Skills and every target unchecked", async () => {
+    renderList();
+
+    const heading = screen.getByRole("heading", { name: /Frontend · 2/ });
+    const toolbar = heading.closest(".flex.items-center.justify-between") as HTMLElement;
+    fireEvent.click(within(toolbar).getByRole("button", { name: /^安装$/ }));
+
+    const dialog = await screen.findByRole("dialog", { name: /批量安装 — Frontend/i });
+    expect(within(dialog).getByRole("heading", { name: "中央技能库" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Claude Code")).not.toBeChecked();
+    expect(within(dialog).getByLabelText("中央技能库")).not.toBeChecked();
   });
 
   it("requires a second confirmation click before removing a skill from the selected collection", async () => {

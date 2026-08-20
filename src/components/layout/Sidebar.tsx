@@ -73,6 +73,7 @@ function NavItem({
   icon,
   expanded,
   count,
+  status,
 }: {
   label: string;
   ariaLabel?: string;
@@ -82,13 +83,20 @@ function NavItem({
   icon: React.ReactNode;
   expanded: boolean;
   count?: number;
+  status?: {
+    label: string;
+    hint: string;
+    shared: boolean;
+  };
 }) {
+  const accessibleLabel = [ariaLabel ?? label, status?.label].filter(Boolean).join(" — ");
+  const tooltip = status ? `${title ?? label} — ${status.hint}` : title ?? label;
   return (
     <div className="relative">
       <button
         onClick={onClick}
-        title={title ?? label}
-        aria-label={ariaLabel ?? label}
+        title={tooltip}
+        aria-label={accessibleLabel}
         aria-current={isActive ? "page" : undefined}
         className={cn(
           "flex items-center w-full rounded-md font-medium transition-colors cursor-pointer",
@@ -100,7 +108,19 @@ function NavItem({
         <span className="shrink-0">{icon}</span>
         {expanded && (
           <>
-            <span className="truncate flex-1 text-left">{label}</span>
+            <span className="truncate min-w-0 flex-1 text-left">{label}</span>
+            {status && (
+              <span
+                className={cn(
+                  "size-1.5 shrink-0 rounded-full",
+                  status.shared
+                    ? "bg-chart-4"
+                    : "bg-primary"
+                )}
+                title={status.hint}
+                aria-hidden="true"
+              />
+            )}
             {count !== undefined && count > 0 && (
               <span className={cn(
                 "text-xs font-medium tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
@@ -450,6 +470,15 @@ export function Sidebar() {
                         icon={<PlatformIcon agentId={agent.id} className="size-4" />}
                         expanded={expanded}
                         count={skillsByAgent[agent.id]}
+                        status={{
+                          label: agent.shares_central_skills
+                            ? t("sidebar.sharedDir")
+                            : t("sidebar.independentDir"),
+                          hint: agent.shares_central_skills
+                            ? t("sidebar.sharedDirHint")
+                            : t("sidebar.independentDirHint"),
+                          shared: !!agent.shares_central_skills,
+                        }}
                       />
                     ))}
                   </div>
@@ -479,6 +508,15 @@ export function Sidebar() {
                         icon={<PlatformIcon agentId={agent.id} className="size-4" />}
                         expanded={expanded}
                         count={skillsByAgent[agent.id]}
+                        status={{
+                          label: agent.shares_central_skills
+                            ? t("sidebar.sharedDir")
+                            : t("sidebar.independentDir"),
+                          hint: agent.shares_central_skills
+                            ? t("sidebar.sharedDirHint")
+                            : t("sidebar.independentDirHint"),
+                          shared: !!agent.shares_central_skills,
+                        }}
                       />
                     ))}
                   </div>

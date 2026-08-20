@@ -2130,11 +2130,9 @@ mod tests {
 
     #[test]
     fn obsidian_platform_sources_ignore_onedrive_and_local_vaults() {
-        let icloud = PathBuf::from(
-            "/Users/lyf/Library/Mobile Documents/iCloud~md~obsidian/Documents/Notes",
-        );
-        let onedrive =
-            PathBuf::from("/Users/lyf/Library/CloudStorage/OneDrive-个人/Obsidian");
+        let icloud =
+            PathBuf::from("/Users/lyf/Library/Mobile Documents/iCloud~md~obsidian/Documents/Notes");
+        let onedrive = PathBuf::from("/Users/lyf/Library/CloudStorage/OneDrive-个人/Obsidian");
         assert_eq!(
             obsidian_icloud_registry_vault_paths(vec![icloud.clone(), onedrive.clone()]),
             vec![icloud]
