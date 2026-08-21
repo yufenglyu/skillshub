@@ -1,14 +1,23 @@
 [package]
 name = "skillshub"
-version = "0.70.0"
+version = "0.80.0"
 description = "AI Agent Skills Hub"
 authors = ["yufenglyu"]
 license = "Apache-2.0"
 edition = "2021"
+default-run = "skillshub"
 
 [lib]
 name = "skills_manage_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "skillshub"
+path = "src/main.rs"
+
+[[bin]]
+name = "prepare-config-dir"
+path = "src/bin/prepare_config_dir.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -281,7 +281,7 @@ describe("CentralSkillsView", () => {
 
   it("shows page title in header", () => {
     renderCentralSkillsView();
-    expect(screen.getByText("中央技能库")).toBeInTheDocument();
+    expect(screen.getByText("技能中心")).toBeInTheDocument();
   });
 
   it("shows the central skills directory path", () => {
@@ -310,7 +310,7 @@ describe("CentralSkillsView", () => {
   it("shows a refresh button", () => {
     renderCentralSkillsView();
     expect(
-      screen.getByRole("button", { name: /刷新中央技能库/i })
+      screen.getByRole("button", { name: /刷新技能中心/i })
     ).toBeInTheDocument();
   });
 
@@ -323,7 +323,7 @@ describe("CentralSkillsView", () => {
   it("shows a search input", () => {
     renderCentralSkillsView();
     expect(
-      screen.getByPlaceholderText(/搜索中央技能库/i)
+      screen.getByPlaceholderText(/搜索技能中心/i)
     ).toBeInTheDocument();
   });
 
@@ -335,7 +335,7 @@ describe("CentralSkillsView", () => {
     expect(screen.getByRole("columnheader", { name: "名称" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "创建时间" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "更新时间" })).toBeInTheDocument();
-    const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
+    const searchInput = screen.getByPlaceholderText(/搜索技能中心/i);
     const organization = screen.getByRole("group", { name: /组织|Organize/i });
     expect(searchInput.closest(".flex.items-center")).toContainElement(organization);
     expect(screen.getByRole("button", { name: /目录|Folders/i })).toBeInTheDocument();
@@ -688,7 +688,7 @@ describe("CentralSkillsView", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("中央技能库中没有可用的技能")).toBeInTheDocument();
+    expect(screen.getByText("技能中心中没有可用的技能")).toBeInTheDocument();
     expect(screen.queryByText(/欢迎使用 SkillsHub/)).not.toBeInTheDocument();
   });
 
@@ -712,7 +712,7 @@ describe("CentralSkillsView", () => {
 
   it("filters skills by name when searching", async () => {
     renderCentralSkillsView();
-    const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
+    const searchInput = screen.getByPlaceholderText(/搜索技能中心/i);
     fireEvent.change(searchInput, { target: { value: "frontend" } });
 
     await waitFor(() => {
@@ -723,7 +723,7 @@ describe("CentralSkillsView", () => {
 
   it("keeps filtered search results in the central table", async () => {
     renderCentralSkillsView();
-    const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
+    const searchInput = screen.getByPlaceholderText(/搜索技能中心/i);
     fireEvent.change(searchInput, { target: { value: "frontend" } });
 
     const resultButton = await screen.findByText("frontend-design");
@@ -734,7 +734,7 @@ describe("CentralSkillsView", () => {
 
   it("filters skills by description when searching", async () => {
     renderCentralSkillsView();
-    const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
+    const searchInput = screen.getByPlaceholderText(/搜索技能中心/i);
     fireEvent.change(searchInput, { target: { value: "actionable" } });
 
     await waitFor(() => {
@@ -754,7 +754,7 @@ describe("CentralSkillsView", () => {
         mockSkills[1],
       ],
     });
-    const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
+    const searchInput = screen.getByPlaceholderText(/搜索技能中心/i);
     fireEvent.change(searchInput, { target: { value: "dashboard-only" } });
 
     await waitFor(() => {
@@ -817,7 +817,7 @@ describe("CentralSkillsView", () => {
 
   it("shows empty state when search has no results", async () => {
     renderCentralSkillsView();
-    const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
+    const searchInput = screen.getByPlaceholderText(/搜索技能中心/i);
     fireEvent.change(searchInput, { target: { value: "zzz-nonexistent" } });
 
     await waitFor(() => {
@@ -827,7 +827,7 @@ describe("CentralSkillsView", () => {
 
   it("restores all skills when search is cleared", async () => {
     renderCentralSkillsView();
-    const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
+    const searchInput = screen.getByPlaceholderText(/搜索技能中心/i);
     fireEvent.change(searchInput, { target: { value: "frontend" } });
     fireEvent.change(searchInput, { target: { value: "" } });
 
@@ -849,7 +849,7 @@ describe("CentralSkillsView", () => {
   it("calls rescan then loadCentralSkills when refresh button is clicked", async () => {
     renderCentralSkillsView();
     const refreshBtn = screen.getByRole("button", {
-      name: /刷新中央技能库/i,
+      name: /刷新技能中心/i,
     });
     fireEvent.click(refreshBtn);
 
@@ -889,7 +889,7 @@ describe("CentralSkillsView", () => {
   it("preserves search and scroll state when closing the drawer and restores focus", async () => {
     renderCentralSkillsView();
 
-    const searchInput = screen.getByPlaceholderText(/搜索中央技能库/i);
+    const searchInput = screen.getByPlaceholderText(/搜索技能中心/i);
     fireEvent.change(searchInput, { target: { value: "frontend" } });
 
     const scroller = searchInput.closest(".flex.flex-col.h-full")?.querySelector(".flex-1.overflow-auto.p-6");

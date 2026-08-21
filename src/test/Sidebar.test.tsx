@@ -245,7 +245,7 @@ describe("Sidebar", () => {
 
   it("renders Central Skills icon button", () => {
     renderSidebar();
-    expect(screen.getByRole("button", { name: /中央技能库/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /技能中心/ })).toBeInTheDocument();
   });
 
   it("renders Collections icon button", () => {
@@ -319,7 +319,7 @@ describe("Sidebar", () => {
 
   it("highlights Central Skills when on /central", () => {
     renderSidebar("/central");
-    const centralButton = screen.getByRole("button", { name: /中央技能库/ });
+    const centralButton = screen.getByRole("button", { name: /技能中心/ });
     expect(centralButton.className).toContain("bg-hover-bg");
   });
 
@@ -332,14 +332,14 @@ describe("Sidebar", () => {
       },
     });
 
-    const centralButton = screen.getByRole("button", { name: /中央技能库|Central Skills/i });
+    const centralButton = screen.getByRole("button", { name: /技能中心|Central Skills/i });
     expect(within(centralButton).getByText("2")).toBeInTheDocument();
   });
 
   it("highlights Skill Resource Library when on root route", () => {
     renderSidebar("/");
     const resourceButton = screen.getByRole("button", { name: /技能资源库/ });
-    const centralButton = screen.getByRole("button", { name: /中央技能库/ });
+    const centralButton = screen.getByRole("button", { name: /技能中心/ });
     expect(resourceButton.className).toContain("bg-hover-bg");
     expect(centralButton.className).not.toContain("bg-hover-bg");
   });
@@ -443,7 +443,7 @@ describe("Sidebar", () => {
 
   it("Central Skills button is clickable", () => {
     renderSidebar();
-    const centralButton = screen.getByRole("button", { name: /中央技能库/ });
+    const centralButton = screen.getByRole("button", { name: /技能中心/ });
     expect(centralButton).not.toBeDisabled();
     fireEvent.click(centralButton);
   });
@@ -488,7 +488,7 @@ describe("Sidebar", () => {
     renderSidebar();
     const resourceButton = screen.getByRole("button", { name: "技能资源库" });
     const collectionsButton = screen.getByRole("button", { name: "技能集合库" });
-    const centralButton = screen.getByRole("button", { name: "中央技能库" });
+    const centralButton = screen.getByRole("button", { name: "技能中心" });
 
     expect(
       resourceButton.compareDocumentPosition(collectionsButton) &
@@ -529,7 +529,7 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: /Demo Project/ })).toBeInTheDocument();
   });
 
-  it("indents lobster and coding platform lists like project directories", () => {
+  it("indents software platform list like project directories", () => {
     renderSidebar("/central", {
       platformState: {
         ...defaultStoreState,
@@ -564,21 +564,18 @@ describe("Sidebar", () => {
     });
 
     const nestedListClass = "ml-3 border-l border-sidebar-border/70 pl-2";
-    const lobsterHeading = screen.getByText("龙虾类");
-    const codingHeading = screen.getByText("编程类");
+    expect(screen.queryByText("龙虾类")).not.toBeInTheDocument();
+    expect(screen.queryByText("编程类")).not.toBeInTheDocument();
     const openClawButton = screen.getByRole("button", { name: /OpenClaw/ });
     const claudeButton = screen.getByRole("button", { name: /Claude Code/ });
     const projectButton = screen.getByRole("button", { name: /Demo Project/ });
 
-    const lobsterList = openClawButton.closest("div.ml-3");
-    const codingList = claudeButton.closest("div.ml-3");
+    const platformList = openClawButton.closest("div.ml-3");
     const projectList = projectButton.closest("div.ml-3");
 
-    expect(lobsterList).toHaveClass(...nestedListClass.split(" "));
-    expect(codingList).toHaveClass(...nestedListClass.split(" "));
+    expect(platformList).toHaveClass(...nestedListClass.split(" "));
+    expect(platformList?.contains(claudeButton)).toBe(true);
     expect(projectList).toHaveClass(...nestedListClass.split(" "));
-    expect(lobsterList?.contains(lobsterHeading)).toBe(false);
-    expect(codingList?.contains(codingHeading)).toBe(false);
   });
 
   it("renders show all platforms toggle", () => {
@@ -612,7 +609,7 @@ describe("Sidebar", () => {
     expect(heading.className).toContain("font-medium");
   });
 
-  it("places the software platform header before ordinary platform categories", () => {
+  it("places central skills below the divider with software platforms and project directories", () => {
     renderSidebar("/central", {
       platformState: {
         ...defaultStoreState,
@@ -635,14 +632,19 @@ describe("Sidebar", () => {
       },
     });
 
+    const collections = screen.getByRole("button", { name: /技能集合库|Collections/i });
+    const central = screen.getByRole("button", { name: /技能中心|Central Skills/i });
     const platformHeading = screen.getByText("软件平台");
-    const lobsterHeading = screen.getByText("龙虾类");
-    const codingHeading = screen.getByText("编程类");
     const projectHeading = screen.getByText("项目目录");
 
-    expect(platformHeading.compareDocumentPosition(lobsterHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(lobsterHeading.compareDocumentPosition(codingHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(codingHeading.compareDocumentPosition(projectHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByText("龙虾类")).not.toBeInTheDocument();
+    expect(screen.queryByText("编程类")).not.toBeInTheDocument();
+    expect(collections.compareDocumentPosition(central)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(central.compareDocumentPosition(platformHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(platformHeading.compareDocumentPosition(projectHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(central.closest("[data-testid='central-skills-heading']")).toBeTruthy();
+    expect(platformHeading.closest("[data-testid='software-platform-heading']")).toBeTruthy();
+    expect(projectHeading.closest("[data-testid='project-directories-heading']")).toBeTruthy();
   });
 
   it("uses separate empty item toggles for software platforms and project directories", () => {
@@ -702,9 +704,9 @@ describe("Sidebar", () => {
     );
     expect(shared).toHaveAttribute(
       "title",
-      expect.stringContaining("该平台技能目录与中央技能库指向同一位置")
+      expect.stringContaining("该平台技能目录与技能中心指向同一位置")
     );
-    expect(screen.getByRole("button", { name: "中央技能库" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "技能中心" })).toBeInTheDocument();
   });
 
   // ── Collapse Toggle ───────────────────────────────────────────────────────

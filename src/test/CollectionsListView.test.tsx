@@ -377,9 +377,9 @@ describe("CollectionsListView", () => {
     fireEvent.click(within(toolbar).getByRole("button", { name: /^安装$/ }));
 
     const dialog = await screen.findByRole("dialog", { name: /批量安装 — Frontend/i });
-    expect(within(dialog).getByRole("heading", { name: "中央技能库" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "技能中心" })).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Claude Code")).not.toBeChecked();
-    expect(within(dialog).getByLabelText("中央技能库")).not.toBeChecked();
+    expect(within(dialog).getByLabelText("技能中心")).not.toBeChecked();
   });
 
   it("requires a second confirmation click before removing a skill from the selected collection", async () => {

@@ -99,7 +99,7 @@ describe("InstallDialog", () => {
 
     const dialog = await screen.findByRole("dialog", { name: /安装 api-design|Install api-design/i });
     expect(within(dialog).getByLabelText("Hermes")).toHaveAttribute("aria-disabled", "true");
-    expect(within(dialog).getByText("已通过中央库共享")).toBeInTheDocument();
+    expect(within(dialog).getByText("已通过技能中心共享")).toBeInTheDocument();
   });
 
   it("labels a shared platform as a centralize action and explains the sync scope", async () => {
@@ -128,14 +128,14 @@ describe("InstallDialog", () => {
     const dialog = await screen.findByRole("dialog", { name: /安装 api-design|Install api-design/i });
     const shared = within(dialog).getByLabelText("Hermes");
     expect(shared).toBeEnabled();
-    expect(within(dialog).getByText("将加入中央技能库")).toBeInTheDocument();
+    expect(within(dialog).getByText("将加入技能中心")).toBeInTheDocument();
     expect(
-      within(dialog).queryByText(/选中的共享平台会按中央库规则同步/)
+      within(dialog).queryByText(/选中的共享平台会按技能中心规则同步/)
     ).not.toBeInTheDocument();
 
     shared.click();
     expect(
-      within(dialog).getByText(/选中的共享平台会按中央库规则同步/)
+      within(dialog).getByText(/选中的共享平台会按技能中心规则同步/)
     ).toBeInTheDocument();
   });
 
@@ -166,11 +166,11 @@ describe("InstallDialog", () => {
     const dialog = await screen.findByRole("dialog", { name: /安装 api-design|Install api-design/i });
     const sharedProject = within(dialog).getByLabelText("Home");
     expect(sharedProject).toBeEnabled();
-    expect(within(dialog).getByText("将加入中央技能库")).toBeInTheDocument();
+    expect(within(dialog).getByText("将加入技能中心")).toBeInTheDocument();
 
     sharedProject.click();
     expect(
-      within(dialog).getByText(/选中的共享平台会按中央库规则同步/)
+      within(dialog).getByText(/选中的共享平台会按技能中心规则同步/)
     ).toBeInTheDocument();
   });
 
@@ -200,6 +200,6 @@ describe("InstallDialog", () => {
 
     const dialog = await screen.findByRole("dialog", { name: /安装 api-design|Install api-design/i });
     expect(within(dialog).getByLabelText("Home")).toHaveAttribute("aria-disabled", "true");
-    expect(within(dialog).getByText("已通过中央库共享")).toBeInTheDocument();
+    expect(within(dialog).getByText("已通过技能中心共享")).toBeInTheDocument();
   });
 });

@@ -79,13 +79,13 @@ describe("CollectionInstallDialog", () => {
       within(dialog).getByRole("heading", { name: /项目目录|Project directories/i })
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByRole("heading", { name: "中央技能库" })
+      within(dialog).getByRole("heading", { name: "技能中心" })
     ).toBeInTheDocument();
 
     const cursor = within(dialog).getByLabelText("Cursor");
     const hermes = within(dialog).getByLabelText("Hermes");
     const home = within(dialog).getByLabelText("Home");
-    const central = within(dialog).getByLabelText("中央技能库");
+    const central = within(dialog).getByLabelText("技能中心");
 
     expect(cursor).not.toBeChecked();
     expect(hermes).not.toBeChecked();
@@ -105,7 +105,7 @@ describe("CollectionInstallDialog", () => {
     const dialog = await screen.findByRole("dialog", {
       name: /批量安装 — Frontend|Batch install — Frontend/i,
     });
-    within(dialog).getByLabelText("中央技能库").click();
+    within(dialog).getByLabelText("技能中心").click();
     within(dialog).getByRole("button", { name: /安装到 1 个目标/ }).click();
 
     await waitFor(() => {
@@ -125,16 +125,16 @@ describe("CollectionInstallDialog", () => {
 
     expect(hermes).toBeEnabled();
     expect(home).toBeEnabled();
-    expect(within(dialog).getAllByText("将加入中央技能库")).toHaveLength(2);
+    expect(within(dialog).getAllByText("将加入技能中心")).toHaveLength(2);
     expect(hermes).not.toBeChecked();
     expect(home).not.toBeChecked();
     expect(
-      within(dialog).queryByText(/选中的共享平台会按中央库规则同步/)
+      within(dialog).queryByText(/选中的共享平台会按技能中心规则同步/)
     ).not.toBeInTheDocument();
 
     hermes.click();
     expect(
-      within(dialog).getByText(/选中的共享平台会按中央库规则同步/)
+      within(dialog).getByText(/选中的共享平台会按技能中心规则同步/)
     ).toBeInTheDocument();
   });
 
@@ -146,8 +146,8 @@ describe("CollectionInstallDialog", () => {
     });
     expect(within(dialog).getByLabelText("Hermes")).toHaveAttribute("aria-disabled", "true");
     expect(within(dialog).getByLabelText("Home")).toHaveAttribute("aria-disabled", "true");
-    expect(within(dialog).getAllByText("已通过中央库共享")).toHaveLength(2);
-    expect(within(dialog).getByLabelText("中央技能库")).toBeEnabled();
+    expect(within(dialog).getAllByText("已通过技能中心共享")).toHaveLength(2);
+    expect(within(dialog).getByLabelText("技能中心")).toBeEnabled();
     expect(within(dialog).getByLabelText("Cursor")).not.toBeChecked();
   });
 });

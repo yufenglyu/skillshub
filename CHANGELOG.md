@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.80.0 - 2026-08-21
+
+This release unifies software platforms (no Lobster/Coding split), stores platform config in `platform.json` with icons under `icons/`, and renames the Chinese Central Skills label to 技能中心.
+
+### Features
+
+- Collapse Lobster and Coding into one **Software Platforms** group in the sidebar and Settings.
+- Enable or disable each software platform in Settings (same pattern as project directories); the flag is stored as `enabled` in `platform.json`.
+- Store platforms in `.skillshub/platform/platform.json` with icons in `.skillshub/platform/icons/` (legacy per-file JSON is migrated on startup). New platforms use a kebab-case id (for example `github-copilot`) for icon filenames.
+
+### Improvements
+
+- Move Central Skills below the sidebar divider with Software Platforms and Project Directories; use a distinct icon and matching section chrome; Chinese UI label is **技能中心**.
+- Remove expand/collapse chevrons from Software Platforms and Project Directories headers; keep equal spacing between those three section cards.
+- Remove the Settings “Open platform folder” button from Software Platforms.
+- Detection badges read **Detected** / **Not detected** (Chinese: 已检测到 / 未检测到).
+- Refresh English and Chinese README content and screenshots for the unified platform UI and config layout.
+
 ## 0.70.0 - 2026-08-21
 
 This release puts the Skill Collections Library above Central Skills, stops treating Obsidian vaults as a special source, and keeps complete backups to the Resource Library and collections only.
@@ -15,6 +33,7 @@ This release puts the Skill Collections Library above Central Skills, stops trea
 ### Improvements
 
 - Complete local and WebDAV backups include the Resource Library and collections, plus app settings and existing platform installs. Central Skills is not exported or restored. Files from older backups that still contain Central Skills are copied into the Resource Library when they are missing there.
+- Windows MSI and Linux deb/rpm installers seed `~/.skillshub` without overwriting existing files. Portable Windows ZIP, macOS ZIP/tar.gz, and Linux tar.gz archives include `.skillshub` next to the app.
 - Ignore `release-assets` and `dist` in the Vite watcher so packaging an installer does not crash `pnpm dev` on Windows.
 - Refresh English and Chinese README content and screenshots for the new sidebar order, clickable header paths, collapsible project directories, and backup scope.
 

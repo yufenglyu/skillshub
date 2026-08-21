@@ -162,6 +162,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare default config directory
+        run: cargo run --manifest-path src-tauri/Cargo.toml --bin prepare-config-dir --release -- src-tauri/resources/packaged-config
+
       - name: Build Linux smoke packages
         run: pnpm tauri build --bundles deb,rpm,appimage --no-sign --ci
 
@@ -199,6 +202,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare default config directory
+        run: cargo run --manifest-path src-tauri/Cargo.toml --bin prepare-config-dir --release -- src-tauri/resources/packaged-config
+
       - name: Build Windows MSI smoke package
         run: pnpm tauri build --target x86_64-pc-windows-msvc --bundles msi --no-sign --ci
 
@@ -235,6 +241,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Prepare default config directory
+        run: cargo run --manifest-path src-tauri/Cargo.toml --bin prepare-config-dir --release -- src-tauri/resources/packaged-config
 
       - name: Build macOS universal app+dmg smoke packages
         run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg --no-sign --ci

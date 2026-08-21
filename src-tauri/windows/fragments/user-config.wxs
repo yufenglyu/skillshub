@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="TARGETDIR">
+      <Component Id="SkillshubUserConfigInit" Guid="c8a91e47-3b6d-4f21-9e04-7a1c2d8b4f66">
+        <RegistryValue
+          Root="HKCU"
+          Key="Software\iamzhihuix\SkillsHub"
+          Name="UserConfigSeed"
+          Type="integer"
+          Value="1"
+          KeyPath="yes"
+        />
+      </Component>
+    </DirectoryRef>
+
+    <CustomAction
+      Id="CreateSkillshubUserConfig"
+      Directory="INSTALLDIR"
+      ExeCommand="cmd.exe /c &quot;[INSTALLDIR]windows\seed-user-config.cmd&quot;"
+      Execute="immediate"
+      Impersonate="yes"
+      Return="ignore"
+    />
+
+    <InstallExecuteSequence>
+      <Custom Action="CreateSkillshubUserConfig" After="InstallFiles">NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

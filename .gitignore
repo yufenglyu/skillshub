@@ -33,6 +33,10 @@ coverage/
 *.sqlite-shm
 *.sqlite-wal
 
+# Generated default config copied into MSI/portable ZIP
+src-tauri/resources/packaged-config/**
+!src-tauri/resources/packaged-config/.gitkeep
+
 # Environment and secrets
 .env
 .env.*
@@ -69,3 +73,4 @@ reference/
 
 # Local agent instructions may include private workspace notes
 AGENTS.md
+HANDOFF.md

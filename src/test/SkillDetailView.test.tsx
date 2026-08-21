@@ -644,13 +644,13 @@ describe("SkillDetailView", () => {
     renderView("frontend-design", "page", { skipMockSetup: true });
 
     const installRegion = screen.getByRole("region", { name: /安装状态/i });
-    const codingLabel = within(installRegion).getByText("编程类");
-    const codingGroup = codingLabel.parentElement;
-    const codingIconGrid = codingLabel.nextElementSibling;
+    const platformsLabel = within(installRegion).getByText("软件平台");
+    const platformsGroup = platformsLabel.parentElement;
+    const platformsIconGrid = platformsLabel.nextElementSibling;
 
-    expect(codingGroup).toHaveClass("items-start");
-    expect(codingLabel).toHaveClass("h-7", "items-center");
-    expect(codingIconGrid).toHaveClass("min-w-0", "flex-1", "flex-wrap");
+    expect(platformsGroup).toHaveClass("items-start");
+    expect(platformsLabel).toHaveClass("h-7", "items-center");
+    expect(platformsIconGrid).toHaveClass("min-w-0", "flex-1", "flex-wrap");
   });
 
   it("shows platform name in tooltip on toggle icon", () => {
@@ -683,7 +683,7 @@ describe("SkillDetailView", () => {
 
     expect(cursorToggle).toHaveAttribute("aria-pressed", "false");
     expect(cursorToggle).toHaveClass("text-muted-foreground/40");
-    expect(cursorToggle.querySelector("img")).toHaveClass("opacity-40", "grayscale");
+    expect(cursorToggle.querySelector("svg, img")).toHaveClass("opacity-40", "grayscale");
   });
 
   it("marks read-only universal platform icons as available but disabled", () => {

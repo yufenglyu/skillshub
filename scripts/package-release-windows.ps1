@@ -221,6 +221,7 @@ function Build-App {
   if ($SkipBuild) { return }
 
   Build-Frontend -Root $Root
+  Invoke-PreparePackagedConfig -Root $Root
 
   $tauriCmd = Local-Bin $Root "tauri"
   if (-not (Test-Path $tauriCmd)) {
@@ -258,11 +259,15 @@ function Copy-WindowsAssets {
   Copy-Item $msi.FullName (Join-Path $OutDir "skillshub_${NextVersion}_windows_x64.msi") -Force
 
   $exe = Join-Path $targetRoot "skillshub.exe"
-  if (-not (Test-Path $exe)) { throw "Windows executable not found at $exe." }
-  Compress-Archive -Path $exe -DestinationPath (Join-Path $OutDir "skillshub_${NextVersion}_windows_x64.zip") -Force
+  $configDir = Join-Path $Root "src-tauri/resources/packaged-config"
+  New-SkillshubPortableZip `
+    -ExePath $exe `
+    -ConfigDir $configDir `
+    -ZipPath (Join-Path $OutDir "skillshub_${NextVersion}_windows_x64.zip")
 }
 
 $root = RepoRoot
+. (Join-Path $root "scripts/windows-release-layout.ps1")
 Set-Location $root
 
 $package = Read-JsonFile (Join-Path $root "package.json")

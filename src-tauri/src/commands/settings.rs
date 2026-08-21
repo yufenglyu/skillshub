@@ -152,6 +152,12 @@ pub fn get_app_data_dir_impl() -> String {
     path_to_string(&app_data_dir())
 }
 
+pub fn get_platform_dir_impl() -> String {
+    crate::platforms::platform_dir()
+        .map(|dir| path_to_string(&dir))
+        .unwrap_or_default()
+}
+
 pub async fn update_app_data_dir_impl(pool: &DbPool, path: &str) -> Result<String, String> {
     let next = normalize_app_data_dir(path)?;
     let current = app_data_dir();
@@ -378,6 +384,11 @@ pub async fn update_skill_resource_library_dir(
 #[tauri::command]
 pub fn get_app_data_dir() -> String {
     get_app_data_dir_impl()
+}
+
+#[tauri::command]
+pub fn get_platform_dir() -> String {
+    get_platform_dir_impl()
 }
 
 #[tauri::command]

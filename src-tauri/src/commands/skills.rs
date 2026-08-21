@@ -2970,12 +2970,11 @@ mod tests {
     }
 
     fn expected_universal_read_only_agents(extra: &[&str]) -> Vec<String> {
-        let agent_ids = db::UNIVERSAL_AGENTS_SKILLS_AGENT_IDS
-            .iter()
-            .chain(extra.iter())
-            .map(|agent_id| (*agent_id).to_string())
-            .collect::<std::collections::BTreeSet<_>>();
-        agent_ids.into_iter().collect()
+        let mut agent_ids = crate::platforms::universal_agents_skills_agent_ids();
+        agent_ids.extend(extra.iter().map(|agent_id| (*agent_id).to_string()));
+        agent_ids.sort();
+        agent_ids.dedup();
+        agent_ids
     }
 
     fn make_skill(id: &str, name: &str, is_central: bool) -> Skill {

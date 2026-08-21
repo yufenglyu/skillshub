@@ -20,6 +20,8 @@ pub struct AgentWithStatus {
     pub global_skills_dir: String,
     pub project_skills_dir: Option<String>,
     pub icon_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_src: Option<String>,
     /// `true` if the agent is considered "installed" on this machine.
     /// Detected by checking whether `global_skills_dir` exists **or** its
     /// parent directory exists (parent existing implies the app is installed
@@ -89,7 +91,8 @@ fn agent_to_with_status(agent: Agent, central_root: Option<&str>) -> AgentWithSt
         category: agent.category,
         global_skills_dir: agent.global_skills_dir,
         project_skills_dir: agent.project_skills_dir,
-        icon_name: agent.icon_name,
+        icon_name: agent.icon_name.clone(),
+        icon_src: crate::platforms::icon_src_for_agent(agent.icon_name.as_deref()),
         is_detected,
         is_builtin: agent.is_builtin,
         is_enabled: agent.is_enabled,
@@ -132,31 +135,38 @@ pub async fn detect_agents_impl(pool: &DbPool) -> Result<Vec<AgentWithStatus>, S
     Ok(result)
 }
 
+fn slugify_platform_id(value: &str) -> String {
+    let slug = value
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect::<String>();
+    slug.split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 /// Insert a new user-defined agent and return its representation.
 pub async fn add_custom_agent_impl(
     pool: &DbPool,
     config: CustomAgentConfig,
 ) -> Result<AgentWithStatus, String> {
     // Derive an ID from the provided value or the display_name.
-    let id = match config.id.as_deref() {
-        Some(s) if !s.trim().is_empty() => s.trim().to_lowercase().replace(' ', "-"),
-        _ => {
-            // Auto-generate a slug from the display name, falling back to a UUID.
-            let slug = config
-                .display_name
-                .trim()
-                .to_lowercase()
-                .replace(' ', "-")
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '-')
-                .collect::<String>();
-            if slug.is_empty() {
-                format!("custom-{}", Uuid::new_v4())
-            } else {
-                format!("custom-{}", slug)
-            }
-        }
+    // Use a kebab-case slug (github-copilot) so icon filenames never contain spaces.
+    let requested = match config.id.as_deref() {
+        Some(s) if !s.trim().is_empty() => slugify_platform_id(s),
+        _ => slugify_platform_id(&config.display_name),
     };
+    let mut id = if requested.is_empty() {
+        format!("platform-{}", Uuid::new_v4())
+    } else {
+        requested
+    };
+    if db::get_agent_by_id(pool, &id).await?.is_some() {
+        id = format!("{}-{}", id, &Uuid::new_v4().to_string()[..8]);
+    }
 
     if id.is_empty() {
         return Err("Agent ID cannot be empty".to_string());
@@ -171,7 +181,7 @@ pub async fn add_custom_agent_impl(
         category,
         global_skills_dir,
         project_skills_dir: None,
-        icon_name: None,
+        icon_name: Some(format!("{}.svg", id)),
         is_detected: false, // will be computed live below
         is_builtin: false,
         is_enabled: true,
@@ -266,6 +276,20 @@ pub async fn remove_custom_agent(
     agent_id: String,
 ) -> Result<(), String> {
     remove_custom_agent_impl(&state.db, &agent_id).await
+}
+
+/// Tauri command: enable or disable a software platform.
+#[tauri::command]
+pub async fn set_agent_enabled(
+    state: State<'_, AppState>,
+    agent_id: String,
+    enabled: bool,
+) -> Result<AgentWithStatus, String> {
+    let updated = db::set_agent_enabled(&state.db, &agent_id, enabled).await?;
+    let central_root = db::get_agent_by_id(&state.db, "central")
+        .await?
+        .map(|agent| agent.global_skills_dir);
+    Ok(agent_to_with_status(updated, central_root.as_deref()))
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -597,10 +621,7 @@ mod tests {
             !agent.id.is_empty(),
             "auto-generated ID should not be empty"
         );
-        assert!(
-            agent.id.starts_with("custom-"),
-            "auto-generated ID should start with 'custom-'"
-        );
+        assert_eq!(agent.id, "auto-named");
     }
 
     #[tokio::test]
@@ -626,7 +647,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_custom_agent_duplicate_id_fails() {
+    async fn test_add_custom_agent_duplicate_id_gets_unique_suffix() {
         let pool = setup_test_db().await;
 
         let config = CustomAgentConfig {
@@ -643,8 +664,9 @@ mod tests {
             category: None,
             global_skills_dir: "/tmp/second/skills".to_string(),
         };
-        let result = add_custom_agent_impl(&pool, config2).await;
-        assert!(result.is_err(), "duplicate agent ID should fail");
+        let second = add_custom_agent_impl(&pool, config2).await.unwrap();
+        assert!(second.id.starts_with("unique-id-"));
+        assert_ne!(second.id, "unique-id");
     }
 
     #[tokio::test]

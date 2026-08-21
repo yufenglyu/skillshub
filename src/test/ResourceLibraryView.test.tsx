@@ -754,7 +754,7 @@ describe("ResourceLibraryView delete", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /^加入中央技能库$|^Add to Central Skills$/i,
+        name: /^加入技能中心$|^Add to Central Skills$/i,
       })
     );
 
@@ -785,7 +785,7 @@ describe("ResourceLibraryView delete", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /^从中央技能库移除$|^Remove from Central Skills$/i,
+        name: /^从技能中心移除$|^Remove from Central Skills$/i,
       })
     );
     fireEvent.click(screen.getByRole("button", { name: /确认删除|Confirm/i }));
@@ -851,10 +851,10 @@ describe("ResourceLibraryView delete", () => {
     expect(within(dialog).getByLabelText("temp")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Hermes")).toBeEnabled();
     expect(within(dialog).getByLabelText("Home")).toBeEnabled();
-    expect(within(dialog).getAllByText("将加入中央技能库")).toHaveLength(2);
+    expect(within(dialog).getAllByText("将加入技能中心")).toHaveLength(2);
     fireEvent.click(within(dialog).getByLabelText("Home"));
     expect(
-      within(dialog).getByText(/选中的共享平台会按中央库规则同步/)
+      within(dialog).getByText(/选中的共享平台会按技能中心规则同步/)
     ).toBeInTheDocument();
   });
 
@@ -883,7 +883,7 @@ describe("ResourceLibraryView delete", () => {
     });
     expect(within(dialog).getByLabelText("Hermes")).toHaveAttribute("aria-disabled", "true");
     expect(within(dialog).getByLabelText("Home")).toHaveAttribute("aria-disabled", "true");
-    expect(within(dialog).getAllByText("已通过中央库共享")).toHaveLength(2);
+    expect(within(dialog).getAllByText("已通过技能中心共享")).toHaveLength(2);
   });
 
   it("shows two-line install summary counts for resource skills", () => {

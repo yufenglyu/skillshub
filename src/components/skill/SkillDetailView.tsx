@@ -669,8 +669,6 @@ export function SkillDetailView({
   // ── Derived values ───────────────────────────────────────────────────────
 
   const targetAgents = agents.filter(isInstallTargetAgent);
-  const lobsterAgents = targetAgents.filter((a) => a.category === "lobster");
-  const codingAgents = targetAgents.filter((a) => a.category !== "lobster");
 
   const installationMap = new Map<string, SkillInstallation>(
     (detail?.installations ?? []).map((inst) => [inst.agent_id, inst])
@@ -1434,17 +1432,8 @@ export function SkillDetailView({
                       ) : (
                         <>
                           <PlatformToggleGroup
-                            label={t("sidebar.categoryLobster")}
-                            agents={lobsterAgents}
-                            skillName={detail.name}
-                            installationMap={installationMap}
-                            readOnlyAgentIds={readOnlyAgentIds}
-                            installingAgentId={installingAgentId}
-                            onToggle={handleToggle}
-                          />
-                          <PlatformToggleGroup
-                            label={t("sidebar.categoryCoding")}
-                            agents={codingAgents}
+                            label={t("sidebar.softwarePlatforms")}
+                            agents={targetAgents}
                             skillName={detail.name}
                             installationMap={installationMap}
                             readOnlyAgentIds={readOnlyAgentIds}

@@ -241,6 +241,7 @@ build_app() {
   fi
 
   build_frontend "$root"
+  prepare_packaged_config "$root"
 
   local tauri_cmd="$root/node_modules/.bin/tauri"
   if [[ ! -x "$tauri_cmd" ]]; then
@@ -264,6 +265,7 @@ copy_linux_assets() {
   local deb
   local rpm
   local appimage
+  local config_dir="$root/src-tauri/resources/packaged-config"
 
   echo "Tauri raw bundle output: $bundle_root"
   case "$(uname -m)" in
@@ -291,7 +293,14 @@ copy_linux_assets() {
   cp -f "$deb" "$out_dir/skillshub-v${next_version}-Linux-${arch}.deb"
   cp -f "$rpm" "$out_dir/skillshub-v${next_version}-Linux-${arch}.rpm"
   cp -f "$appimage" "$out_dir/skillshub-v${next_version}-Linux-${arch}.AppImage"
+  create_linux_portable_tar \
+    "$appimage" \
+    "$config_dir" \
+    "$out_dir/skillshub-v${next_version}-Linux-${arch}.tar.gz"
 }
+
+# shellcheck source=unix-release-layout.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/unix-release-layout.sh"
 
 root="$(repo_root)"
 cd "$root"

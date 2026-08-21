@@ -106,7 +106,7 @@ describe("PlatformInstallDrawer", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("tab", { name: "龙虾类" }));
+    fireEvent.click(screen.getByRole("tab", { name: "软件平台" }));
     fireEvent.change(screen.getByPlaceholderText("搜索平台..."), {
       target: { value: "open" },
     });

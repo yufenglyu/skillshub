@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SkillsHub",
-  "version": "0.70.0",
+  "version": "0.80.0",
   "identifier": "com.iamzhihuix.skillsmanage",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -43,7 +43,9 @@
       },
       "wix": {
         "language": "en-US",
-        "upgradeCode": "28d41c68-f4a4-5134-b959-34babea58f7f"
+        "upgradeCode": "28d41c68-f4a4-5134-b959-34babea58f7f",
+        "fragmentPaths": ["./windows/fragments/user-config.wxs"],
+        "componentRefs": ["SkillshubUserConfigInit"]
       }
     },
     "linux": {
@@ -57,15 +59,19 @@
         "desktopTemplate": "bundle/linux/skills-manage.desktop.hbs",
         "section": "devel",
         "priority": "optional",
+        "postInstallScript": "bundle/unix/seed-user-config.sh",
         "files": {
-          "/usr/share/metainfo/com.iamzhihuix.skillsmanage.metainfo.xml": "bundle/linux/com.iamzhihuix.skillsmanage.metainfo.xml"
+          "/usr/share/metainfo/com.iamzhihuix.skillsmanage.metainfo.xml": "bundle/linux/com.iamzhihuix.skillsmanage.metainfo.xml",
+          "/usr/share/skillshub/packaged-config": "resources/packaged-config"
         }
       },
       "rpm": {
         "desktopTemplate": "bundle/linux/skills-manage.desktop.hbs",
         "release": "1",
+        "postInstallScript": "bundle/unix/seed-user-config.sh",
         "files": {
-          "/usr/share/metainfo/com.iamzhihuix.skillsmanage.metainfo.xml": "bundle/linux/com.iamzhihuix.skillsmanage.metainfo.xml"
+          "/usr/share/metainfo/com.iamzhihuix.skillsmanage.metainfo.xml": "bundle/linux/com.iamzhihuix.skillsmanage.metainfo.xml",
+          "/usr/share/skillshub/packaged-config": "resources/packaged-config"
         }
       }
     },
@@ -76,6 +82,11 @@
       "icons/icon.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/packaged-config/",
+      "windows/seed-user-config.cmd",
+      "bundle/unix/seed-user-config.sh"
     ]
   },
   "plugins": {

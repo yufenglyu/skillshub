@@ -3,19 +3,19 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   Loader2,
   Database,
-  Blocks,
   Layers,
   Eye,
   EyeOff,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   Monitor,
   Moon,
   Settings,
   Sun,
   FolderOpen,
   FolderTree,
+  Cpu,
+  Library,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
@@ -117,8 +117,6 @@ export function Sidebar() {
   const SHOW_ALL_PLATFORMS_KEY = "skills-manage:show-all-platforms";
   const SHOW_EMPTY_PROJECTS_KEY = "skills-manage:show-empty-project-directories";
   const SOFTWARE_COLLAPSED_KEY = "skills-manage:sidebar-software-platforms-collapsed";
-  const LOBSTER_COLLAPSED_KEY = "skills-manage:sidebar-lobster-collapsed";
-  const CODING_COLLAPSED_KEY = "skills-manage:sidebar-coding-collapsed";
   const PROJECTS_COLLAPSED_KEY = "skills-manage:sidebar-project-directories-collapsed";
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -154,14 +152,6 @@ export function Sidebar() {
   });
   const [softwareCollapsed, setSoftwareCollapsed] = usePersistentBoolean(
     SOFTWARE_COLLAPSED_KEY,
-    false
-  );
-  const [lobsterCollapsed, setLobsterCollapsed] = usePersistentBoolean(
-    LOBSTER_COLLAPSED_KEY,
-    false
-  );
-  const [codingCollapsed, setCodingCollapsed] = usePersistentBoolean(
-    CODING_COLLAPSED_KEY,
     false
   );
   const [projectsCollapsed, setProjectsCollapsed] = usePersistentBoolean(
@@ -235,8 +225,6 @@ export function Sidebar() {
       isProjectAgentId(a.id) &&
       (showEmptyProjects || (skillsByAgent[a.id] ?? 0) > 0)
   );
-  const lobsterAgents = platformAgents.filter((a) => a.category === "lobster");
-  const codingAgents = platformAgents.filter((a) => a.category !== "lobster");
 
   const isCollectionActive = pathname === "/collections";
   const themeLabel = t("topBar.cycleTheme", {
@@ -309,18 +297,54 @@ export function Sidebar() {
           count={collections.length}
         />
 
-        {/* Central Skills */}
-        <NavItem
-          label={t("sidebar.centralSkills")}
-          isActive={pathname === "/central"}
-          onClick={() => navigate("/central")}
-          icon={<Blocks className="size-4" />}
-          expanded={expanded}
-          count={centralSkillsCount}
-        />
-
         {/* Divider */}
         <div className="border-t border-sidebar-border/70 my-2" />
+
+        {/* Central Skills — same section shell as platforms / projects */}
+        {expanded ? (
+          <div
+            data-testid="central-skills-heading"
+            className="flex items-center justify-between gap-1 rounded-lg border border-sidebar-border/60 bg-background/35 px-1 py-1"
+          >
+            <button
+              type="button"
+              onClick={() => navigate("/central")}
+              aria-current={pathname === "/central" ? "page" : undefined}
+              aria-label={t("sidebar.centralSkills")}
+              title={t("sidebar.centralSkills")}
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-sm font-medium transition-colors",
+                pathname === "/central"
+                  ? "bg-hover-bg text-white"
+                  : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
+              )}
+            >
+              <Library className="size-4 shrink-0" />
+              <span className="truncate min-w-0 flex-1 text-left">{t("sidebar.centralSkills")}</span>
+              {centralSkillsCount > 0 && (
+                <span
+                  className={cn(
+                    "text-xs font-medium tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
+                    pathname === "/central"
+                      ? "bg-white/20 text-white"
+                      : "bg-muted/60 text-muted-foreground"
+                  )}
+                >
+                  {centralSkillsCount}
+                </span>
+              )}
+            </button>
+          </div>
+        ) : (
+          <NavItem
+            label={t("sidebar.centralSkills")}
+            isActive={pathname === "/central"}
+            onClick={() => navigate("/central")}
+            icon={<Library className="size-4" />}
+            expanded={false}
+            count={centralSkillsCount}
+          />
+        )}
 
         {/* Software platforms */}
         {expanded ? (
@@ -334,12 +358,7 @@ export function Sidebar() {
               aria-expanded={!softwareCollapsed}
               className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
             >
-              {softwareCollapsed ? (
-                <ChevronRight className="size-3.5 shrink-0" />
-              ) : (
-                <ChevronDown className="size-3.5 shrink-0" />
-              )}
-              <Blocks className="size-4 shrink-0" />
+              <Cpu className="size-4 shrink-0" />
               <span className="truncate text-left text-sm font-medium">
                 {t("sidebar.softwarePlatforms")}
               </span>
@@ -369,86 +388,35 @@ export function Sidebar() {
           </div>
         ) : (
           <>
-            {!softwareCollapsed && lobsterAgents.length > 0 && (
-              <>
-                {expanded ? (
-                  <SidebarGroupHeader
-                    label={t("sidebar.categoryLobster")}
-                    expanded={!lobsterCollapsed}
-                    onToggle={() => setLobsterCollapsed(!lobsterCollapsed)}
+            {!softwareCollapsed && platformAgents.length > 0 && (
+              <div className={expanded ? "ml-3 border-l border-sidebar-border/70 pl-2" : ""}>
+                {platformAgents.map((agent) => (
+                  <NavItem
+                    key={agent.id}
+                    label={agent.display_name}
+                    isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
+                    onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
+                    icon={<PlatformIcon agentId={agent.id} className="size-4" />}
+                    expanded={expanded}
+                    count={skillsByAgent[agent.id]}
+                    status={{
+                      label: agent.shares_central_skills
+                        ? t("sidebar.sharedDir")
+                        : t("sidebar.independentDir"),
+                      hint: agent.shares_central_skills
+                        ? t("sidebar.sharedDirHint")
+                        : t("sidebar.independentDirHint"),
+                      shared: !!agent.shares_central_skills,
+                    }}
                   />
-                ) : (
-                  <div className="border-t border-sidebar-border/40 my-1.5" />
-                )}
-                {!lobsterCollapsed && (
-                  <div className={expanded ? "ml-3 border-l border-sidebar-border/70 pl-2" : ""}>
-                    {lobsterAgents.map((agent) => (
-                      <NavItem
-                        key={agent.id}
-                        label={agent.display_name}
-                        isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
-                        onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
-                        icon={<PlatformIcon agentId={agent.id} className="size-4" />}
-                        expanded={expanded}
-                        count={skillsByAgent[agent.id]}
-                        status={{
-                          label: agent.shares_central_skills
-                            ? t("sidebar.sharedDir")
-                            : t("sidebar.independentDir"),
-                          hint: agent.shares_central_skills
-                            ? t("sidebar.sharedDirHint")
-                            : t("sidebar.independentDirHint"),
-                          shared: !!agent.shares_central_skills,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-
-            {!softwareCollapsed && codingAgents.length > 0 && (
-              <>
-                {expanded ? (
-                  <SidebarGroupHeader
-                    label={t("sidebar.categoryCoding")}
-                    expanded={!codingCollapsed}
-                    onToggle={() => setCodingCollapsed(!codingCollapsed)}
-                  />
-                ) : (
-                  <div className="border-t border-sidebar-border/40 my-1.5" />
-                )}
-                {!codingCollapsed && (
-                  <div className={expanded ? "ml-3 border-l border-sidebar-border/70 pl-2" : ""}>
-                    {codingAgents.map((agent) => (
-                      <NavItem
-                        key={agent.id}
-                        label={agent.display_name}
-                        isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
-                        onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
-                        icon={<PlatformIcon agentId={agent.id} className="size-4" />}
-                        expanded={expanded}
-                        count={skillsByAgent[agent.id]}
-                        status={{
-                          label: agent.shares_central_skills
-                            ? t("sidebar.sharedDir")
-                            : t("sidebar.independentDir"),
-                          hint: agent.shares_central_skills
-                            ? t("sidebar.sharedDirHint")
-                            : t("sidebar.independentDirHint"),
-                          shared: !!agent.shares_central_skills,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </>
+                ))}
+              </div>
             )}
 
             {expanded ? (
               <div
                 data-testid="project-directories-heading"
-                className="mt-3 flex items-center justify-between gap-1 rounded-lg border border-sidebar-border/70 bg-muted/35 px-1 py-1"
+                className="flex items-center justify-between gap-1 rounded-lg border border-sidebar-border/60 bg-background/35 px-1 py-1"
               >
                 <button
                   type="button"
@@ -456,11 +424,6 @@ export function Sidebar() {
                   aria-expanded={!projectsCollapsed}
                   className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                 >
-                  {projectsCollapsed ? (
-                    <ChevronRight className="size-3.5 shrink-0" />
-                  ) : (
-                    <ChevronDown className="size-3.5 shrink-0" />
-                  )}
                   <FolderTree className="size-4 shrink-0" />
                   <span className="truncate text-left text-sm font-medium">
                     {t("sidebar.projectDirectories")}
@@ -576,30 +539,4 @@ function usePersistentBoolean(key: string, defaultValue: boolean) {
   }
 
   return [value, update] as const;
-}
-
-function SidebarGroupHeader({
-  label,
-  expanded,
-  onToggle,
-}: {
-  label: string;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={expanded}
-      className="flex w-full items-center gap-1.5 rounded-md px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground/75 transition-colors hover:bg-primary/10 hover:text-primary"
-    >
-      {expanded ? (
-        <ChevronDown className="size-3 shrink-0" />
-      ) : (
-        <ChevronRight className="size-3 shrink-0" />
-      )}
-      <span className="truncate">{label}</span>
-    </button>
-  );
 }

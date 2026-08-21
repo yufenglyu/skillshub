@@ -7,6 +7,7 @@ export interface AgentWithStatus {
   global_skills_dir: string;
   project_skills_dir?: string;
   icon_name?: string;
+  icon_src?: string;
   is_detected: boolean;
   is_builtin: boolean;
   is_enabled: boolean;

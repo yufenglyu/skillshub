@@ -288,6 +288,7 @@ build_app() {
   fi
 
   build_frontend "$root"
+  prepare_packaged_config "$root"
 
   local tauri_cmd="$root/node_modules/.bin/tauri"
   if [[ ! -x "$tauri_cmd" ]]; then
@@ -309,6 +310,7 @@ copy_macos_assets() {
   local bundle_root="$root/src-tauri/target/universal-apple-darwin/release/bundle"
   local app
   local dmg
+  local config_dir="$root/src-tauri/resources/packaged-config"
 
   echo "Tauri raw bundle output: $bundle_root"
   app="$(find "$bundle_root/macos" -maxdepth 1 -type d -name '*.app' -print -quit 2>/dev/null || true)"
@@ -324,9 +326,15 @@ copy_macos_assets() {
 
   mkdir -p "$out_dir"
   cp -f "$dmg" "$out_dir/skillshub_${next_version}_macos_universal.dmg"
-  run ditto -c -k --keepParent "$app" "$out_dir/skillshub_${next_version}_macos_universal.zip"
-  run tar -C "$(dirname "$app")" -czf "$out_dir/skillshub_${next_version}_macos_universal.tar.gz" "$(basename "$app")"
+  create_macos_portable_archives \
+    "$app" \
+    "$config_dir" \
+    "$out_dir/skillshub_${next_version}_macos_universal.zip" \
+    "$out_dir/skillshub_${next_version}_macos_universal.tar.gz"
 }
+
+# shellcheck source=unix-release-layout.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/unix-release-layout.sh"
 
 root="$(repo_root)"
 cd "$root"

@@ -43,10 +43,19 @@ pub fn default_app_data_dir() -> PathBuf {
     resolve_home_dir().join(".skillshub")
 }
 
+fn appimage_dir_from_env() -> Option<PathBuf> {
+    let value = std::env::var_os("APPIMAGE")?;
+    if value.is_empty() {
+        return None;
+    }
+    PathBuf::from(value).parent().map(Path::to_path_buf)
+}
+
 pub fn app_data_dir() -> PathBuf {
     let exe_path = std::env::current_exe().ok();
     let exe_dir = exe_path.as_deref().and_then(|path| path.parent());
-    resolve_app_data_dir_from(exe_dir, &resolve_home_dir())
+    let appimage_dir = appimage_dir_from_env();
+    resolve_app_data_dir_from_extra(exe_dir, appimage_dir.as_deref(), &resolve_home_dir())
 }
 
 fn read_dir_pointer(file: &Path, home_dir: &Path) -> Option<PathBuf> {
@@ -58,15 +67,68 @@ fn read_dir_pointer(file: &Path, home_dir: &Path) -> Option<PathBuf> {
     normalize_app_data_dir_with_home(trimmed, home_dir).ok()
 }
 
+fn macos_app_bundle_parent(exe_dir: &Path) -> Option<PathBuf> {
+    if exe_dir.file_name()?.to_str()? != "MacOS" {
+        return None;
+    }
+    let contents = exe_dir.parent()?;
+    if contents.file_name()?.to_str()? != "Contents" {
+        return None;
+    }
+    let app_bundle = contents.parent()?;
+    if app_bundle.extension().and_then(|ext| ext.to_str()) != Some("app") {
+        return None;
+    }
+    app_bundle.parent().map(Path::to_path_buf)
+}
+
+fn portable_anchor_dirs(exe_dir: Option<&Path>, extra_dir: Option<&Path>) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(exe_dir) = exe_dir {
+        dirs.push(exe_dir.to_path_buf());
+        if let Some(parent) = macos_app_bundle_parent(exe_dir) {
+            if !dirs.iter().any(|dir| dir == &parent) {
+                dirs.push(parent);
+            }
+        }
+    }
+    if let Some(extra_dir) = extra_dir {
+        if !dirs.iter().any(|dir| dir == extra_dir) {
+            dirs.push(extra_dir.to_path_buf());
+        }
+    }
+    dirs
+}
+
+fn existing_portable_config_dir(
+    exe_dir: Option<&Path>,
+    extra_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    for dir in portable_anchor_dirs(exe_dir, extra_dir) {
+        let portable = dir.join(".skillshub");
+        if portable.is_dir() {
+            return Some(portable);
+        }
+    }
+    None
+}
+
 pub fn resolve_app_data_dir_from(exe_dir: Option<&Path>, home_dir: &Path) -> PathBuf {
+    resolve_app_data_dir_from_extra(exe_dir, None, home_dir)
+}
+
+fn resolve_app_data_dir_from_extra(
+    exe_dir: Option<&Path>,
+    extra_dir: Option<&Path>,
+    home_dir: &Path,
+) -> PathBuf {
     if let Some(exe_dir) = exe_dir {
         if let Some(path) = read_dir_pointer(&exe_dir.join("skillshub-config-path"), home_dir) {
             return path;
         }
-        let portable = exe_dir.join(".skillshub");
-        if portable.is_dir() {
-            return portable;
-        }
+    }
+    if let Some(portable) = existing_portable_config_dir(exe_dir, extra_dir) {
+        return portable;
     }
     if let Some(path) = read_dir_pointer(&home_dir.join(".skillshub-config-path"), home_dir) {
         return path;
@@ -99,14 +161,12 @@ pub fn resolve_database_path() -> PathBuf {
     app_data_dir().join("db.sqlite")
 }
 
-fn auto_app_data_dir_without_pointer(exe_dir: Option<&Path>, home_dir: &Path) -> PathBuf {
-    if let Some(exe_dir) = exe_dir {
-        let portable = exe_dir.join(".skillshub");
-        if portable.is_dir() {
-            return portable;
-        }
-    }
-    home_dir.join(".skillshub")
+fn auto_app_data_dir_without_pointer(
+    exe_dir: Option<&Path>,
+    extra_dir: Option<&Path>,
+    home_dir: &Path,
+) -> PathBuf {
+    existing_portable_config_dir(exe_dir, extra_dir).unwrap_or_else(|| home_dir.join(".skillshub"))
 }
 
 fn remove_pointer_file(file: &Path) -> Result<(), String> {
@@ -122,7 +182,16 @@ pub fn write_app_data_dir_override_with(
     exe_dir: Option<&Path>,
     home_dir: &Path,
 ) -> Result<(), String> {
-    let auto_path = auto_app_data_dir_without_pointer(exe_dir, home_dir);
+    write_app_data_dir_override_with_extra(path, exe_dir, None, home_dir)
+}
+
+fn write_app_data_dir_override_with_extra(
+    path: &Path,
+    exe_dir: Option<&Path>,
+    extra_dir: Option<&Path>,
+    home_dir: &Path,
+) -> Result<(), String> {
+    let auto_path = auto_app_data_dir_without_pointer(exe_dir, extra_dir, home_dir);
     let home_pointer = home_dir.join(".skillshub-config-path");
     let exe_pointer = exe_dir.map(|dir| dir.join("skillshub-config-path"));
     if path == auto_path {
@@ -144,7 +213,13 @@ pub fn write_app_data_dir_override_with(
 pub fn write_app_data_dir_override(path: &Path) -> Result<(), String> {
     let exe_path = std::env::current_exe().ok();
     let exe_dir = exe_path.as_deref().and_then(|path| path.parent());
-    write_app_data_dir_override_with(path, exe_dir, &resolve_home_dir())
+    let appimage_dir = appimage_dir_from_env();
+    write_app_data_dir_override_with_extra(
+        path,
+        exe_dir,
+        appimage_dir.as_deref(),
+        &resolve_home_dir(),
+    )
 }
 
 pub fn sqlite_sidecar_paths(db_path: &Path) -> Vec<PathBuf> {
@@ -881,6 +956,47 @@ mod tests {
         let portable = exe_dir.join(".skillshub");
         std::fs::create_dir_all(&portable).expect("portable");
         let resolved = resolve_app_data_dir_from(Some(&exe_dir), Path::new("/tmp/home"));
+        assert_eq!(resolved, portable);
+    }
+
+    #[test]
+    fn resolve_app_data_dir_uses_skillshub_next_to_macos_app() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let stage = dir.path().join("portable");
+        let exe_dir = stage.join("SkillsHub.app").join("Contents").join("MacOS");
+        let portable = stage.join(".skillshub");
+        std::fs::create_dir_all(&exe_dir).expect("macos exe dir");
+        std::fs::create_dir_all(&portable).expect("portable");
+        let resolved = resolve_app_data_dir_from(Some(&exe_dir), Path::new("/tmp/home"));
+        assert_eq!(resolved, portable);
+    }
+
+    #[test]
+    fn resolve_app_data_dir_prefers_exe_dir_over_macos_app_sibling() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let stage = dir.path().join("portable");
+        let exe_dir = stage.join("SkillsHub.app").join("Contents").join("MacOS");
+        let nested = exe_dir.join(".skillshub");
+        let sibling = stage.join(".skillshub");
+        std::fs::create_dir_all(&nested).expect("nested portable");
+        std::fs::create_dir_all(&sibling).expect("sibling portable");
+        let resolved = resolve_app_data_dir_from(Some(&exe_dir), Path::new("/tmp/home"));
+        assert_eq!(resolved, nested);
+    }
+
+    #[test]
+    fn resolve_app_data_dir_uses_appimage_parent_folder() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let exe_dir = dir.path().join("mount").join("usr").join("bin");
+        let appimage_dir = dir.path().join("downloads");
+        let portable = appimage_dir.join(".skillshub");
+        std::fs::create_dir_all(&exe_dir).expect("appimage mount");
+        std::fs::create_dir_all(&portable).expect("portable");
+        let resolved = resolve_app_data_dir_from_extra(
+            Some(&exe_dir),
+            Some(&appimage_dir),
+            Path::new("/tmp/home"),
+        );
         assert_eq!(resolved, portable);
     }
 

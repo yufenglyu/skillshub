@@ -18,7 +18,7 @@ import type { AgentWithStatus, SkillWithLinks } from "@/types";
 import { isInstallTargetAgent } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
-type PlatformDrawerTab = "installed" | "coding" | "lobster" | "shared";
+type PlatformDrawerTab = "installed" | "all" | "shared";
 
 interface PlatformInstallDrawerProps {
   open: boolean;
@@ -64,8 +64,6 @@ export function PlatformInstallDrawer({
         const isLinked = linkedAgentIds.has(agent.id);
         const isReadOnly = readOnlyAgentIds.has(agent.id);
         if (activeTab === "installed" && !isLinked && !isReadOnly) return false;
-        if (activeTab === "coding" && agent.category === "lobster") return false;
-        if (activeTab === "lobster" && agent.category !== "lobster") return false;
         if (activeTab === "shared" && !isReadOnly) return false;
         if (!normalizedQuery) return true;
         return `${agent.display_name} ${agent.id}`.toLowerCase().includes(normalizedQuery);
@@ -82,8 +80,7 @@ export function PlatformInstallDrawer({
 
   const tabs: Array<{ value: PlatformDrawerTab; label: string }> = [
     { value: "installed", label: t("platformDrawer.tabInstalled") },
-    { value: "coding", label: t("sidebar.categoryCoding") },
-    { value: "lobster", label: t("sidebar.categoryLobster") },
+    { value: "all", label: t("sidebar.softwarePlatforms") },
     { value: "shared", label: t("platformDrawer.tabShared") },
   ];
 

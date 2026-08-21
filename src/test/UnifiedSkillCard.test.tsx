@@ -166,12 +166,12 @@ describe("UnifiedSkillCard action buttons", () => {
         name="resource-skill"
         description="Resource skill"
         onInstallToCentral={onInstallToCentral}
-        installToCentralLabel="加入中央技能库：resource-skill"
+        installToCentralLabel="加入技能中心：resource-skill"
       />
     );
 
     const button = screen.getByRole("button", {
-      name: "加入中央技能库：resource-skill",
+      name: "加入技能中心：resource-skill",
     });
     fireEvent.click(button);
 
@@ -184,13 +184,13 @@ describe("UnifiedSkillCard action buttons", () => {
         name="resource-skill"
         description="Resource skill"
         onInstallToCentral={vi.fn()}
-        installToCentralLabel="加入中央技能库：resource-skill"
+        installToCentralLabel="加入技能中心：resource-skill"
         onInstallTo={vi.fn()}
       />
     );
 
     const centralButton = screen.getByRole("button", {
-      name: "加入中央技能库：resource-skill",
+      name: "加入技能中心：resource-skill",
     });
     const installTargetButton = screen.getByRole("button", {
       name: "将 resource-skill 安装到平台",
@@ -207,15 +207,15 @@ describe("UnifiedSkillCard action buttons", () => {
 });
 
 describe("UnifiedSkillCard platform toggles", () => {
-  it("renders all lobster toggles and only featured coding toggles on the card", () => {
+  it("renders featured software platform toggles on the card", () => {
     renderCard(["cursor", "openclaw"]);
 
-    expect(screen.getByText("龙虾类")).toBeInTheDocument();
-    expect(screen.getByText("编程类")).toBeInTheDocument();
+    expect(screen.getByText("软件平台")).toBeInTheDocument();
+    expect(screen.queryByText("龙虾类")).not.toBeInTheDocument();
+    expect(screen.queryByText("编程类")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "管理 demo-skill 的平台安装" })).toBeInTheDocument();
 
     expect(screen.getByRole("button", { name: "切换 demo-skill 在 OpenClaw 的链接状态" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "切换 demo-skill 在 Kiro 的链接状态" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "切换 demo-skill 在 Claude Code 的链接状态" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "切换 demo-skill 在 Cursor 的链接状态" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "切换 demo-skill 在 Trae 的链接状态" })).toBeInTheDocument();
@@ -224,7 +224,7 @@ describe("UnifiedSkillCard platform toggles", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("toggles featured coding platforms directly from the card", () => {
+  it("toggles featured platforms directly from the card", () => {
     const { onToggle } = renderCard([]);
 
     const button = screen.getByRole("button", {
@@ -253,6 +253,6 @@ describe("UnifiedSkillCard platform toggles", () => {
     fireEvent.click(screen.getByRole("button", { name: "管理 demo-skill 的平台安装" }));
 
     expect(onManagePlatforms).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("+3")).toBeInTheDocument();
+    expect(screen.getByText("+4")).toBeInTheDocument();
   });
 });

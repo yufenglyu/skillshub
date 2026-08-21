@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { openInFileManager } from "@/lib/openPath";
 import {
   ScanDirectory,
   AgentWithStatus,
@@ -48,6 +49,8 @@ interface SettingsState {
   addCustomAgent: (config: CustomAgentConfig) => Promise<AgentWithStatus>;
   updateCustomAgent: (agentId: string, config: UpdateCustomAgentConfig) => Promise<AgentWithStatus>;
   removeCustomAgent: (agentId: string) => Promise<void>;
+  toggleAgentEnabled: (agentId: string, enabled: boolean) => Promise<AgentWithStatus>;
+  openPlatformDir: () => Promise<void>;
   updateCentralSkillsDir: (path: string) => Promise<AgentWithStatus>;
   loadResourceLibraryDir: () => Promise<void>;
   updateResourceLibraryDir: (path: string) => Promise<string>;
@@ -302,6 +305,15 @@ export const useSettingsStore = create<SettingsState>((set) => ({
    */
   removeCustomAgent: async (agentId: string) => {
     await invoke<void>("remove_custom_agent", { agentId });
+  },
+
+  toggleAgentEnabled: async (agentId, enabled) => {
+    return invoke<AgentWithStatus>("set_agent_enabled", { agentId, enabled });
+  },
+
+  openPlatformDir: async () => {
+    const path = await invoke<string>("get_platform_dir");
+    await openInFileManager(path);
   },
 
   updateCentralSkillsDir: async (path: string) => {

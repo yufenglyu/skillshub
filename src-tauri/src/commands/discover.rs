@@ -624,14 +624,7 @@ fn scan_root_for_projects_with_seen(
     seen_project_paths: &mut HashSet<String>,
     projects: &mut Vec<DiscoveredProject>,
 ) {
-    scan_root_recursive(
-        root,
-        patterns,
-        central_dir,
-        0,
-        projects,
-        seen_project_paths,
-    );
+    scan_root_recursive(root, patterns, central_dir, 0, projects, seen_project_paths);
 }
 
 /// Inner recursive walker. Accumulates found projects into `projects`.

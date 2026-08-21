@@ -1,6 +1,8 @@
 pub mod commands;
 pub mod db;
+mod default_platform_icons;
 pub mod path_utils;
+pub mod platforms;
 
 use db::DbPool;
 use std::fs;
@@ -84,6 +86,7 @@ pub fn run() {
             commands::agents::add_custom_agent,
             commands::agents::update_custom_agent,
             commands::agents::remove_custom_agent,
+            commands::agents::set_agent_enabled,
             // Linker
             commands::linker::install_skill_to_agent,
             commands::linker::add_resource_skill_to_central,
@@ -145,6 +148,7 @@ pub fn run() {
             commands::settings::get_skill_resource_library_dir,
             commands::settings::update_skill_resource_library_dir,
             commands::settings::get_app_data_dir,
+            commands::settings::get_platform_dir,
             commands::settings::update_app_data_dir,
             commands::settings::check_app_update,
             // Discover

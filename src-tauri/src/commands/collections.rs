@@ -1220,11 +1220,20 @@ mod tests {
 
         let central_skill_dir = central_dir.join("shared-col");
         assert!(central_skill_dir.join("SKILL.md").exists());
+        let metadata = fs::symlink_metadata(&central_skill_dir).unwrap();
         assert!(
-            !fs::symlink_metadata(&central_skill_dir)
-                .unwrap()
-                .file_type()
-                .is_symlink(),
+            metadata.file_type().is_symlink(),
+            "adding to Central Skills should link to the Resource Library copy"
+        );
+        let target = fs::read_link(&central_skill_dir).unwrap();
+        let resolved = if target.is_absolute() {
+            target
+        } else {
+            central_skill_dir.parent().unwrap().join(target)
+        };
+        assert_ne!(
+            resolved.canonicalize().unwrap_or(resolved),
+            central_skill_dir,
             "shared-root collection install must not create a self-referencing symlink"
         );
     }

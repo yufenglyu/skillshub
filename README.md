@@ -20,7 +20,7 @@ SkillsHub keeps long-term skill storage separate from where tools actually load 
 | **Project directories** | Named project-scoped install targets | `<project>/.agents/skills` |
 | **Skill Collections Library** | Reusable groups of Resource Library skills | App database |
 
-Application data lives in a `.skillshub` folder (`~/.skillshub` by default). Put `.skillshub` next to `skillshub.exe` for a portable install, or choose another config folder in Settings. After upgrading from older releases, SkillsHub can migrate `~/.skillsmanage` on first launch when the new folder does not exist yet.
+Application data lives in a `.skillshub` folder (`~/.skillshub` by default). Windows MSI and Linux deb/rpm installers create that folder during install without overwriting existing files. macOS DMG installs seed it on first launch. Portable archives already contain `.skillshub` next to the app (`skillshub_*_windows_x64.zip`, `skillshub_*_macos_universal.zip` / `.tar.gz`, and `skillshub-v*_Linux-*.tar.gz`), with the default platform JSON/icons, an empty skill library, and a SQLite database. You can also choose another config folder in Settings. After upgrading from older releases, SkillsHub can migrate `~/.skillsmanage` on first launch when the new folder does not exist yet.
 
 ## Highlights
 
@@ -34,9 +34,9 @@ Application data lives in a `.skillshub` folder (`~/.skillshub` by default). Put
 - Resource Library skills can install directly to selected platforms or projects without being forced into Central Skills.
 - Promoting a skill to Central Skills creates a symlink under `~/.agents/skills` that points at the Resource Library copy. Removing it from Central Skills deletes the link only. When Central Skills already has managed skills, newly detected platforms and configured project directories are included in central synchronization.
 - If a platform or project uses the shared `.agents/skills` path, installing there is treated as **Add to Central Skills**, not as a self-referencing platform install. Already-central skills show as shared through Central Skills. Settings labels those platforms **Shared** and others **Independent**; the sidebar shows a color dot after the platform name.
-- The sidebar order is Skill Resource Library, **Skill Collections Library**, then Central Skills. Collections stay compact: create, edit, delete, install, add skills, and refresh. **Install** opens a target picker for software platforms, project directories, and Central Skills, with nothing selected by default.
+- The sidebar order is Skill Resource Library, **Skill Collections Library**, then below the divider **Central Skills**, Software Platforms, and Project Directories. Collections stay compact: create, edit, delete, install, add skills, and refresh. **Install** opens a target picker for software platforms, project directories, and Central Skills, with nothing selected by default.
 - Page headers for the Resource Library, Central Skills, software platforms, project directories, and Discover show the folder path. Click the path to open that directory in the file manager.
-- Settings cover the config folder (including portable mode), Resource Library and Central Skills paths with Browse and Open, editable built-in platforms, custom platforms, named project directories, local ZIP / WebDAV backup, and update checking. Refresh on Platforms and Project Directories re-detects which platforms exist. Added project directories collapse like the Lobster and Coding groups. Browse a folder to save it immediately, or paste a path and press Enter. Complete backups include the Resource Library and collections, not Central Skills. They exclude API keys, tokens, and password-like values, and do not copy this computer's library folder paths to another machine.
+- Settings cover the config folder (including portable mode), Resource Library and Central Skills paths with Browse and Open, enable/disable for each software platform, editable built-in platforms, custom platforms, named project directories, local ZIP / WebDAV backup, and update checking. Refresh on Platforms and Project Directories re-detects which platforms exist. Software platforms and added project directories collapse independently. Browse a folder to save it immediately, or paste a path and press Enter. Complete backups include the Resource Library and collections, not Central Skills. They exclude API keys, tokens, and password-like values, and do not copy this computer's library folder paths to another machine.
 
 ## Screenshots
 
@@ -85,15 +85,14 @@ Resource Library ── install ──► selected platforms / project directori
 
 ## Supported Platforms
 
-Built-in platform definitions can be edited or removed in Settings. Changes are stored locally and survive restart.
+Built-in platform definitions can be edited, removed, or enabled/disabled in Settings. Defaults are written to `.skillshub/platform/platform.json` with icons under `.skillshub/platform/icons/`; after that, that folder is the source of truth. Older per-file JSON layouts migrate automatically on startup. Changes are stored locally and survive restart. New platforms use a kebab-case id (for example `github-copilot`) so icon filenames never contain spaces from the display name.
 
-| Category | Examples |
-|----------|----------|
-| Coding | Claude Code, Codex CLI, Cursor, Gemini CLI, GitHub Copilot, Kiro CLI, Warp, Windsurf, Trae, Aider, OpenCode, Continue, Qwen, and other coding agents |
-| Lobster | OpenClaw, AutoClaw, EasyClaw, QClaw, WorkBuddy, and related Lobster-style platforms |
+| Type | Examples |
+|------|----------|
+| Software platforms | Claude Code, Codex CLI, Cursor, Gemini CLI, GitHub Copilot, OpenClaw, AutoClaw, QClaw, Warp, Windsurf, Trae, Aider, OpenCode, Continue, Qwen, and other agents |
 | Custom | Any local platform with a stable skills directory |
 
-The sidebar shows a built-in platform only when its configured skills directory exists locally, unless you choose to show all platforms. Lobster and Coding platform lists are indented under their category headers, like Project Directories. Software platform groups and project directory lists collapse independently. Configured project directories are not treated as custom coding platforms.
+The sidebar shows an enabled built-in platform only when its configured skills directory exists locally, unless you choose to show all platforms. Software platform and project directory lists are indented under their section headers and collapse independently when you click the header. Configured project directories are not treated as custom software platforms.
 
 ## Importing And Adding Skills
 

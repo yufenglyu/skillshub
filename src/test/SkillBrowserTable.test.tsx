@@ -277,7 +277,7 @@ describe("SkillBrowserTable", () => {
 
     expect(screen.getByText("直接安装 0（平台 0 / 项目 0）")).toBeInTheDocument();
     expect(screen.getByText("共享可用 0")).toBeInTheDocument();
-    expect(screen.queryByText("中央技能库")).not.toBeInTheDocument();
+    expect(screen.queryByText("技能中心")).not.toBeInTheDocument();
     expect(screen.queryByText("符号链接")).not.toBeInTheDocument();
   });
 
@@ -292,7 +292,7 @@ describe("SkillBrowserTable", () => {
             name: "available",
             isCentral: false,
             onInstallToCentral: vi.fn(),
-            installToCentralLabel: "加入中央技能库",
+            installToCentralLabel: "加入技能中心",
             onInstallTo: vi.fn(),
             installToLabel: "安装到平台或项目",
             onUpdateFromSource: vi.fn(),
@@ -305,7 +305,7 @@ describe("SkillBrowserTable", () => {
             name: "installed",
             isCentral: true,
             onRemoveFromCentral: vi.fn(),
-            removeFromCentralLabel: "从中央技能库移除",
+            removeFromCentralLabel: "从技能中心移除",
             onUninstallFromPlatform: vi.fn(),
             uninstallFromLabel: "从平台或项目卸载",
             onUpdateFromSource: vi.fn(),
@@ -318,13 +318,13 @@ describe("SkillBrowserTable", () => {
     );
 
     const availableRow = screen.getByRole("row", { name: /available/ });
-    expect(within(availableRow).getByRole("button", { name: "加入中央技能库" })).toBeInTheDocument();
+    expect(within(availableRow).getByRole("button", { name: "加入技能中心" })).toBeInTheDocument();
     expect(within(availableRow).getByRole("button", { name: "安装到平台或项目" })).toBeInTheDocument();
     expect(availableRow.querySelector(".lucide-plus")).toBeInTheDocument();
     expect(availableRow.querySelector(".lucide-package-plus")).toBeInTheDocument();
 
     const installedRow = screen.getByRole("row", { name: /installed/ });
-    expect(within(installedRow).getByRole("button", { name: "从中央技能库移除" })).toBeInTheDocument();
+    expect(within(installedRow).getByRole("button", { name: "从技能中心移除" })).toBeInTheDocument();
     expect(within(installedRow).getByRole("button", { name: "从平台或项目卸载" })).toBeInTheDocument();
     expect(installedRow.querySelector(".lucide-minus")).toBeInTheDocument();
     expect(installedRow.querySelector(".lucide-package-minus")).toBeInTheDocument();

@@ -256,6 +256,7 @@ interface SoftwarePlatformRowProps {
   agent: AgentWithStatus;
   onEdit: () => void;
   onRemove: () => void;
+  onToggle: (enabled: boolean) => void;
   isRemoving: boolean;
 }
 
@@ -263,12 +264,14 @@ function SoftwarePlatformRow({
   agent,
   onEdit,
   onRemove,
+  onToggle,
   isRemoving,
 }: SoftwarePlatformRowProps) {
   const { t } = useTranslation();
   const showBuiltinDetection = agent.is_builtin;
   const sharesCentral = !!agent.shares_central_skills;
   const dirKindLabel = sharesCentral ? t("settings.sharedDir") : t("settings.independentDir");
+  const action = agent.is_enabled ? t("settings.enabled") : t("settings.disabled");
   return (
     <div
       className={cn(
@@ -327,6 +330,16 @@ function SoftwarePlatformRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        <div className="flex items-center gap-1.5 pr-1">
+          <span className="text-xs text-muted-foreground">
+            {action}
+          </span>
+          <Switch
+            checked={agent.is_enabled}
+            onCheckedChange={onToggle}
+            aria-label={t("settings.enablePlatformLabel", { action, name: agent.display_name })}
+          />
+        </div>
         <Button
           variant="outline"
           size="sm"
@@ -351,22 +364,22 @@ function SoftwarePlatformRow({
 }
 
 interface SoftwarePlatformGroupProps {
-  title: string;
   platforms: AgentWithStatus[];
   onEditPlatform: (agent: AgentWithStatus) => void;
   onRemovePlatform: (agentId: string) => void;
+  onTogglePlatform: (agentId: string, enabled: boolean) => void;
   removingAgent: string | null;
 }
 
 function SoftwarePlatformGroup({
-  title,
   platforms,
   onEditPlatform,
   onRemovePlatform,
+  onTogglePlatform,
   removingAgent,
 }: SoftwarePlatformGroupProps) {
   const { t } = useTranslation();
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
   const builtinCount = platforms.filter((agent) => agent.is_builtin).length;
   const detectedCount = platforms.filter((agent) => agent.is_detected).length;
 
@@ -388,8 +401,7 @@ function SoftwarePlatformGroup({
           ) : (
             <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
           )}
-          <Cpu className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{title}</span>
+          <span className="truncate">{t("settings.softwarePlatforms")}</span>
         </div>
         <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
           <span>
@@ -410,6 +422,7 @@ function SoftwarePlatformGroup({
                 agent={agent}
                 onEdit={() => onEditPlatform(agent)}
                 onRemove={() => onRemovePlatform(agent.id)}
+                onToggle={(enabled) => onTogglePlatform(agent.id, enabled)}
                 isRemoving={removingAgent === agent.id}
               />
             ))}
@@ -515,6 +528,7 @@ interface SoftwarePlatformsCardProps {
   onToggleDirectory: (path: string, active: boolean) => void;
   onEditPlatform: (agent: AgentWithStatus) => void;
   onRemovePlatform: (agentId: string) => void;
+  onTogglePlatform: (agentId: string, enabled: boolean) => void;
   onRefreshLocations: () => void;
   isRefreshingLocations: boolean;
 }
@@ -534,13 +548,12 @@ function SoftwarePlatformsCard({
   onToggleDirectory,
   onEditPlatform,
   onRemovePlatform,
+  onTogglePlatform,
   onRefreshLocations,
   isRefreshingLocations,
 }: SoftwarePlatformsCardProps) {
   const { t } = useTranslation();
   const customDirs = scanDirectories.filter((d) => !d.is_builtin);
-  const lobsterPlatforms = softwarePlatforms.filter((agent) => agent.category === "lobster");
-  const codingPlatforms = softwarePlatforms.filter((agent) => agent.category !== "lobster");
 
   return (
     <Card>
@@ -569,16 +582,19 @@ function SoftwarePlatformsCard({
               <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
                 <Cpu className="size-4 text-muted-foreground" />
                 <span>{t("settings.softwarePlatforms")}</span>
+                <HintIcon text={t("settings.customPlatformsDesc")} />
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onAddPlatform}
-                aria-label={t("settings.addPlatformAriaLabel")}
-              >
-                <Plus className="size-3.5" />
-                <span>{t("settings.addPlatform")}</span>
-              </Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onAddPlatform}
+                  aria-label={t("settings.addPlatformAriaLabel")}
+                >
+                  <Plus className="size-3.5" />
+                  <span>{t("settings.addPlatform")}</span>
+                </Button>
+              </div>
             </div>
             {platformError && (
               <p className="text-xs text-destructive mb-3" role="alert">
@@ -591,22 +607,13 @@ function SoftwarePlatformsCard({
                 {t("settings.noPlatforms")}
               </p>
             ) : (
-              <div className="space-y-3">
-                <SoftwarePlatformGroup
-                  title={t("sidebar.categoryLobster")}
-                  platforms={lobsterPlatforms}
-                  onEditPlatform={onEditPlatform}
-                  onRemovePlatform={onRemovePlatform}
-                  removingAgent={removingAgent}
-                />
-                <SoftwarePlatformGroup
-                  title={t("sidebar.categoryCoding")}
-                  platforms={codingPlatforms}
-                  onEditPlatform={onEditPlatform}
-                  onRemovePlatform={onRemovePlatform}
-                  removingAgent={removingAgent}
-                />
-              </div>
+              <SoftwarePlatformGroup
+                platforms={softwarePlatforms}
+                onEditPlatform={onEditPlatform}
+                onRemovePlatform={onRemovePlatform}
+                onTogglePlatform={onTogglePlatform}
+                removingAgent={removingAgent}
+              />
             )}
           </div>
 
@@ -657,6 +664,7 @@ export function SettingsView() {
   const addCustomAgent = useSettingsStore((s) => s.addCustomAgent);
   const updateCustomAgent = useSettingsStore((s) => s.updateCustomAgent);
   const removeCustomAgent = useSettingsStore((s) => s.removeCustomAgent);
+  const toggleAgentEnabled = useSettingsStore((s) => s.toggleAgentEnabled);
   const updateCentralSkillsDir = useSettingsStore((s) => s.updateCentralSkillsDir);
   const resourceLibraryDir = useSettingsStore((s) => s.resourceLibraryDir);
   const loadResourceLibraryDir = useSettingsStore((s) => s.loadResourceLibraryDir);
@@ -1043,13 +1051,12 @@ export function SettingsView() {
     setIsPlatformDialogOpen(true);
   }
 
-  async function handleAddPlatform(displayName: string, globalSkillsDir: string, category?: string) {
+  async function handleAddPlatform(displayName: string, globalSkillsDir: string) {
     setPlatformError(null);
     try {
       await addCustomAgent({
         display_name: displayName,
         global_skills_dir: globalSkillsDir,
-        category: category || "coding",
       });
       // Refresh agents + rescan to show new platform in sidebar.
       await rescan();
@@ -1061,14 +1068,14 @@ export function SettingsView() {
     }
   }
 
-  async function handleEditPlatform(displayName: string, globalSkillsDir: string, category?: string) {
+  async function handleEditPlatform(displayName: string, globalSkillsDir: string) {
     if (!editingPlatform) return;
     setPlatformError(null);
     try {
       await updateCustomAgent(editingPlatform.id, {
         display_name: displayName,
         global_skills_dir: globalSkillsDir,
-        category: category || "coding",
+        category: editingPlatform.category || "coding",
       });
       // Refresh agents + rescan.
       await rescan();
@@ -1077,6 +1084,17 @@ export function SettingsView() {
       setPlatformError(String(err));
       toast.error(String(err));
       throw err;
+    }
+  }
+
+  async function handleTogglePlatform(agentId: string, enabled: boolean) {
+    setPlatformError(null);
+    try {
+      await toggleAgentEnabled(agentId, enabled);
+      await rescan();
+    } catch (err) {
+      setPlatformError(String(err));
+      toast.error(String(err));
     }
   }
 
@@ -1487,6 +1505,7 @@ export function SettingsView() {
           onToggleDirectory={handleToggleDirectory}
           onEditPlatform={handleOpenEditPlatform}
           onRemovePlatform={handleRemovePlatform}
+          onTogglePlatform={handleTogglePlatform}
           onRefreshLocations={handleRefreshPlatformsAndProjects}
           isRefreshingLocations={isRefreshingLocations || isRefreshingSkills}
         />

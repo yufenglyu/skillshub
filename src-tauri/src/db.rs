@@ -4,22 +4,14 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
     FromRow, Row, SqlitePool,
 };
-use std::{
-    collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{collections::HashSet, path::Path, str::FromStr};
 use uuid::Uuid;
 
-use crate::path_utils::{app_data_dir, expand_home_path, path_to_string, resolve_home_dir};
+use crate::path_utils::{app_data_dir, expand_home_path, path_to_string};
 
 pub type DbPool = SqlitePool;
 
 pub const SKILL_RESOURCE_LIBRARY_DIR_SETTING_KEY: &str = "skill_resource_library_dir";
-#[cfg(not(test))]
-const BUILTIN_AGENT_OVERRIDES_FILE: &str = "builtin-agent-overrides.json";
-#[cfg(test)]
-const BUILTIN_AGENT_OVERRIDES_ENV: &str = "SKILLSHUB_BUILTIN_AGENT_OVERRIDES";
 
 // ─── Data Types ──────────────────────────────────────────────────────────────
 
@@ -97,6 +89,8 @@ pub struct AgentSkillObservation {
     pub scanned_at: String,
 }
 
+pub use crate::platforms::{agent_supports_universal_agents_skills, builtin_agents};
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Agent {
     pub id: String,
@@ -108,21 +102,6 @@ pub struct Agent {
     pub is_detected: bool,
     pub is_builtin: bool,
     pub is_enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BuiltinAgentOverride {
-    display_name: String,
-    category: String,
-    global_skills_dir: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct BuiltinAgentOverrides {
-    #[serde(default)]
-    edited: HashMap<String, BuiltinAgentOverride>,
-    #[serde(default)]
-    deleted: HashSet<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -162,8 +141,8 @@ pub async fn create_pool(db_path: &str) -> Result<DbPool, String> {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
-/// Initialize all database tables (idempotent) and seed built-in agents.
-pub async fn init_database(pool: &DbPool) -> Result<(), String> {
+/// Initialize all database tables (idempotent) without seeding built-in agents.
+pub async fn init_schema(pool: &DbPool) -> Result<(), String> {
     // Enable WAL mode (no-op for in-memory databases)
     sqlx::query("PRAGMA journal_mode=WAL")
         .execute(pool)
@@ -553,6 +532,13 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
     )
     .await?;
 
+    Ok(())
+}
+
+/// Initialize schema, then seed built-in agents from the platform catalog.
+pub async fn init_database(pool: &DbPool) -> Result<(), String> {
+    init_schema(pool).await?;
+
     // Seed built-in agents (INSERT OR IGNORE so repeated init is safe)
     seed_builtin_agents(pool).await?;
 
@@ -562,63 +548,114 @@ pub async fn init_database(pool: &DbPool) -> Result<(), String> {
     Ok(())
 }
 
-async fn seed_builtin_agents(pool: &DbPool) -> Result<(), String> {
-    let overrides = load_builtin_agent_overrides()?;
-    seed_builtin_agents_with_overrides(pool, &overrides).await
+/// Write a complete default `.skillshub` tree for installers and portable ZIPs.
+///
+/// Agent rows are not seeded here so skill directories expand against the
+/// end-user home directory on first launch.
+pub async fn prepare_config_dir(config_dir: &Path) -> Result<(), String> {
+    let platform_dir = config_dir.join("platform");
+    if platform_dir.exists() {
+        std::fs::remove_dir_all(&platform_dir).map_err(|e| {
+            format!(
+                "Failed to reset platform directory '{}': {}",
+                platform_dir.display(),
+                e
+            )
+        })?;
+    }
+    crate::platforms::write_default_platform_files(&platform_dir)?;
+
+    let library_dir = config_dir.join("library");
+    std::fs::create_dir_all(&library_dir).map_err(|e| {
+        format!(
+            "Failed to create library directory '{}': {}",
+            library_dir.display(),
+            e
+        )
+    })?;
+    std::fs::write(library_dir.join(".keep"), b"").map_err(|e| {
+        format!(
+            "Failed to write library placeholder '{}': {}",
+            library_dir.display(),
+            e
+        )
+    })?;
+
+    let db_path = config_dir.join("db.sqlite");
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(config_dir.join("db.sqlite-wal"));
+    let _ = std::fs::remove_file(config_dir.join("db.sqlite-shm"));
+    let pool = create_pool(&path_to_string(&db_path)).await?;
+    init_schema(&pool).await?;
+    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    pool.close().await;
+    Ok(())
 }
 
-async fn seed_builtin_agents_with_overrides(
-    pool: &DbPool,
-    overrides: &BuiltinAgentOverrides,
-) -> Result<(), String> {
+async fn seed_builtin_agents(pool: &DbPool) -> Result<(), String> {
     let agents = builtin_agents();
-    let active_builtin_ids: Vec<&str> = agents
-        .iter()
-        .filter(|a| !overrides.deleted.contains(&a.id))
-        .map(|a| a.id.as_str())
-        .collect();
+    let sync_existing = crate::platforms::platform_dir().is_some();
+    seed_builtin_agents_from(pool, &agents, sync_existing).await?;
+    if sync_existing {
+        merge_db_custom_platforms_into_catalog(pool).await?;
+    }
+    Ok(())
+}
 
-    for agent in &agents {
-        if overrides.deleted.contains(&agent.id) {
+async fn merge_db_custom_platforms_into_catalog(pool: &DbPool) -> Result<(), String> {
+    let agents = get_all_agents(pool).await?;
+    for agent in agents {
+        if agent.is_builtin || agent.category == "project" || agent.id.starts_with("project:") {
             continue;
         }
+        crate::platforms::persist_platform_edit(&agent)?;
+    }
+    Ok(())
+}
 
-        let override_config = overrides.edited.get(&agent.id);
-        let display_name = override_config
-            .map(|config| config.display_name.as_str())
-            .unwrap_or(&agent.display_name);
-        let category = override_config
-            .map(|config| config.category.as_str())
-            .unwrap_or(&agent.category);
-        let global_skills_dir = override_config
-            .map(|config| config.global_skills_dir.as_str())
-            .unwrap_or(&agent.global_skills_dir);
+async fn seed_builtin_agents_from(
+    pool: &DbPool,
+    agents: &[Agent],
+    sync_existing: bool,
+) -> Result<(), String> {
+    let active_builtin_ids: Vec<&str> = agents.iter().map(|agent| agent.id.as_str()).collect();
 
+    for agent in agents {
         sqlx::query(
             "INSERT OR IGNORE INTO agents
              (id, display_name, category, global_skills_dir, project_skills_dir,
               icon_name, is_detected, is_builtin, is_enabled)
-             VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1)",
+             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
         )
         .bind(&agent.id)
-        .bind(display_name)
-        .bind(category)
-        .bind(global_skills_dir)
+        .bind(&agent.display_name)
+        .bind(&agent.category)
+        .bind(&agent.global_skills_dir)
         .bind(&agent.project_skills_dir)
         .bind(&agent.icon_name)
+        .bind(agent.is_builtin)
+        .bind(agent.is_enabled)
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
 
-        if override_config.is_some() {
+        if sync_existing {
             sqlx::query(
                 "UPDATE agents
-                 SET display_name = ?, category = ?, global_skills_dir = ?
-                 WHERE id = ? AND is_builtin = 1",
+                 SET display_name = ?, category = ?, global_skills_dir = ?,
+                     project_skills_dir = ?, icon_name = ?, is_enabled = ?, is_builtin = ?
+                 WHERE id = ?",
             )
-            .bind(display_name)
-            .bind(category)
-            .bind(global_skills_dir)
+            .bind(&agent.display_name)
+            .bind(&agent.category)
+            .bind(&agent.global_skills_dir)
+            .bind(&agent.project_skills_dir)
+            .bind(&agent.icon_name)
+            .bind(agent.is_enabled)
+            .bind(agent.is_builtin)
             .bind(&agent.id)
             .execute(pool)
             .await
@@ -626,7 +663,10 @@ async fn seed_builtin_agents_with_overrides(
         }
     }
 
-    // Remove builtin agents that no longer exist in code or were hidden locally.
+    if !sync_existing {
+        return Ok(());
+    }
+
     let all_db_agents: Vec<(String,)> =
         sqlx::query_as("SELECT id FROM agents WHERE is_builtin = 1")
             .fetch_all(pool)
@@ -644,90 +684,6 @@ async fn seed_builtin_agents_with_overrides(
     }
 
     Ok(())
-}
-
-#[cfg(not(test))]
-fn builtin_agent_overrides_path() -> Option<PathBuf> {
-    Some(app_data_dir().join(BUILTIN_AGENT_OVERRIDES_FILE))
-}
-
-#[cfg(test)]
-fn builtin_agent_overrides_path() -> Option<PathBuf> {
-    std::env::var_os(BUILTIN_AGENT_OVERRIDES_ENV)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-}
-
-fn load_builtin_agent_overrides() -> Result<BuiltinAgentOverrides, String> {
-    let Some(path) = builtin_agent_overrides_path() else {
-        return Ok(BuiltinAgentOverrides::default());
-    };
-    load_builtin_agent_overrides_from_path(&path)
-}
-
-fn load_builtin_agent_overrides_from_path(path: &Path) -> Result<BuiltinAgentOverrides, String> {
-    if !path.exists() {
-        return Ok(BuiltinAgentOverrides::default());
-    }
-
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read built-in platform overrides: {}", e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Invalid built-in platform overrides: {}", e))
-}
-
-fn save_builtin_agent_overrides(overrides: &BuiltinAgentOverrides) -> Result<(), String> {
-    let Some(path) = builtin_agent_overrides_path() else {
-        return Ok(());
-    };
-    save_builtin_agent_overrides_to_path(&path, overrides)
-}
-
-fn save_builtin_agent_overrides_to_path(
-    path: &Path,
-    overrides: &BuiltinAgentOverrides,
-) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            format!(
-                "Failed to create built-in platform override directory: {}",
-                e
-            )
-        })?;
-    }
-    let content = serde_json::to_string_pretty(overrides)
-        .map_err(|e| format!("Failed to serialize built-in platform overrides: {}", e))?;
-    std::fs::write(path, content)
-        .map_err(|e| format!("Failed to write built-in platform overrides: {}", e))
-}
-
-fn persist_builtin_agent_edit(agent: &Agent) -> Result<(), String> {
-    if !agent.is_builtin {
-        return Ok(());
-    }
-
-    let mut overrides = load_builtin_agent_overrides()?;
-    overrides.deleted.remove(&agent.id);
-    overrides.edited.insert(
-        agent.id.clone(),
-        BuiltinAgentOverride {
-            display_name: agent.display_name.clone(),
-            category: agent.category.clone(),
-            global_skills_dir: agent.global_skills_dir.clone(),
-        },
-    );
-    save_builtin_agent_overrides(&overrides)
-}
-
-fn persist_builtin_agent_delete(agent: &Agent) -> Result<(), String> {
-    if !agent.is_builtin {
-        return Ok(());
-    }
-
-    let mut overrides = load_builtin_agent_overrides()?;
-    overrides.edited.remove(&agent.id);
-    overrides.deleted.insert(agent.id.clone());
-    save_builtin_agent_overrides(&overrides)
 }
 
 /// Seed `scan_directories` with one row per unique `global_skills_dir` path
@@ -801,487 +757,6 @@ async fn ensure_column(
     }
 
     Ok(())
-}
-
-pub const UNIVERSAL_AGENTS_SKILLS_AGENT_IDS: &[&str] = &[
-    "amp",
-    "antigravity",
-    "cline",
-    "codex",
-    "cursor",
-    "deep-agents",
-    "dexto",
-    "firebender",
-    "gemini-cli",
-    "copilot",
-    "kimi-code-cli",
-    "opencode",
-    "warp",
-];
-
-pub fn agent_supports_universal_agents_skills(agent_id: &str) -> bool {
-    UNIVERSAL_AGENTS_SKILLS_AGENT_IDS.contains(&agent_id)
-}
-
-/// Returns the list of built-in agents using the current user's home directory.
-pub fn builtin_agents() -> Vec<Agent> {
-    let home = resolve_home_dir();
-    let in_home = |relative: &str| path_to_string(&home.join(relative));
-    let agent = |id: &str,
-                 display_name: &str,
-                 category: &str,
-                 global_relative: &str,
-                 project_relative: Option<&str>,
-                 icon_name: &str| {
-        Agent {
-            id: id.to_string(),
-            display_name: display_name.to_string(),
-            category: category.to_string(),
-            global_skills_dir: in_home(global_relative),
-            project_skills_dir: project_relative.map(|value| value.to_string()),
-            icon_name: Some(icon_name.to_string()),
-            is_detected: false,
-            is_builtin: true,
-            is_enabled: true,
-        }
-    };
-
-    vec![
-        // ── Coding platforms ─────────────────────────────────────────────────
-        agent(
-            "claude-code",
-            "Claude Code",
-            "coding",
-            ".claude/skills",
-            Some(".claude/skills"),
-            "claude",
-        ),
-        agent(
-            "codex",
-            "Codex CLI",
-            "coding",
-            ".codex/skills",
-            Some(".agents/skills"),
-            "codex",
-        ),
-        agent(
-            "cursor",
-            "Cursor",
-            "coding",
-            ".cursor/skills",
-            None,
-            "cursor",
-        ),
-        agent(
-            "antigravity",
-            "Antigravity",
-            "coding",
-            ".agents/skills",
-            None,
-            "antigravity",
-        ),
-        agent("cline", "Cline", "coding", ".agents/skills", None, "cline"),
-        agent(
-            "deep-agents",
-            "Deep Agents",
-            "coding",
-            ".agents/skills",
-            None,
-            "deep-agents",
-        ),
-        agent("dexto", "Dexto", "coding", ".agents/skills", None, "dexto"),
-        agent(
-            "firebender",
-            "Firebender",
-            "coding",
-            ".agents/skills",
-            None,
-            "firebender",
-        ),
-        agent(
-            "gemini-cli",
-            "Gemini CLI",
-            "coding",
-            ".gemini/skills",
-            None,
-            "gemini",
-        ),
-        agent(
-            "kimi-code-cli",
-            "Kimi Code CLI",
-            "coding",
-            ".agents/skills",
-            None,
-            "kimi-code-cli",
-        ),
-        agent(
-            "aider-desk",
-            "AiderDesk",
-            "coding",
-            ".aider-desk/skills",
-            Some(".aider-desk/skills"),
-            "aider-desk",
-        ),
-        agent(
-            "trae",
-            "Trae",
-            "coding",
-            ".trae/skills",
-            Some(".trae/skills"),
-            "trae",
-        ),
-        agent(
-            "factory-droid",
-            "Factory Droid",
-            "coding",
-            ".factory/skills",
-            Some(".factory/skills"),
-            "factory",
-        ),
-        agent(
-            "junie",
-            "Junie",
-            "coding",
-            ".junie/skills",
-            Some(".junie/skills"),
-            "junie",
-        ),
-        agent(
-            "qwen",
-            "Qwen Code",
-            "coding",
-            ".qwen/skills",
-            Some(".qwen/skills"),
-            "qwen",
-        ),
-        agent(
-            "trae-cn",
-            "Trae CN",
-            "coding",
-            ".trae-cn/skills",
-            Some(".trae/skills"),
-            "trae-cn",
-        ),
-        agent(
-            "windsurf",
-            "Windsurf",
-            "coding",
-            ".codeium/windsurf/skills",
-            Some(".windsurf/skills"),
-            "windsurf",
-        ),
-        agent(
-            "qoder",
-            "Qoder",
-            "coding",
-            ".qoder/skills",
-            Some(".qoder/skills"),
-            "qoder",
-        ),
-        agent(
-            "augment",
-            "Augment",
-            "coding",
-            ".augment/skills",
-            Some(".augment/skills"),
-            "augment",
-        ),
-        agent(
-            "opencode",
-            "OpenCode",
-            "coding",
-            ".opencode/skills",
-            None,
-            "opencode",
-        ),
-        agent(
-            "kilocode",
-            "Kilo Code",
-            "coding",
-            ".kilocode/skills",
-            Some(".kilocode/skills"),
-            "kilocode",
-        ),
-        agent("ob1", "OB1", "coding", ".ob1/skills", None, "ob1"),
-        agent("amp", "Amp", "coding", ".amp/skills", None, "amp"),
-        agent(
-            "kiro",
-            "Kiro CLI",
-            "coding",
-            ".kiro/skills",
-            Some(".kiro/skills"),
-            "kiro",
-        ),
-        agent(
-            "codebuddy",
-            "CodeBuddy",
-            "coding",
-            ".codebuddy/skills",
-            Some(".codebuddy/skills"),
-            "codebuddy",
-        ),
-        agent(
-            "bob",
-            "IBM Bob",
-            "coding",
-            ".bob/skills",
-            Some(".bob/skills"),
-            "bob",
-        ),
-        agent(
-            "codearts-agent",
-            "CodeArts Agent",
-            "coding",
-            ".codeartsdoer/skills",
-            Some(".codeartsdoer/skills"),
-            "codearts-agent",
-        ),
-        agent(
-            "codemaker",
-            "Codemaker",
-            "coding",
-            ".codemaker/skills",
-            Some(".codemaker/skills"),
-            "codemaker",
-        ),
-        agent(
-            "codestudio",
-            "Code Studio",
-            "coding",
-            ".codestudio/skills",
-            Some(".codestudio/skills"),
-            "codestudio",
-        ),
-        agent(
-            "command-code",
-            "Command Code",
-            "coding",
-            ".commandcode/skills",
-            Some(".commandcode/skills"),
-            "command-code",
-        ),
-        agent(
-            "continue",
-            "Continue",
-            "coding",
-            ".continue/skills",
-            Some(".continue/skills"),
-            "continue",
-        ),
-        agent(
-            "cortex",
-            "Cortex Code",
-            "coding",
-            ".snowflake/cortex/skills",
-            Some(".cortex/skills"),
-            "cortex",
-        ),
-        agent(
-            "crush",
-            "Crush",
-            "coding",
-            ".config/crush/skills",
-            Some(".crush/skills"),
-            "crush",
-        ),
-        agent(
-            "devin",
-            "Devin for Terminal",
-            "coding",
-            ".config/devin/skills",
-            Some(".devin/skills"),
-            "devin",
-        ),
-        agent(
-            "forgecode",
-            "ForgeCode",
-            "coding",
-            ".forge/skills",
-            Some(".forge/skills"),
-            "forgecode",
-        ),
-        agent(
-            "goose",
-            "Goose",
-            "coding",
-            ".config/goose/skills",
-            Some(".goose/skills"),
-            "goose",
-        ),
-        agent(
-            "iflow-cli",
-            "iFlow CLI",
-            "coding",
-            ".iflow/skills",
-            Some(".iflow/skills"),
-            "iflow-cli",
-        ),
-        agent(
-            "kode",
-            "Kode",
-            "coding",
-            ".kode/skills",
-            Some(".kode/skills"),
-            "kode",
-        ),
-        agent(
-            "mcpjam",
-            "MCPJam",
-            "coding",
-            ".mcpjam/skills",
-            Some(".mcpjam/skills"),
-            "mcpjam",
-        ),
-        agent(
-            "mistral-vibe",
-            "Mistral Vibe",
-            "coding",
-            ".vibe/skills",
-            Some(".vibe/skills"),
-            "mistral-vibe",
-        ),
-        agent(
-            "mux",
-            "Mux",
-            "coding",
-            ".mux/skills",
-            Some(".mux/skills"),
-            "mux",
-        ),
-        agent(
-            "openhands",
-            "OpenHands",
-            "coding",
-            ".openhands/skills",
-            Some(".openhands/skills"),
-            "openhands",
-        ),
-        agent(
-            "pi",
-            "Pi",
-            "coding",
-            ".pi/agent/skills",
-            Some(".pi/skills"),
-            "pi",
-        ),
-        agent(
-            "rovodev",
-            "Rovo Dev",
-            "coding",
-            ".rovodev/skills",
-            Some(".rovodev/skills"),
-            "rovodev",
-        ),
-        agent(
-            "roo",
-            "Roo Code",
-            "coding",
-            ".roo/skills",
-            Some(".roo/skills"),
-            "roo",
-        ),
-        agent(
-            "tabnine-cli",
-            "Tabnine CLI",
-            "coding",
-            ".tabnine/agent/skills",
-            Some(".tabnine/agent/skills"),
-            "tabnine-cli",
-        ),
-        agent(
-            "zencoder",
-            "Zencoder",
-            "coding",
-            ".zencoder/skills",
-            Some(".zencoder/skills"),
-            "zencoder",
-        ),
-        agent(
-            "neovate",
-            "Neovate",
-            "coding",
-            ".neovate/skills",
-            Some(".neovate/skills"),
-            "neovate",
-        ),
-        agent(
-            "pochi",
-            "Pochi",
-            "coding",
-            ".pochi/skills",
-            Some(".pochi/skills"),
-            "pochi",
-        ),
-        agent(
-            "adal",
-            "AdaL",
-            "coding",
-            ".adal/skills",
-            Some(".adal/skills"),
-            "adal",
-        ),
-        agent(
-            "copilot",
-            "GitHub Copilot",
-            "coding",
-            ".copilot/skills",
-            None,
-            "copilot",
-        ),
-        agent("warp", "Warp", "coding", ".agents/skills", None, "warp"),
-        agent("aider", "Aider", "coding", ".aider/skills", None, "aider"),
-        // ── Lobster platforms ────────────────────────────────────────────────
-        agent(
-            "hermes",
-            "Hermes",
-            "lobster",
-            ".hermes/skills",
-            None,
-            "hermes",
-        ),
-        agent(
-            "openclaw",
-            "OpenClaw",
-            "lobster",
-            ".openclaw/skills",
-            Some("skills"),
-            "openclaw",
-        ),
-        agent("qclaw", "QClaw", "lobster", ".qclaw/skills", None, "qclaw"),
-        agent(
-            "easyclaw",
-            "EasyClaw",
-            "lobster",
-            ".easyclaw/skills",
-            None,
-            "easyclaw",
-        ),
-        agent(
-            "autoclaw",
-            "AutoClaw",
-            "lobster",
-            ".openclaw-autoclaw/skills",
-            None,
-            "autoclaw",
-        ),
-        agent(
-            "workbuddy",
-            "WorkBuddy",
-            "lobster",
-            ".workbuddy/skills-marketplace/skills",
-            None,
-            "workbuddy",
-        ),
-        // ── Central Skills ────────────────────────────────────────────────────
-        agent(
-            "central",
-            "Central Skills",
-            "central",
-            ".agents/skills",
-            None,
-            "central",
-        ),
-    ]
 }
 
 // ─── Skills ───────────────────────────────────────────────────────────────────
@@ -2311,8 +1786,9 @@ pub async fn insert_custom_agent(pool: &DbPool, agent: &Agent) -> Result<(), Str
     .bind(agent.is_detected)
     .execute(pool)
     .await
-    .map(|_| ())
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    crate::platforms::persist_platform_edit(agent)?;
+    Ok(())
 }
 
 /// Delete an agent by ID.
@@ -2326,7 +1802,7 @@ pub async fn delete_custom_agent(pool: &DbPool, agent_id: &str) -> Result<(), St
                 .execute(pool)
                 .await
                 .map_err(|e| e.to_string())?;
-            persist_builtin_agent_delete(&agent)?;
+            crate::platforms::persist_platform_delete(&agent.id)?;
             Ok(())
         }
     }
@@ -2341,8 +1817,9 @@ pub async fn update_custom_agent(
     category: &str,
     global_skills_dir: &str,
 ) -> Result<Agent, String> {
-    let agent = get_agent_by_id(pool, agent_id).await?;
-    let previous = agent.ok_or_else(|| format!("Agent '{}' not found", agent_id))?;
+    let _agent = get_agent_by_id(pool, agent_id)
+        .await?
+        .ok_or_else(|| format!("Agent '{}' not found", agent_id))?;
 
     sqlx::query(
         "UPDATE agents SET display_name = ?, category = ?, global_skills_dir = ? WHERE id = ?",
@@ -2358,9 +1835,32 @@ pub async fn update_custom_agent(
     let updated = get_agent_by_id(pool, agent_id)
         .await?
         .ok_or_else(|| "Failed to retrieve updated agent".to_string())?;
-    if previous.is_builtin {
-        persist_builtin_agent_edit(&updated)?;
+    crate::platforms::persist_platform_edit(&updated)?;
+    Ok(updated)
+}
+
+/// Update whether a software platform is enabled in the DB and platform.json.
+pub async fn set_agent_enabled(
+    pool: &DbPool,
+    agent_id: &str,
+    enabled: bool,
+) -> Result<Agent, String> {
+    if agent_id == "central" || agent_id.starts_with("project:") {
+        return Err("This target cannot be enabled or disabled here".to_string());
     }
+    get_agent_by_id(pool, agent_id)
+        .await?
+        .ok_or_else(|| format!("Agent '{}' not found", agent_id))?;
+    sqlx::query("UPDATE agents SET is_enabled = ? WHERE id = ?")
+        .bind(enabled)
+        .bind(agent_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let updated = get_agent_by_id(pool, agent_id)
+        .await?
+        .ok_or_else(|| "Failed to retrieve updated agent".to_string())?;
+    crate::platforms::persist_platform_edit(&updated)?;
     Ok(updated)
 }
 
@@ -2374,9 +1874,11 @@ pub async fn update_central_agent_skills_dir(
         .await
         .map_err(|e| e.to_string())?;
 
-    get_agent_by_id(pool, "central")
+    let updated = get_agent_by_id(pool, "central")
         .await?
-        .ok_or_else(|| "Central agent not found".to_string())
+        .ok_or_else(|| "Central agent not found".to_string())?;
+    crate::platforms::persist_platform_edit(&updated)?;
+    Ok(updated)
 }
 
 // ─── Collections ──────────────────────────────────────────────────────────────
@@ -2803,6 +2305,7 @@ pub async fn set_setting(pool: &DbPool, key: &str, value: &str) -> Result<(), St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::path_utils::resolve_home_dir;
     use tempfile::tempdir;
 
     /// Create an in-memory SQLite pool and initialize the schema.
@@ -2814,6 +2317,33 @@ mod tests {
             .await
             .expect("Failed to initialize test database");
         pool
+    }
+
+    #[tokio::test]
+    async fn prepare_config_dir_writes_platform_files_and_empty_schema() {
+        let dir = tempdir().expect("temp dir");
+        prepare_config_dir(dir.path()).await.unwrap();
+
+        assert!(dir.path().join("platform/platform.json").exists());
+        assert!(dir.path().join("platform/icons/claude-code.svg").exists());
+        assert!(dir.path().join("library/.keep").exists());
+        assert!(dir.path().join("db.sqlite").exists());
+
+        let catalog = std::fs::read_to_string(dir.path().join("platform/platform.json")).unwrap();
+        assert!(catalog.contains("~/.claude/skills"));
+        assert!(catalog.contains("\"enabled\": true"));
+
+        let pool = create_pool(&path_to_string(&dir.path().join("db.sqlite")))
+            .await
+            .unwrap();
+        let agent_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agents")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            agent_count, 0,
+            "packaged databases must not bake builder home paths into agent rows"
+        );
     }
 
     // ── Init ──────────────────────────────────────────────────────────────────
@@ -3588,19 +3118,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_builtin_agent_edit_override_is_applied_during_seed() {
+    async fn test_builtin_agent_edit_is_applied_during_seed() {
         let pool = setup_test_db().await;
-        let mut overrides = BuiltinAgentOverrides::default();
-        overrides.edited.insert(
-            "claude-code".to_string(),
-            BuiltinAgentOverride {
-                display_name: "Edited Claude".to_string(),
-                category: "coding".to_string(),
-                global_skills_dir: "/tmp/edited-claude/skills".to_string(),
-            },
-        );
+        let mut agents = builtin_agents();
+        let claude = agents
+            .iter_mut()
+            .find(|agent| agent.id == "claude-code")
+            .expect("claude-code");
+        claude.display_name = "Edited Claude".to_string();
+        claude.global_skills_dir = "/tmp/edited-claude/skills".to_string();
 
-        seed_builtin_agents_with_overrides(&pool, &overrides)
+        seed_builtin_agents_from(&pool, &agents, true)
             .await
             .unwrap();
 
@@ -3614,44 +3142,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_builtin_agent_delete_override_is_applied_during_seed() {
+    async fn test_removed_catalog_platform_is_dropped_during_seed() {
         let pool = setup_test_db().await;
-        let mut overrides = BuiltinAgentOverrides::default();
-        overrides.deleted.insert("cursor".to_string());
+        let agents: Vec<Agent> = builtin_agents()
+            .into_iter()
+            .filter(|agent| agent.id != "cursor")
+            .collect();
 
-        seed_builtin_agents_with_overrides(&pool, &overrides)
+        seed_builtin_agents_from(&pool, &agents, true)
             .await
             .unwrap();
 
         let deleted = get_agent_by_id(&pool, "cursor").await.unwrap();
         assert!(
             deleted.is_none(),
-            "deleted built-in override should remove the platform during seed"
+            "platforms missing from the catalog should be removed during seed"
         );
-    }
-
-    #[test]
-    fn test_builtin_agent_overrides_roundtrip_local_file() {
-        let dir = tempdir().expect("temp dir");
-        let path = dir.path().join("builtin-agent-overrides.json");
-        let mut overrides = BuiltinAgentOverrides::default();
-        overrides.deleted.insert("cursor".to_string());
-        overrides.edited.insert(
-            "claude-code".to_string(),
-            BuiltinAgentOverride {
-                display_name: "Edited Claude".to_string(),
-                category: "coding".to_string(),
-                global_skills_dir: "/tmp/edited-claude/skills".to_string(),
-            },
-        );
-
-        save_builtin_agent_overrides_to_path(&path, &overrides).unwrap();
-        let loaded = load_builtin_agent_overrides_from_path(&path).unwrap();
-
-        assert!(loaded.deleted.contains("cursor"));
-        let edited = loaded.edited.get("claude-code").unwrap();
-        assert_eq!(edited.display_name, "Edited Claude");
-        assert_eq!(edited.global_skills_dir, "/tmp/edited-claude/skills");
     }
 
     #[tokio::test]

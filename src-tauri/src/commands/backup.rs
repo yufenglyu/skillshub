@@ -1281,9 +1281,7 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
         if backup_custom_agent_ids.contains(&installation.agent_id) && agent.is_builtin {
             continue;
         }
-        if agent.id == "central"
-            || Path::new(&agent.global_skills_dir) == central_root
-        {
+        if agent.id == "central" || Path::new(&agent.global_skills_dir) == central_root {
             continue;
         }
         match validated_install_method(installation.method.as_deref()) {
@@ -3047,10 +3045,7 @@ mod tests {
             .await
             .expect("archive export");
         assert!(
-            !zip_has_entry(
-                &archive,
-                "central-library/owner/repo/central-only/SKILL.md"
-            ),
+            !zip_has_entry(&archive, "central-library/owner/repo/central-only/SKILL.md"),
             "complete backup must not pack Central Skills as a separate archive target"
         );
         let json = export_app_backup_impl(&pool, BackupOptions::default())
@@ -3061,8 +3056,7 @@ mod tests {
             !backup
                 .skills
                 .iter()
-                .any(|skill| skill.skill.id == "central-only"
-                    || skill.storage_kind == "central"),
+                .any(|skill| skill.skill.id == "central-only" || skill.storage_kind == "central"),
             "complete backup must omit central-only skills"
         );
     }
@@ -3118,7 +3112,11 @@ mod tests {
             "legacy central skills are restored into the resource library"
         );
         assert!(
-            !central_root.join("owner").join("repo").join("central-only").exists(),
+            !central_root
+                .join("owner")
+                .join("repo")
+                .join("central-only")
+                .exists(),
             "legacy central restore must not recreate Central Skills"
         );
         let resource_skills = crate::commands::skills::get_resource_library_skills_impl(&pool)
@@ -3640,10 +3638,7 @@ mod tests {
             .expect("skill")
             .expect("skill row");
         assert!(!restored.is_central);
-        assert_ne!(
-            restored.source.as_deref(),
-            Some("/Users/secret/skill")
-        );
+        assert_ne!(restored.source.as_deref(), Some("/Users/secret/skill"));
         assert_eq!(restored.source.as_deref(), Some("resource-library"));
     }
 

@@ -29,7 +29,9 @@ import {
   isExceptionalSkillOrigin,
 } from "@/lib/skillSourceDisplay";
 
-const FEATURED_CODING_AGENT_IDS = [
+const FEATURED_AGENT_IDS = [
+  "openclaw",
+  "qclaw",
   "cursor",
   "trae",
   "claude-code",
@@ -209,17 +211,15 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
     onRemove
   );
 
-  // Show all Lobster platforms, but only the highest-frequency Coding platforms.
+  // Show a featured subset of software platforms on the card; the rest open via Manage.
   const targetPlatformAgents = platformIcons?.agents.filter(isInstallTargetAgent) ?? [];
-  const lobsterAgents = targetPlatformAgents.filter((agent) => agent.category === "lobster");
-  const codingAgents = targetPlatformAgents.filter((agent) => agent.category !== "lobster");
   const linkedAgentIds = new Set(platformIcons?.linkedAgents ?? []);
   const readOnlyAgentIds = new Set(platformIcons?.readOnlyAgents ?? []);
-  const featuredCodingAgents = FEATURED_CODING_AGENT_IDS
-    .map((agentId) => codingAgents.find((agent) => agent.id === agentId))
+  const featuredAgents = FEATURED_AGENT_IDS
+    .map((agentId) => targetPlatformAgents.find((agent) => agent.id === agentId))
     .filter((agent): agent is AgentWithStatus => !!agent);
-  const featuredCodingAgentIds = new Set(featuredCodingAgents.map((agent) => agent.id));
-  const hiddenCodingCount = codingAgents.filter((agent) => !featuredCodingAgentIds.has(agent.id)).length;
+  const featuredAgentIds = new Set(featuredAgents.map((agent) => agent.id));
+  const hiddenPlatformCount = targetPlatformAgents.filter((agent) => !featuredAgentIds.has(agent.id)).length;
   const sourceLabel = sourceRepo ?? sourceAuthor;
 
   // ── Platform variant: clickable card style ──
@@ -480,71 +480,34 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
           </div>
 
           {/* Row 3: Platform toggles (central) */}
-          {hasPlatformIcons && (lobsterAgents.length > 0 || codingAgents.length > 0) && (
+          {hasPlatformIcons && targetPlatformAgents.length > 0 && (
             <div className="mt-auto space-y-1 pt-1">
-              {lobsterAgents.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="w-14 shrink-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-                    {t("sidebar.categoryLobster")}
-                  </span>
-                  <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
-                    {lobsterAgents.map((agent) => {
-                      const isReadOnlyAgent = readOnlyAgentIds.has(agent.id);
-                      return (
-                        <PlatformToggleIcon
-                          key={agent.id}
-                          agent={agent}
-                          skillName={name}
-                          isLinked={linkedAgentIds.has(agent.id) || isReadOnlyAgent}
-                          isReadOnly={isReadOnlyAgent}
-                          isToggling={platformIcons.togglingAgentId === agent.id}
-                          onToggle={() => platformIcons.onToggle(platformIcons.skillId, agent.id)}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {codingAgents.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <span className="w-14 shrink-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-                    {t("sidebar.categoryCoding")}
-                  </span>
-                  <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
-                    {featuredCodingAgents.map((agent) => {
-                      const isReadOnlyAgent = readOnlyAgentIds.has(agent.id);
-                      return (
-                        <PlatformToggleIcon
-                          key={agent.id}
-                          agent={agent}
-                          skillName={name}
-                          isLinked={linkedAgentIds.has(agent.id) || isReadOnlyAgent}
-                          isReadOnly={isReadOnlyAgent}
-                          isToggling={platformIcons.togglingAgentId === agent.id}
-                          onToggle={() => platformIcons.onToggle(platformIcons.skillId, agent.id)}
-                        />
-                      );
-                    })}
-                    {hiddenCodingCount > 0 && (
-                      <span className="ml-0.5 rounded-md bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        +{hiddenCodingCount}
-                      </span>
-                    )}
-                  </div>
-                  {platformIcons.onManage && (
-                    <button
-                      type="button"
-                      onClick={platformIcons.onManage}
-                      className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      aria-label={t("central.managePlatformsLabel", { skill: name })}
-                    >
-                      {t("central.managePlatforms")}
-                    </button>
+              <div className="flex items-center gap-1.5">
+                <span className="w-14 shrink-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                  {t("sidebar.softwarePlatforms")}
+                </span>
+                <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
+                  {featuredAgents.map((agent) => {
+                    const isReadOnlyAgent = readOnlyAgentIds.has(agent.id);
+                    return (
+                      <PlatformToggleIcon
+                        key={agent.id}
+                        agent={agent}
+                        skillName={name}
+                        isLinked={linkedAgentIds.has(agent.id) || isReadOnlyAgent}
+                        isReadOnly={isReadOnlyAgent}
+                        isToggling={platformIcons.togglingAgentId === agent.id}
+                        onToggle={() => platformIcons.onToggle(platformIcons.skillId, agent.id)}
+                      />
+                    );
+                  })}
+                  {hiddenPlatformCount > 0 && (
+                    <span className="ml-0.5 rounded-md bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      +{hiddenPlatformCount}
+                    </span>
                   )}
                 </div>
-              )}
-              {codingAgents.length === 0 && platformIcons.onManage && (
-                <div className="flex justify-end">
+                {platformIcons.onManage && (
                   <button
                     type="button"
                     onClick={platformIcons.onManage}
@@ -553,8 +516,8 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
                   >
                     {t("central.managePlatforms")}
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -652,7 +615,7 @@ function ReadOnlyBadge() {
   });
   const description = t("platform.readOnlyHint", {
     defaultValue: i18n.language.startsWith("zh")
-      ? "来自中央库或插件缓存的只读可见项，不是当前平台的可删除安装。"
+      ? "来自技能中心或插件缓存的只读可见项，不是当前平台的可删除安装。"
       : "Visible from Central or a plugin cache; this is not a removable install in the current platform.",
   });
 
