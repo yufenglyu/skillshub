@@ -236,6 +236,14 @@ function renderSettingsView() {
   );
 }
 
+function expandPlatformGroup(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(name) }));
+}
+
+function expandProjectDirectories() {
+  fireEvent.click(screen.getByRole("button", { name: "展开项目目录列表" }));
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("SettingsView", () => {
@@ -382,7 +390,7 @@ describe("SettingsView", () => {
       expect(mockSaveDialog).toHaveBeenCalled();
       expect(exportAppBackup).toHaveBeenCalledWith("D:\\backups\\skillshub-backup.zip", {
         includeResourceLibrary: true,
-        includeCentralLibrary: true,
+        includeCentralLibrary: false,
         includeAppConfig: true,
         includeInstallations: true,
       });
@@ -570,7 +578,7 @@ describe("SettingsView", () => {
         }),
         {
           includeResourceLibrary: true,
-          includeCentralLibrary: true,
+          includeCentralLibrary: false,
           includeAppConfig: true,
           includeInstallations: true,
         }
@@ -738,18 +746,21 @@ describe("SettingsView", () => {
   it("shows loading state for scan directories", () => {
     setupMocks({ isLoadingScanDirs: true });
     renderSettingsView();
+    expandProjectDirectories();
     expect(screen.getByText("加载中...")).toBeTruthy();
   });
 
   it("shows empty state when no scan directories", () => {
     setupMocks({ scanDirs: [] });
     renderSettingsView();
+    expandProjectDirectories();
     expect(screen.getByText("暂无项目目录")).toBeTruthy();
   });
 
   it("does not render builtin scan directories as project directories", () => {
     setupMocks({ scanDirs: [mockBuiltinDir] });
     renderSettingsView();
+    expandProjectDirectories();
     expect(screen.queryByText(/内置目录/)).toBeNull();
     expect(screen.queryByText("/Users/test/.agents/skills/")).toBeNull();
     expect(screen.getByText("暂无项目目录")).toBeTruthy();
@@ -767,6 +778,7 @@ describe("SettingsView", () => {
   it("shows remove button for custom directories", () => {
     setupMocks({ scanDirs: [mockCustomDir] });
     renderSettingsView();
+    expandProjectDirectories();
     expect(
       screen.getByRole("button", { name: `删除目录 ${mockCustomDir.path}` })
     ).toBeTruthy();
@@ -775,6 +787,7 @@ describe("SettingsView", () => {
   it("shows toggle for custom directories", () => {
     setupMocks({ scanDirs: [mockCustomDir] });
     renderSettingsView();
+    expandProjectDirectories();
     expect(screen.getByRole("switch")).toBeTruthy();
   });
 
@@ -787,12 +800,14 @@ describe("SettingsView", () => {
   it("shows 启用 label when directory is active", () => {
     setupMocks({ scanDirs: [{ ...mockCustomDir, is_active: true }] });
     renderSettingsView();
+    expandProjectDirectories();
     expect(screen.getByText("启用")).toBeTruthy();
   });
 
   it("shows 禁用 label when directory is inactive", () => {
     setupMocks({ scanDirs: [{ ...mockCustomDir, is_active: false }] });
     renderSettingsView();
+    expandProjectDirectories();
     expect(screen.getByText("禁用")).toBeTruthy();
   });
 
@@ -805,6 +820,7 @@ describe("SettingsView", () => {
   it("shows the project directory name like a platform display name", () => {
     setupMocks({ scanDirs: [mockCustomDir] });
     renderSettingsView();
+    expandProjectDirectories();
     expect(screen.getByText("My Project")).toBeTruthy();
     expect(screen.getByText("/Users/test/projects/my-project")).toBeTruthy();
     expect(
@@ -838,6 +854,7 @@ describe("SettingsView", () => {
     });
     setupMocks({ scanDirs: [mockCustomDir], updateScanDirectory });
     renderSettingsView();
+    expandProjectDirectories();
 
     fireEvent.click(screen.getByRole("button", { name: "编辑目录 My Project" }));
     const nameInput = await screen.findByLabelText(/项目名称/);
@@ -900,6 +917,7 @@ describe("SettingsView", () => {
       rescan,
     });
     renderSettingsView();
+    expandProjectDirectories();
 
     fireEvent.click(
       screen.getByRole("button", { name: `删除目录 ${mockCustomDir.path}` })
@@ -918,6 +936,7 @@ describe("SettingsView", () => {
     const refreshCounts = vi.fn().mockResolvedValue(undefined);
     setupMocks({ scanDirs: [mockCustomDir], removeScanDirectory, refreshCounts });
     renderSettingsView();
+    expandProjectDirectories();
 
     fireEvent.click(
       screen.getByRole("button", { name: `删除目录 ${mockCustomDir.path}` })
@@ -929,11 +948,43 @@ describe("SettingsView", () => {
     });
   });
 
-  // ── Custom Platforms section ──────────────────────────────────────────────
+  it("keeps the project directory list collapsed by default", () => {
+    setupMocks({ scanDirs: [mockCustomDir] });
+    renderSettingsView();
 
-  function expandPlatformGroup(name: string) {
-    fireEvent.click(screen.getByRole("button", { name: new RegExp(name) }));
-  }
+    expect(screen.queryByText("My Project")).toBeNull();
+    expect(screen.getByRole("button", { name: "展开项目目录列表" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+  });
+
+  it("expands and collapses the project directory list", () => {
+    setupMocks({ scanDirs: [mockCustomDir] });
+    renderSettingsView();
+
+    expandProjectDirectories();
+    expect(screen.getByText("My Project")).toBeTruthy();
+    const collapseToggle = screen.getByRole("button", { name: "收起项目目录列表" });
+    expect(collapseToggle).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(collapseToggle);
+    expect(screen.queryByText("My Project")).toBeNull();
+    expect(screen.getByRole("button", { name: "展开项目目录列表" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+  });
+
+  it("keeps the add project directory button visible while the list is collapsed", () => {
+    setupMocks({ scanDirs: [mockCustomDir] });
+    renderSettingsView();
+
+    expect(screen.queryByText("My Project")).toBeNull();
+    expect(screen.getByRole("button", { name: "添加项目目录" })).toBeTruthy();
+  });
+
+  // ── Custom Platforms section ──────────────────────────────────────────────
 
   it("shows empty state when no software platforms", () => {
     setupMocks({ agents: [] });
@@ -1119,6 +1170,7 @@ describe("SettingsView", () => {
     renderSettingsView();
 
     expandPlatformGroup("编程类");
+    expandProjectDirectories();
 
     expect(screen.getByText("Claude Code")).toBeTruthy();
     expect(screen.getByText("My Project")).toBeTruthy();
@@ -1202,7 +1254,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.60.0")).toBeTruthy();
+    expect(screen.getByText("SkillsHub v0.70.0")).toBeTruthy();
   });
 
   it("shows an editable config folder path", () => {

@@ -6,7 +6,7 @@ use std::time::SystemTime;
 use tauri::State;
 
 use crate::db::{self, Collection, DbPool, SkillForAgent};
-use crate::path_utils::remove_symlink_path;
+use crate::path_utils::{remove_symlink_path, resolve_path_for_file_manager};
 use crate::AppState;
 
 use super::linker::{
@@ -2919,11 +2919,8 @@ pub async fn list_skill_directory(dir_path: String) -> Result<Vec<SkillDirectory
 
 #[tauri::command]
 pub async fn open_in_file_manager(path: String) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
-    if !p.exists() {
-        return Err(format!("Path does not exist: {}", path));
-    }
-    open_in_file_manager_impl(&path)
+    let native = resolve_path_for_file_manager(&path)?;
+    open_in_file_manager_impl(&native)
 }
 
 fn open_in_file_manager_impl(path: &str) -> Result<(), String> {
@@ -6078,6 +6075,12 @@ mod tests {
     async fn test_open_in_file_manager_nonexistent_path() {
         let result =
             open_in_file_manager("/nonexistent/path/that/does/not/exist".to_string()).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_open_in_file_manager_rejects_empty_path() {
+        let result = open_in_file_manager("   ".to_string()).await;
         assert!(result.is_err());
     }
 }

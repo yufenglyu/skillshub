@@ -244,8 +244,17 @@ function Copy-WindowsAssets {
     $targetRoot = Join-Path $Root "src-tauri/target/release"
   }
   Write-Host "Tauri raw bundle output: $(Join-Path $targetRoot 'bundle')" -ForegroundColor DarkGray
-  $msi = Get-ChildItem -Path (Join-Path $targetRoot "bundle/msi") -Recurse -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($null -eq $msi) { throw "Windows MSI bundle not found under $targetRoot." }
+  $msiDir = Join-Path $targetRoot "bundle/msi"
+  $msiCandidates = @(Get-ChildItem -Path $msiDir -Recurse -Filter *.msi -ErrorAction SilentlyContinue)
+  if ($msiCandidates.Count -eq 0) { throw "Windows MSI bundle not found under $targetRoot." }
+  $msi = $msiCandidates |
+    Where-Object { $_.Name -match [regex]::Escape($NextVersion) } |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+  if ($null -eq $msi) {
+    $msi = $msiCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  }
+  Write-Host "Using MSI: $($msi.FullName) (LastWriteTime $($msi.LastWriteTime))" -ForegroundColor DarkGray
   Copy-Item $msi.FullName (Join-Path $OutDir "skillshub_${NextVersion}_windows_x64.msi") -Force
 
   $exe = Join-Path $targetRoot "skillshub.exe"

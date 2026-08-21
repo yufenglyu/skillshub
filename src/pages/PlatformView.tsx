@@ -19,10 +19,10 @@ import {
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import { SkillBrowserTable, type FolderTableItem } from "@/components/skill/SkillBrowserTable";
 import { SkillBrowserViewHeading } from "@/components/skill/SkillBrowserViewHeading";
+import { OpenableDirectoryPath } from "@/components/common/OpenableDirectoryPath";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
-import { formatPathForDisplay } from "@/lib/path";
 import { splitSkillsByTopLevel } from "@/lib/skillFolders";
 import {
   sortBySkillBrowserOrder,
@@ -390,9 +390,7 @@ export function PlatformView() {
           )}
           <h1 className="text-xl font-semibold">{agent.display_name}</h1>
         </div>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          {formatPathForDisplay(agent.global_skills_dir)}
-        </p>
+        <OpenableDirectoryPath path={agent.global_skills_dir} />
       </div>
 
       {isClaudePage && (

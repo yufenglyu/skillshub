@@ -426,6 +426,38 @@ fn path_without_verbatim_prefix(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
+/// Argument suitable for Finder / Explorer / xdg-open.
+///
+/// Windows Explorer treats each `/segment` as a command-line switch, so a path
+/// like `C:/Users/me/.agents/skills` is parsed as `/Users`, `/me`, `/.agents`
+/// and `/skills`, then Explorer falls back to the Documents folder. It also
+/// does not understand `\\?\` verbatim prefixes from `canonicalize`.
+pub fn path_for_file_manager(path: &Path) -> String {
+    let display = path_to_string(&path_without_verbatim_prefix(path));
+    #[cfg(windows)]
+    {
+        display.replace('/', "\\")
+    }
+    #[cfg(not(windows))]
+    {
+        display
+    }
+}
+
+/// Expand `~`, verify the path exists, then normalize it for the file manager.
+pub fn resolve_path_for_file_manager(path: &str) -> Result<String, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Path is empty".to_string());
+    }
+    let expanded = expand_home_path(trimmed);
+    if !expanded.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+    let resolved = std::fs::canonicalize(&expanded).unwrap_or(expanded);
+    Ok(path_for_file_manager(&resolved))
+}
+
 fn normalize_path_for_comparison(path: &Path) -> String {
     let value = path_without_verbatim_prefix(path)
         .to_string_lossy()
@@ -750,6 +782,64 @@ mod tests {
         let expanded =
             expand_home_path_with_home("/opt/skills/custom", Path::new("/tmp/ignored-home"));
         assert_eq!(expanded, PathBuf::from("/opt/skills/custom"));
+    }
+
+    #[test]
+    fn path_for_file_manager_uses_native_windows_separators() {
+        let native = path_for_file_manager(Path::new(r"C:/Users/alice/.agents/skills"));
+        #[cfg(windows)]
+        {
+            assert_eq!(native, r"C:\Users\alice\.agents\skills");
+            assert!(!native.contains('/'));
+        }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(native, "C:/Users/alice/.agents/skills");
+        }
+    }
+
+    #[test]
+    fn path_for_file_manager_strips_windows_verbatim_prefix() {
+        let native = path_for_file_manager(Path::new(r"\\?\C:\Users\alice\.agents\skills"));
+        #[cfg(windows)]
+        {
+            assert_eq!(native, r"C:\Users\alice\.agents\skills");
+        }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(native, r"\\?\C:\Users\alice\.agents\skills");
+        }
+    }
+
+    #[test]
+    fn resolve_path_for_file_manager_normalizes_dot_folders() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let hidden = dir.path().join(".agents").join("skills");
+        std::fs::create_dir_all(&hidden).expect("create hidden skills dir");
+
+        let forward_slash = hidden.to_string_lossy().replace('\\', "/");
+        let resolved = resolve_path_for_file_manager(&forward_slash).expect("resolve");
+
+        #[cfg(windows)]
+        {
+            assert!(
+                !resolved.contains('/'),
+                "explorer.exe treats /segment as switches and opens Documents: {resolved}"
+            );
+            assert!(
+                !resolved.starts_with(r"\\?\"),
+                "explorer.exe ignores verbatim prefixes: {resolved}"
+            );
+        }
+        assert!(Path::new(&resolved).is_dir());
+        assert!(paths_resolve_to_same_entry(Path::new(&resolved), &hidden));
+    }
+
+    #[test]
+    fn resolve_path_for_file_manager_rejects_missing_and_empty() {
+        let missing = resolve_path_for_file_manager("/nonexistent/path/that/does/not/exist");
+        assert!(missing.is_err());
+        assert!(resolve_path_for_file_manager("   ").is_err());
     }
 
     #[test]

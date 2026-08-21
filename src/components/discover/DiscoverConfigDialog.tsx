@@ -17,12 +17,6 @@ import { ScanRoot } from "@/types";
 import { describeSkillsPattern } from "@/lib/path";
 import { isEnabledInstallTargetAgent } from "@/lib/agents";
 
-const OBSIDIAN_VAULT_PATTERNS = [
-  ".skills/<skill>/SKILL.md",
-  ".agents/skills/<skill>/SKILL.md",
-  ".claude/skills/<skill>/SKILL.md",
-];
-
 // ─── DiscoverConfigDialog ────────────────────────────────────────────────────
 
 interface DiscoverConfigDialogProps {
@@ -133,25 +127,6 @@ export function DiscoverConfigDialog({ open, onOpenChange }: DiscoverConfigDialo
                   +{platformPatterns.length - 6}
                 </span>
               )}
-            </div>
-            <div className="mt-2 min-w-0 overflow-x-hidden rounded-md bg-muted/40 px-2.5 py-2">
-              <p className="text-xs font-medium text-foreground">
-                {t("discover.obsidianPatternsTitle")}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {t("discover.obsidianPatternsDesc")}
-              </p>
-              <div className="flex min-w-0 max-w-full flex-wrap gap-1.5 overflow-x-hidden mt-1.5">
-                {OBSIDIAN_VAULT_PATTERNS.map((pattern) => (
-                  <span
-                    key={pattern}
-                    title={pattern}
-                    className="min-w-0 max-w-full break-all whitespace-normal text-xs px-2 py-0.5 rounded bg-background/70 text-muted-foreground font-mono ring-1 ring-border/60"
-                  >
-                    {pattern}
-                  </span>
-                ))}
-              </div>
             </div>
           </div>
 

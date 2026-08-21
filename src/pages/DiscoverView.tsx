@@ -14,6 +14,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
+import { OpenableDirectoryPath } from "@/components/common/OpenableDirectoryPath";
 import { DiscoverConfigDialog } from "@/components/discover/DiscoverConfigDialog";
 import { UnifiedSkillCard } from "@/components/skill/UnifiedSkillCard";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
@@ -21,7 +22,6 @@ import { InstallDialog } from "@/components/central/InstallDialog";
 import { useDiscoverStore } from "@/stores/discoverStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { DiscoveredSkill, SkillWithLinks } from "@/types";
-import { invoke } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { consumeScrollPosition } from "@/lib/scrollRestoration";
 import { VirtualizedList } from "@/components/ui/virtualized-list";
@@ -393,17 +393,6 @@ export function DiscoverView() {
     setIsDrawerOpen(true);
   }, []);
 
-  const handleOpenProjectPath = useCallback(
-    async (projectPath: string) => {
-      try {
-        await invoke("open_in_file_manager", { path: projectPath });
-      } catch (err) {
-        toast.error(t("discover.openPathError", { error: String(err) }));
-      }
-    },
-    [t]
-  );
-
   // ── Render ─────────────────────────────────────────────────────────────────
 
   // Scanning or empty — full-width content
@@ -550,14 +539,10 @@ export function DiscoverView() {
               <div className="px-6 py-3 border-b border-border flex items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <h2 className="text-sm font-semibold truncate">{selectedProject.project_name}</h2>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenProjectPath(selectedProject.project_path)}
-                    className="text-xs text-muted-foreground truncate hover:text-primary hover:underline cursor-pointer text-left block max-w-full"
-                    title={t("discover.openInFileManager")}
-                  >
-                    {selectedProject.project_path}
-                  </button>
+                  <OpenableDirectoryPath
+                    path={selectedProject.project_path}
+                    className="text-xs mt-0"
+                  />
                 </div>
                 <SearchInput
                   placeholder={t("discover.skillSearchPlaceholder")}

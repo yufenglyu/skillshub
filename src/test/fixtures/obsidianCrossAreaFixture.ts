@@ -1,31 +1,30 @@
 import type { DiscoveredProject, DiscoveredSkill } from "@/types";
 
+/** Sample discovered project used by Discover UI/store tests. */
 export const OBSIDIAN_CROSS_AREA_FIXTURE = {
   fixtureRoot: "/tmp/skills-manage-val-cross-012",
   centralDir: "/tmp/skills-manage-val-cross-012/central",
   claudePlatformDir: "/tmp/skills-manage-val-cross-012/claude-platform-skills",
   cursorPlatformDir: "/tmp/skills-manage-val-cross-012/cursor-platform-skills",
-  vaultParentPath:
-    "/tmp/skills-manage-val-cross-012/Library/Mobile Documents/iCloud~md~obsidian/Documents",
-  vaultPath:
-    "/tmp/skills-manage-val-cross-012/Library/Mobile Documents/iCloud~md~obsidian/Documents/make-money",
+  vaultParentPath: "/tmp/skills-manage-val-cross-012/projects",
+  vaultPath: "/tmp/skills-manage-val-cross-012/projects/make-money",
   vaultName: "make-money",
   skillDirName: "money-researcher",
   skillName: "Money Researcher",
   skillDescription: "Correlated fixture skill",
-  skillId: "obsidian__ef800504428ee0cc__money-researcher",
+  skillId: "claude-code__make-money__money-researcher",
   sourceLocation: ".agents/skills",
   sourceDirPath:
-    "/tmp/skills-manage-val-cross-012/Library/Mobile Documents/iCloud~md~obsidian/Documents/make-money/.agents/skills/money-researcher",
+    "/tmp/skills-manage-val-cross-012/projects/make-money/.agents/skills/money-researcher",
   sourceFilePath:
-    "/tmp/skills-manage-val-cross-012/Library/Mobile Documents/iCloud~md~obsidian/Documents/make-money/.agents/skills/money-researcher/SKILL.md",
+    "/tmp/skills-manage-val-cross-012/projects/make-money/.agents/skills/money-researcher/SKILL.md",
   centralTargetPath: "/tmp/skills-manage-val-cross-012/central/money-researcher",
   symlinkPlatformTargetPath:
     "/tmp/skills-manage-val-cross-012/claude-platform-skills/money-researcher",
   copyPlatformTargetPath:
     "/tmp/skills-manage-val-cross-012/cursor-platform-skills/money-researcher",
-  platformId: "obsidian",
-  platformName: "Obsidian",
+  platformId: "claude-code",
+  platformName: "Claude Code",
   installAgentId: "claude-code",
   installAgentName: "Claude Code",
   symlinkInstallMethod: "symlink",

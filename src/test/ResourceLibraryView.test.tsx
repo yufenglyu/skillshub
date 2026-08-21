@@ -155,6 +155,8 @@ vi.mock("@/lib/tauri", () => ({
   invoke: vi.fn(),
 }));
 
+import { toast } from "sonner";
+import { invoke } from "@/lib/tauri";
 import { ResourceLibraryView } from "@/pages/ResourceLibraryView";
 
 describe("ResourceLibraryView delete", () => {
@@ -221,7 +223,48 @@ describe("ResourceLibraryView delete", () => {
     mockUnlisten.mockReset();
     mockListen.mockReset();
     mockListen.mockResolvedValue(mockUnlisten);
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue(undefined);
     window.localStorage.removeItem("skills-manage.skillListViewMode.resource-library");
+  });
+
+  it("opens the resource library directory from the header path", async () => {
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "在文件管理器中打开: ~/.skillshub/library",
+      })
+    );
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("open_in_file_manager", {
+        path: "~/.skillshub/library",
+      });
+    });
+  });
+
+  it("toasts when opening the resource library directory fails", async () => {
+    vi.mocked(invoke).mockRejectedValue("disk missing");
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "在文件管理器中打开: ~/.skillshub/library",
+      })
+    );
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("打开路径失败: disk missing");
+    });
   });
 
   it("opens a cascade confirmation for installed resource skills", async () => {

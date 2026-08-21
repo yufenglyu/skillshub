@@ -68,7 +68,6 @@ const NEW_PLATFORM_IDS = [
   "neovate",
   "pochi",
   "adal",
-  "obsidian",
 ];
 
 const ALL_PLATFORM_IDS = [...ORIGINAL_PLATFORM_IDS, ...NEW_PLATFORM_IDS];
@@ -297,18 +296,6 @@ describe("PlatformIcon", () => {
   it("renders fallback icon for unknown agentId", () => {
     const { container } = render(<PlatformIcon agentId="unknown-platform-xyz" />);
     expect(container.querySelector("svg")).toBeInTheDocument();
-  });
-
-  it("renders a dedicated decorative SVG icon for obsidian", () => {
-    const { container: obsidianContainer } = render(<PlatformIcon agentId="obsidian" />);
-    const { container: fallbackContainer } = render(<PlatformIcon agentId="unknown-platform-xyz" />);
-
-    const obsidianSvg = obsidianContainer.querySelector("svg");
-    const fallbackSvg = fallbackContainer.querySelector("svg");
-
-    expect(obsidianSvg).toBeInTheDocument();
-    expect(obsidianSvg).toHaveAttribute("aria-hidden", "true");
-    expect(obsidianSvg?.innerHTML).not.toEqual(fallbackSvg?.innerHTML);
   });
 
   it("renders fallback icon for empty agentId", () => {

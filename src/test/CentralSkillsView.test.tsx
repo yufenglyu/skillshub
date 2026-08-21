@@ -289,6 +289,24 @@ describe("CentralSkillsView", () => {
     expect(screen.getByText("/Users/test/.agents/skills/")).toBeInTheDocument();
   });
 
+  it("opens the central skills directory from the header path", async () => {
+    const invokeSpy = vi.spyOn(tauriBridge, "invoke").mockResolvedValue(undefined);
+    renderCentralSkillsView();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "在文件管理器中打开: /Users/test/.agents/skills/",
+      })
+    );
+
+    await waitFor(() => {
+      expect(invokeSpy).toHaveBeenCalledWith("open_in_file_manager", {
+        path: "/Users/test/.agents/skills/",
+      });
+    });
+    invokeSpy.mockRestore();
+  });
+
   it("shows a refresh button", () => {
     renderCentralSkillsView();
     expect(

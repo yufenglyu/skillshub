@@ -373,7 +373,7 @@ describe("discoverStore", () => {
     expect(state.selectedSkillIds.has("claude-code__my-app__deploy")).toBe(false);
   });
 
-  it("updates Obsidian vault counts by removing an imported central skill and empty vault rows", async () => {
+  it("updates discovered project counts by removing an imported central skill and empty project rows", async () => {
     useDiscoverStore.setState({
       discoveredProjects: mockObsidianProjects,
       totalSkillsFound: 1,
@@ -420,7 +420,7 @@ describe("discoverStore", () => {
     });
   });
 
-  it("keeps Obsidian discovered rows after installing to a real platform", async () => {
+  it("keeps discovered rows after installing to a real platform", async () => {
     useDiscoverStore.setState({
       discoveredProjects: mockObsidianProjects,
       totalSkillsFound: 1,
@@ -440,7 +440,7 @@ describe("discoverStore", () => {
     expect(useDiscoverStore.getState().totalSkillsFound).toBe(1);
   });
 
-  it("forwards the selected install method for Obsidian platform installs", async () => {
+  it("forwards the selected install method for discovered platform installs", async () => {
     useDiscoverStore.setState({
       discoveredProjects: mockObsidianProjects,
       totalSkillsFound: 1,
@@ -466,21 +466,7 @@ describe("discoverStore", () => {
     expect(useDiscoverStore.getState().totalSkillsFound).toBe(1);
   });
 
-  it("rejects Obsidian as a platform install target without invoking the backend", async () => {
-    useDiscoverStore.setState({ discoveredProjects: mockObsidianProjects });
-
-    await expect(
-      useDiscoverStore.getState().importToPlatform(
-        OBSIDIAN_CROSS_AREA_FIXTURE.skillId,
-        OBSIDIAN_CROSS_AREA_FIXTURE.platformId
-      )
-    ).rejects.toThrow(/Obsidian/);
-
-    expect(invoke).not.toHaveBeenCalled();
-    expect(useDiscoverStore.getState().error).toContain("Obsidian");
-  });
-
-  it("refreshCounts replaces Obsidian vault counts with reconciled cached rows", async () => {
+  it("refreshCounts replaces discovered counts with reconciled cached rows", async () => {
     useDiscoverStore.setState({
       discoveredProjects: mockObsidianProjects,
       totalSkillsFound: 1,

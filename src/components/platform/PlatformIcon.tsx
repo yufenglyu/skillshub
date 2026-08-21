@@ -255,16 +255,6 @@ export function PlatformIcon({ agentId, className, size = 16 }: PlatformIconProp
         </svg>
       );
 
-    case "obsidian":
-      // Obsidian — faceted vault crystal (source-only category, not install target)
-      return (
-        <svg {...svgProps}>
-          <path d="M8 1.4 13.2 5 12 12.4 8 14.6 4 12.4 2.8 5z" fill="currentColor" opacity="0.16" />
-          <path d="M8 1.4 13.2 5 8.9 6.7zM8 1.4 2.8 5 7.1 6.7zM2.8 5 4 12.4 7.1 6.7zM13.2 5 12 12.4 8.9 6.7zM4 12.4 8 14.6 7.1 6.7zM12 12.4 8 14.6 8.9 6.7z" />
-          <path d="M7.1 6.7h1.8L8 14.6z" opacity="0.7" />
-        </svg>
-      );
-
     default:
       // Generic terminal / code icon — used for unknown platforms
       return (

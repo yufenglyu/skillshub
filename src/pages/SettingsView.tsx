@@ -33,11 +33,11 @@ import { cn } from "@/lib/utils";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.60.0";
+const APP_VERSION = "0.70.0";
 const CONFIG_DIR_FALLBACK = "~/.skillshub";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
-  includeCentralLibrary: true,
+  includeCentralLibrary: false,
   includeAppConfig: true,
   includeInstallations: true,
 };
@@ -422,6 +422,84 @@ function SoftwarePlatformGroup({
   );
 }
 
+interface ProjectDirectoriesGroupProps {
+  dirs: ScanDirectory[];
+  isLoading: boolean;
+  removingDir: string | null;
+  onEditDirectory: (dir: ScanDirectory) => void;
+  onRemoveDirectory: (path: string) => void;
+  onToggleDirectory: (path: string, active: boolean) => void;
+}
+
+function ProjectDirectoriesGroup({
+  dirs,
+  isLoading,
+  removingDir,
+  onEditDirectory,
+  onRemoveDirectory,
+  onToggleDirectory,
+}: ProjectDirectoriesGroupProps) {
+  const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
+  const toggleLabel = isExpanded
+    ? t("settings.collapseProjectDirectories")
+    : t("settings.expandProjectDirectories");
+
+  return (
+    <div className="rounded-lg border border-border">
+      <button
+        type="button"
+        onClick={() => setIsExpanded((expanded) => !expanded)}
+        aria-expanded={isExpanded}
+        aria-label={toggleLabel}
+        className={cn(
+          "flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors",
+          isExpanded && "border-b border-border/60",
+          "hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+          {isExpanded ? (
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">{t("settings.addedDirectories")}</span>
+        </div>
+        <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+          {t("settings.projectDirectoryCount", { count: dirs.length })}
+        </span>
+      </button>
+      {isExpanded ? (
+        isLoading ? (
+          <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm justify-center">
+            <Loader2 className="size-4 animate-spin" />
+            <span>{t("settings.loading")}</span>
+          </div>
+        ) : dirs.length > 0 ? (
+          <div className="overflow-hidden">
+            {dirs.map((dir) => (
+              <ScanDirectoryRow
+                key={dir.id}
+                dir={dir}
+                onEdit={() => onEditDirectory(dir)}
+                onRemove={() => onRemoveDirectory(dir.path)}
+                onToggle={(active) => onToggleDirectory(dir.path, active)}
+                isRemoving={removingDir === dir.path}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="px-3 py-3 text-center text-xs text-muted-foreground">
+            {t("settings.noDirs")}
+          </p>
+        )
+      ) : null}
+    </div>
+  );
+}
+
 interface SoftwarePlatformsCardProps {
   scanDirectories: ScanDirectory[];
   softwarePlatforms: AgentWithStatus[];
@@ -547,32 +625,14 @@ function SoftwarePlatformsCard({
               </Button>
             </div>
             {scanDirError && <p className="text-xs text-destructive mb-3" role="alert">{scanDirError}</p>}
-            {isLoadingScanDirs ? (
-              <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm justify-center">
-                <Loader2 className="size-4 animate-spin" />
-                <span>{t("settings.loading")}</span>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {customDirs.length > 0 && (
-                  <div className="rounded-lg border border-border overflow-hidden">
-                    {customDirs.map((dir) => (
-                      <ScanDirectoryRow
-                        key={dir.id}
-                        dir={dir}
-                        onEdit={() => onEditDirectory(dir)}
-                        onRemove={() => onRemoveDirectory(dir.path)}
-                        onToggle={(active) => onToggleDirectory(dir.path, active)}
-                        isRemoving={removingDir === dir.path}
-                      />
-                    ))}
-                  </div>
-                )}
-                {customDirs.length === 0 && (
-                  <p className="text-xs text-muted-foreground text-center py-2">{t("settings.noDirs")}</p>
-                )}
-              </div>
-            )}
+            <ProjectDirectoriesGroup
+              dirs={customDirs}
+              isLoading={isLoadingScanDirs}
+              removingDir={removingDir}
+              onEditDirectory={onEditDirectory}
+              onRemoveDirectory={onRemoveDirectory}
+              onToggleDirectory={onToggleDirectory}
+            />
           </div>
         </div>
       </CardContent>

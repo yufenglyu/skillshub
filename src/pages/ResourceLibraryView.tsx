@@ -20,6 +20,7 @@ import { InstallTargetList } from "@/components/central/InstallTargetList";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import { SkillBrowserTable, type FolderTableItem } from "@/components/skill/SkillBrowserTable";
 import { SkillBrowserViewHeading } from "@/components/skill/SkillBrowserViewHeading";
+import { OpenableDirectoryPath } from "@/components/common/OpenableDirectoryPath";
 import { Button } from "@/components/ui/button";
 import { HelpIcon } from "@/components/ui/help-icon";
 import { SearchInput } from "@/components/ui/search-input";
@@ -35,7 +36,7 @@ import { Input } from "@/components/ui/input";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
 import { isInstallTargetAgent } from "@/lib/agents";
-import { formatPathForDisplay, normalizePathForInputDisplay } from "@/lib/path";
+import { normalizePathForInputDisplay } from "@/lib/path";
 import { buildSearchText, normalizeSearchQuery } from "@/lib/search";
 import {
   splitResourceLibrarySkillsByFolder,
@@ -223,7 +224,6 @@ export function ResourceLibraryView() {
     () => normalizeSearchQuery(effectiveSearchQuery),
     [effectiveSearchQuery]
   );
-  const formattedResourceDir = formatPathForDisplay(resourceLibraryDir || t("resource.path"));
 
   useEffect(() => {
     loadResourceLibrary();
@@ -834,7 +834,10 @@ export function ResourceLibraryView() {
               <RefreshCw className={cn("size-4", isLoading && "animate-spin")} />
             </Button>
           </div>
-          <p className="mt-0.5 text-sm text-muted-foreground">{formattedResourceDir}</p>
+          <OpenableDirectoryPath
+            path={resourceLibraryDir}
+            displayPath={resourceLibraryDir || t("resource.path")}
+          />
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handleUpdateSources} disabled={isUpdatingSources}>

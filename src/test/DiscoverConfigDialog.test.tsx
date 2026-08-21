@@ -22,8 +22,6 @@ vi.mock("react-i18next", () => ({
         "discover.scanRoots": "Scan Roots",
         "discover.scanRootsDesc": "Select directories to scan for project-level skills.",
         "discover.lookingFor": "Looking for:",
-        "discover.obsidianPatternsTitle": "Obsidian vaults",
-        "discover.obsidianPatternsDesc": "Also scans vault skill folders:",
         "discover.noRootsEnabled": "No scan roots enabled. Select at least one directory.",
         "discover.startScan": "Start Scan",
         "discover.scanning": "Scanning...",
@@ -63,15 +61,6 @@ const mockAgents: AgentWithStatus[] = [
     global_skills_dir: "/home/user/.agents/skills/",
     is_detected: true,
     is_builtin: true,
-    is_enabled: true,
-  },
-  {
-    id: "obsidian",
-    display_name: "Obsidian",
-    category: "obsidian",
-    global_skills_dir: "/home/user/Vault/.agents/skills/",
-    is_detected: true,
-    is_builtin: false,
     is_enabled: true,
   },
 ];
@@ -160,34 +149,7 @@ describe("DiscoverConfigDialog", () => {
     expect(screen.getByText("Looking for:")).toBeInTheDocument();
   });
 
-  it("renders Obsidian vault skill patterns as always-visible scan hints", () => {
-    const manyAgents: AgentWithStatus[] = [
-      ...mockAgents,
-      ...Array.from({ length: 8 }, (_, index) => ({
-        id: `extra-${index}`,
-        display_name: `Extra ${index}`,
-        category: "coding",
-        global_skills_dir: `/home/user/.extra-${index}/skills/`,
-        is_detected: true,
-        is_builtin: false,
-        is_enabled: true,
-      })),
-    ];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.mocked(usePlatformStore).mockImplementation((selector: any) =>
-      selector(buildPlatformStoreState({ agents: manyAgents }))
-    );
-
-    renderDialog();
-
-    expect(screen.getByText("Obsidian vaults")).toBeInTheDocument();
-    expect(screen.getByText("Also scans vault skill folders:")).toBeInTheDocument();
-    expect(screen.getByText(".skills/<skill>/SKILL.md")).toBeInTheDocument();
-    expect(screen.getByText(".agents/skills/<skill>/SKILL.md")).toBeInTheDocument();
-    expect(screen.getByText(".claude/skills/<skill>/SKILL.md")).toBeInTheDocument();
-  });
-
-  it("keeps long scan roots and Obsidian pattern chips constrained inside the dialog", () => {
+  it("keeps long scan roots constrained inside the dialog", () => {
     const longICloudPath =
       "/Users/happypeet/Library/Mobile Documents/iCloud~md~obsidian/Documents/make-money/very-long-segment/another-long-segment";
     const longRootLabel =
@@ -230,17 +192,6 @@ describe("DiscoverConfigDialog", () => {
     expect(label).toHaveAttribute("title", longRootLabel);
     expect(label.className).toEqual(expect.stringContaining("truncate"));
     expect(label.className).toEqual(expect.stringContaining("max-w-"));
-
-    for (const pattern of [
-      ".skills/<skill>/SKILL.md",
-      ".agents/skills/<skill>/SKILL.md",
-      ".claude/skills/<skill>/SKILL.md",
-    ]) {
-      const chip = screen.getByText(pattern);
-      expect(chip.className).toEqual(expect.stringContaining("max-w-full"));
-      expect(chip.className).toEqual(expect.stringContaining("break-all"));
-      expect(chip.className).toEqual(expect.stringContaining("whitespace-normal"));
-    }
   });
 
   it("keeps vertical scrolling isolated to the scan roots list", () => {

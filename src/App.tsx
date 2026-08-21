@@ -7,7 +7,6 @@ import { SkillDetailPage } from "@/pages/SkillDetailPage";
 import { CollectionsListView } from "@/pages/CollectionsListView";
 import { SettingsView } from "@/pages/SettingsView";
 import { DiscoverView } from "@/pages/DiscoverView";
-import { ObsidianVaultView } from "@/pages/ObsidianVaultView";
 
 function App() {
   return (
@@ -29,8 +28,6 @@ function App() {
         <Route path="discover" element={<DiscoverView />} />
         {/* Discover filtered by project */}
         <Route path="discover/:projectPath" element={<DiscoverView />} />
-        {/* Obsidian vault source view */}
-        <Route path="obsidian/:vaultId" element={<ObsidianVaultView />} />
         {/* Settings */}
         <Route path="settings" element={<SettingsView />} />
       </Route>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { DiscoverView } from "../pages/DiscoverView";
 import { DiscoveredProject, DiscoveredSkill, AgentWithStatus } from "../types";
@@ -121,6 +121,8 @@ vi.mock("react-i18next", () => ({
         "central.toggleInstallLabel": `Toggle ${params?.platform ?? ""} for ${params?.skill ?? ""}`,
         "collection.removeSkillLabel": `Remove ${params?.name ?? ""}`,
         "common.installed": "Installed",
+        "common.openInFileManager": "Open in file manager",
+        "common.openPathError": `Failed to open path: ${params?.error ?? ""}`,
         "sidebar.categoryLobster": "Lobster",
         "sidebar.categoryCoding": "Coding",
         "platform.sourceCentral": "Central Skills",
@@ -142,6 +144,7 @@ vi.mock("sonner", () => ({
 
 import { useDiscoverStore } from "../stores/discoverStore";
 import { usePlatformStore } from "../stores/platformStore";
+import * as tauriBridge from "@/lib/tauri";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -240,15 +243,6 @@ const mockAgents: AgentWithStatus[] = [
     global_skills_dir: "~/.claude/skills/",
     is_detected: true,
     is_builtin: true,
-    is_enabled: true,
-  },
-  {
-    id: "obsidian",
-    display_name: "Obsidian",
-    category: "obsidian",
-    global_skills_dir: "~/Vault/.agents/skills/",
-    is_detected: true,
-    is_builtin: false,
     is_enabled: true,
   },
   {
@@ -375,6 +369,24 @@ describe("DiscoverView", () => {
     renderDiscoverView();
     // "my-app" appears in both the project list and the detail header
     expect(screen.getAllByText("my-app").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("opens the selected project path in the file manager", async () => {
+    const invokeSpy = vi.spyOn(tauriBridge, "invoke").mockResolvedValue(undefined);
+    renderDiscoverView();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open in file manager: /home/user/projects/my-app",
+      })
+    );
+
+    await waitFor(() => {
+      expect(invokeSpy).toHaveBeenCalledWith("open_in_file_manager", {
+        path: "/home/user/projects/my-app",
+      });
+    });
+    invokeSpy.mockRestore();
   });
 
   // ── Loading cached results on mount ──────────────────────────────────────
@@ -576,7 +588,7 @@ describe("DiscoverView", () => {
     expect(screen.getByText("Claude Code")).toBeInTheDocument();
   });
 
-  it("reuses the Discover detail layout for an encoded Obsidian vault route", async () => {
+  it("reuses the Discover detail layout for an encoded project route", async () => {
     mockUseDiscoverStore.mockImplementation((selector) =>
       selector(
         buildDiscoverStoreState({
@@ -611,7 +623,7 @@ describe("DiscoverView", () => {
     expect(screen.getByText(`drawer-dir:${obsidianSkill.dir_path}`)).toBeInTheDocument();
   });
 
-  it("correlates the canonical Obsidian fixture values in the Discover UI paper trail", () => {
+  it("correlates the canonical discovered fixture values in the Discover UI paper trail", () => {
     mockUseDiscoverStore.mockImplementation((selector) =>
       selector(
         buildDiscoverStoreState({
@@ -631,33 +643,7 @@ describe("DiscoverView", () => {
     expect(obsidianSkill.file_path).toBe(OBSIDIAN_CROSS_AREA_FIXTURE.sourceFilePath);
   });
 
-  it("excludes Obsidian from the install dialog targets for discovered vault skills", async () => {
-    mockUseDiscoverStore.mockImplementation((selector) =>
-      selector(
-        buildDiscoverStoreState({
-          discoveredProjects: obsidianProjects,
-          totalSkillsFound: 1,
-        })
-      )
-    );
-
-    renderDiscoverView(`/discover/${encodeURIComponent(obsidianVaultPath)}`);
-
-    fireEvent.click(screen.getByTitle("Install to Platform"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("install-dialog")).toBeInTheDocument();
-    });
-    const lastProps = mockInstallDialogProps.mock.calls.at(-1)?.[0];
-    expect(lastProps?.agents.map((agent: { id: string }) => agent.id)).toEqual([
-      OBSIDIAN_CROSS_AREA_FIXTURE.installAgentId,
-    ]);
-    const dialog = screen.getByTestId("install-dialog");
-    expect(within(dialog).getByText(OBSIDIAN_CROSS_AREA_FIXTURE.installAgentName)).toBeInTheDocument();
-    expect(within(dialog).queryByText(OBSIDIAN_CROSS_AREA_FIXTURE.platformName)).not.toBeInTheDocument();
-  });
-
-  it("passes the selected install method through when installing an Obsidian vault skill", async () => {
+  it("passes the selected install method through when installing a discovered skill", async () => {
     mockImportToPlatform.mockResolvedValueOnce({
       skill_id: OBSIDIAN_CROSS_AREA_FIXTURE.skillDirName,
       target: OBSIDIAN_CROSS_AREA_FIXTURE.installAgentId,
@@ -757,7 +743,7 @@ describe("DiscoverView", () => {
     });
   });
 
-  it("imports the correlated Obsidian fixture to Central through the card action", async () => {
+  it("imports the correlated discovered fixture to Central through the card action", async () => {
     mockImportToCentral.mockResolvedValueOnce({
       skill_id: OBSIDIAN_CROSS_AREA_FIXTURE.skillDirName,
       target: "central",

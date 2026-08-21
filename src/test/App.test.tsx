@@ -106,24 +106,6 @@ vi.mock("../stores/discoverStore", () => ({
   }),
 }));
 
-vi.mock("../stores/obsidianStore", () => ({
-  useObsidianStore: vi.fn().mockImplementation((selector?: unknown) => {
-    const state = {
-      vaults: [],
-      skillsByVault: {},
-      isLoadingVaults: false,
-      loadingSkillsByVault: {},
-      error: null,
-      loadVaults: vi.fn().mockResolvedValue(undefined),
-      getVaultSkills: vi.fn().mockResolvedValue(undefined),
-    };
-    if (typeof selector === "function") {
-      return selector(state);
-    }
-    return state;
-  }),
-}));
-
 describe("App", () => {
   it("redirects the root route to the resource library", async () => {
     await act(async () => {

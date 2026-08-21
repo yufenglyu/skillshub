@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.70.0 - 2026-08-21
+
+This release puts the Skill Collections Library above Central Skills, stops treating Obsidian vaults as a special source, and keeps complete backups to the Resource Library and collections only.
+
+### Features
+
+- Rename sidebar Collections to Skill Collections Library and place it between the Skill Resource Library and Central Skills.
+- Click the folder path in Resource Library, Central Skills, software platform, project directory, and Discover headers to open that directory in the file manager.
+- Collapse the added project directories list on Settings the same way as the Lobster and Coding platform groups.
+
+### Improvements
+
+- Complete local and WebDAV backups include the Resource Library and collections, plus app settings and existing platform installs. Central Skills is not exported or restored. Files from older backups that still contain Central Skills are copied into the Resource Library when they are missing there.
+- Ignore `release-assets` and `dist` in the Vite watcher so packaging an installer does not crash `pnpm dev` on Windows.
+- Refresh English and Chinese README content and screenshots for the new sidebar order, clickable header paths, collapsible project directories, and backup scope.
+
+### Fixes
+
+- Remove Obsidian vault detection, the `/obsidian` view, and the sidebar Obsidian group. Discover no longer treats `.obsidian` folders as a special skill source.
+- Convert Windows paths to backslashes before handing them to Explorer, so clicking a path such as `C:/Users/...` opens that folder instead of Documents.
+
 ## 0.60.0 - 2026-08-20
 
 This release makes Central Skills a symlink into the Resource Library, labels independent vs shared platform directories, and cleans up leftover folders when you uninstall a Central Skills group.

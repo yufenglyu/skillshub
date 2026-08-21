@@ -403,6 +403,69 @@ describe("PlatformView", () => {
     expect(screen.getByText("/Users/test/.claude/skills/")).toBeInTheDocument();
   });
 
+  it("opens the software platform directory from the header path", async () => {
+    const invokeSpy = vi.spyOn(tauriBridge, "invoke").mockResolvedValue(undefined);
+    renderPlatformView();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "在文件管理器中打开: /Users/test/.claude/skills/",
+      })
+    );
+
+    await waitFor(() => {
+      expect(invokeSpy).toHaveBeenCalledWith("open_in_file_manager", {
+        path: "/Users/test/.claude/skills/",
+      });
+    });
+    invokeSpy.mockRestore();
+  });
+
+  it("opens a project directory path from the header", async () => {
+    const projectAgent: AgentWithStatus = {
+      id: "project:1",
+      display_name: "temp",
+      category: "project",
+      global_skills_dir: "/Users/test/Projects/temp/.agents/skills",
+      project_skills_dir: ".agents/skills",
+      is_detected: true,
+      is_builtin: false,
+      is_enabled: true,
+    };
+    mockUsePlatformStore.mockImplementation((selector?: unknown) => {
+      const state = buildPlatformStoreState({
+        agents: [projectAgent],
+        skillsByAgent: { "project:1": 0 },
+      });
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+    mockUseSkillStore.mockImplementation((selector?: unknown) => {
+      const state = buildSkillStoreState({
+        skillsByAgent: { "project:1": [] },
+        loadingByAgent: { "project:1": false },
+      });
+      if (typeof selector === "function") return selector(state);
+      return state;
+    });
+
+    const invokeSpy = vi.spyOn(tauriBridge, "invoke").mockResolvedValue(undefined);
+    renderPlatformView(encodeURIComponent("project:1"));
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "在文件管理器中打开: /Users/test/Projects/temp/.agents/skills",
+      })
+    );
+
+    await waitFor(() => {
+      expect(invokeSpy).toHaveBeenCalledWith("open_in_file_manager", {
+        path: "/Users/test/Projects/temp/.agents/skills",
+      });
+    });
+    invokeSpy.mockRestore();
+  });
+
   // ── Skill List ────────────────────────────────────────────────────────────
 
   it("renders skill cards for all skills", () => {

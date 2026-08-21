@@ -339,13 +339,6 @@ export interface ScanRoot {
   enabled: boolean;
 }
 
-export interface ObsidianVault {
-  id: string;
-  name: string;
-  path: string;
-  skill_count: number;
-}
-
 export interface DiscoveredSkill {
   id: string;
   name: string;

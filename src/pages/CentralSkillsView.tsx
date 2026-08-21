@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { usePlatformStore } from "@/stores/platformStore";
+import { OpenableDirectoryPath } from "@/components/common/OpenableDirectoryPath";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
 import { SkillBrowserTable, type FolderTableItem } from "@/components/skill/SkillBrowserTable";
 import { SkillBrowserViewHeading } from "@/components/skill/SkillBrowserViewHeading";
@@ -185,9 +186,9 @@ export function CentralSkillsView() {
   const agents = shouldUseBrowserFixtures
     ? BROWSER_FIXTURE_AGENTS
     : (rawAgents ?? EMPTY_AGENTS);
-  const centralSkillsRoot =
-    agents.find((agent) => agent.id === "central")?.global_skills_dir ?? t("central.path");
-  const centralSkillsDir = formatPathForDisplay(centralSkillsRoot);
+  const centralAgentDir =
+    agents.find((agent) => agent.id === "central")?.global_skills_dir ?? "";
+  const centralSkillsRoot = centralAgentDir || t("central.path");
   const isLoading = shouldUseBrowserFixtures ? false : rawIsLoading ?? false;
   const loadCentralSkills = rawLoadCentralSkills ?? noopLoadCentralSkills;
   const loadCentralBundles =
@@ -543,9 +544,10 @@ export function CentralSkillsView() {
               <RefreshCw className={`size-4 ${isLoading ? "animate-spin" : ""}`} />
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {centralSkillsDir}
-          </p>
+          <OpenableDirectoryPath
+            path={centralAgentDir}
+            displayPath={centralSkillsRoot}
+          />
         </div>
       </div>
 

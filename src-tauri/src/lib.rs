@@ -150,8 +150,6 @@ pub fn run() {
             // Discover
             commands::discover::discover_scan_roots,
             commands::discover::get_scan_roots,
-            commands::discover::get_obsidian_vaults,
-            commands::discover::get_obsidian_vault_skills,
             commands::discover::set_scan_root_enabled,
             commands::discover::start_project_scan,
             commands::discover::stop_project_scan,

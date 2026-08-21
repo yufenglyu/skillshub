@@ -33,8 +33,10 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri` and release artifacts.
+      // Packaging MSI/ZIP under release-assets can lock those files and crash
+      // the watcher with EBUSY on Windows.
+      ignored: ["**/src-tauri/**", "**/release-assets/**", "**/dist/**"],
     },
   },
 

@@ -1,12 +1,8 @@
 import type { AgentWithStatus } from "@/types";
 
 export const CENTRAL_AGENT_ID = "central";
-export const OBSIDIAN_AGENT_ID = "obsidian";
 
-const NON_INSTALL_TARGET_AGENT_IDS = new Set([
-  CENTRAL_AGENT_ID,
-  OBSIDIAN_AGENT_ID,
-]);
+const NON_INSTALL_TARGET_AGENT_IDS = new Set([CENTRAL_AGENT_ID]);
 
 export function isInstallTargetAgent(agent: Pick<AgentWithStatus, "id">): boolean {
   return !NON_INSTALL_TARGET_AGENT_IDS.has(agent.id);
@@ -14,9 +10,9 @@ export function isInstallTargetAgent(agent: Pick<AgentWithStatus, "id">): boolea
 
 /** Collection batch install may also target Central Skills. */
 export function isCollectionInstallTargetAgent(
-  agent: Pick<AgentWithStatus, "id">
+  _agent: Pick<AgentWithStatus, "id">
 ): boolean {
-  return agent.id !== OBSIDIAN_AGENT_ID;
+  return true;
 }
 
 export function isEnabledInstallTargetAgent(
