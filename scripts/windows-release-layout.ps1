@@ -6,8 +6,8 @@ function Invoke-PreparePackagedConfig {
   $dest = Join-Path $Root "src-tauri/resources/packaged-config"
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
   $manifest = Join-Path $Root "src-tauri/Cargo.toml"
-  Write-Host ">> cargo run --manifest-path $manifest --bin prepare-config-dir --release -- $dest" -ForegroundColor Cyan
-  & cargo run --manifest-path $manifest --bin prepare-config-dir --release -- $dest
+  Write-Host ">> cargo run --manifest-path $manifest --bin prepare-config-dir --release --features prepare-config -- $dest" -ForegroundColor Cyan
+  & cargo run --manifest-path $manifest --bin prepare-config-dir --release --features prepare-config -- $dest
   if ($LASTEXITCODE -ne 0) {
     throw "Failed to prepare default .skillshub config directory"
   }

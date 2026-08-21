@@ -6,8 +6,8 @@ prepare_packaged_config() {
   local root="$1"
   local dest="$root/src-tauri/resources/packaged-config"
   mkdir -p "$dest"
-  echo ">> cargo run --manifest-path $root/src-tauri/Cargo.toml --bin prepare-config-dir --release -- $dest"
-  cargo run --manifest-path "$root/src-tauri/Cargo.toml" --bin prepare-config-dir --release -- "$dest"
+  echo ">> cargo run --manifest-path $root/src-tauri/Cargo.toml --bin prepare-config-dir --release --features prepare-config -- $dest"
+  cargo run --manifest-path "$root/src-tauri/Cargo.toml" --bin prepare-config-dir --release --features prepare-config -- "$dest"
 }
 
 copy_packaged_config() {

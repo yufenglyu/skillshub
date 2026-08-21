@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.80.1 - 2026-08-21
+
+### Fixes
+
+- Stop bundling the `prepare-config-dir` helper into desktop apps so macOS universal packaging no longer fails looking for a missing lipo binary.
+
 ## 0.80.0 - 2026-08-21
 
 This release unifies software platforms (no Lobster/Coding split), stores platform config in `platform.json` with icons under `icons/`, and renames the Chinese Central Skills label to 技能中心.

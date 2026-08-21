@@ -52,7 +52,7 @@ jobs:
 
       - name: Prepare default config directory
         run: |
-          cargo run --manifest-path src-tauri/Cargo.toml --bin prepare-config-dir --release -- src-tauri/resources/packaged-config
+          cargo run --manifest-path src-tauri/Cargo.toml --bin prepare-config-dir --release --features prepare-config -- src-tauri/resources/packaged-config
 
       - name: Build Windows bundles
         run: pnpm tauri build --target x86_64-pc-windows-msvc --bundles msi --no-sign --ci
@@ -119,7 +119,7 @@ jobs:
 
       - name: Prepare default config directory
         run: |
-          cargo run --manifest-path src-tauri/Cargo.toml --bin prepare-config-dir --release -- src-tauri/resources/packaged-config
+          cargo run --manifest-path src-tauri/Cargo.toml --bin prepare-config-dir --release --features prepare-config -- src-tauri/resources/packaged-config
 
       - name: Build macOS bundles
         run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg --no-sign --ci
@@ -226,7 +226,7 @@ jobs:
 
       - name: Prepare default config directory
         run: |
-          cargo run --manifest-path src-tauri/Cargo.toml --bin prepare-config-dir --release -- src-tauri/resources/packaged-config
+          cargo run --manifest-path src-tauri/Cargo.toml --bin prepare-config-dir --release --features prepare-config -- src-tauri/resources/packaged-config
 
       - name: Build Linux bundles
         run: pnpm tauri build --bundles deb,rpm,appimage --no-sign --ci

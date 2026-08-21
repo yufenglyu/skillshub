@@ -1,6 +1,6 @@
 [package]
 name = "skillshub"
-version = "0.80.0"
+version = "0.80.1"
 description = "AI Agent Skills Hub"
 authors = ["yufenglyu"]
 license = "Apache-2.0"
@@ -15,9 +15,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "skillshub"
 path = "src/main.rs"
 
+# Build-time helper only. Gate behind a feature so `tauri build` does not try to
+# bundle it (universal macOS packaging expects every [[bin]] under the lipo output).
 [[bin]]
 name = "prepare-config-dir"
 path = "src/bin/prepare_config_dir.rs"
+required-features = ["prepare-config"]
+
+[features]
+default = []
+prepare-config = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
