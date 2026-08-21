@@ -1,46 +1,65 @@
 # SkillsHub
 
-SkillsHub 是一个本地优先的桌面应用，用来收集、查看、整理 AI agent skills，并把它们安装到多个 coding 工具和项目目录。
+本地优先的桌面应用：收集、整理 AI Agent Skills（`SKILL.md`），并安装到多个编程工具与项目目录。
 
-[English](README.md)
+[English](README.md) · [下载 Releases](https://github.com/yufenglyu/skillshub/releases) · [更新日志](CHANGELOG.zh.md)
 
-> **免责声明**
->
-> SkillsHub 是独立的非官方应用。它与 Anthropic、OpenAI、GitHub、skills.sh、MiniMax 或其他受支持平台、发布方、商标所有者均无隶属、背书或赞助关系。
+> **免责声明**  
+> SkillsHub 是独立的非官方应用，与 Anthropic、OpenAI、GitHub、skills.sh、MiniMax 或其他受支持平台、发布方、商标所有者均无隶属、背书或赞助关系。
 
-## 它解决什么问题
+---
 
-SkillsHub 把技能的长期保存，和工具真正读取技能的位置分开：
+## 适合谁用
 
-| 区域 | 作用 | 常见路径 |
-|------|------|----------|
-| **技能资源库** | 导入和本地添加技能的默认入口 | `~/.skillshub/library` |
-| **技能中心** | 你明确选择共享的兼容目录 | `~/.agents/skills` |
-| **软件平台** | 某个工具自己的安装目标（符号链接或复制） | 取决于平台 |
-| **项目目录** | 可命名的项目级安装目标 | `<项目>/.agents/skills` |
-| **技能集合库** | 把资源库技能组成可复用分组 | 应用数据库 |
+你在用 Claude Code、Codex、Cursor、Gemini CLI、OpenClaw 等工具，手里有一堆技能包，却不想：
 
-应用数据保存在 `.skillshub` 文件夹中（默认 `~/.skillshub`）。Windows MSI 和 Linux deb/rpm 会在安装时创建该目录，且不覆盖已有文件。macOS DMG 安装后在首次启动时写入。便携包解压后已自带与应用同级的 `.skillshub`（`skillshub_*_windows_x64.zip`、`skillshub_*_macos_universal.zip` / `.tar.gz`、`skillshub-v*_Linux-*.tar.gz`），内含默认平台 JSON/图标、空的技能资源库和 SQLite 数据库。也可以在设置里指定其他配置目录。从旧版本升级时，如果新目录还不存在，首次启动会迁移已有的 `~/.skillsmanage`。
+- 每个工具各拷一份、互相不同步  
+- 把「下载囤积」和「真正给工具读」混在同一个目录里  
+- 换机器或重装后，安装关系全丢  
 
-## 核心能力
+SkillsHub 把 **长期存放**、**共享兼容库**、**各工具安装目标** 分开管理。
 
-- **统一表格浏览**：技能资源库、技能中心、软件平台和项目目录都使用同一套表格。搜索、排序和「平铺 / 目录」切换在同一行，视图按钮在搜索框右侧。
-- **目录视图**按 `owner/repo` 这类来源路径分组。资源库目录可以加入技能中心，或安装到软件平台和项目目录；平台和项目目录可以按目录卸载。
-- **安装统计**分成两行：直接安装（平台 / 项目）和共享可用。把鼠标放在单元格上可以看到具体目标名称。
-- **操作图标一致**：加入/移出技能中心、安装/卸载到平台或项目、更新、删除。提示文字保持简短，不带技能名称。
-- **导入技能**在隔离目录中执行 `npx skills add owner/repo`，再把完整技能文件夹复制到技能资源库。可选填写技能名称，只导入仓库中的某一个技能。
-- **添加技能**复制本地已经准备好的单个 skill 文件夹或合集文件夹，并与可追踪的 npx 导入区分管理。
-- **更新技能**先检查来源仓库的更新标记，有变化时才重新下载。底部状态栏显示导入、更新和安装进度。
-- 资源库技能可以直接安装到指定软件平台或项目目录，不强制加入技能中心。
-- 加入技能中心会在 `~/.agents/skills` 下创建指向资源库的符号链接，不再复制一份。从技能中心移除时只删除链接。技能中心已有托管技能时，新检测到的本地平台和已配置的项目目录会自动纳入同步。
-- 如果某个平台或项目的技能目录就是共享的 `.agents/skills`，向它安装会转换为**加入技能中心**，而不是再做一次自引用安装。已经在技能中心中的技能会显示为「已通过技能中心共享」。设置页把这类平台标为「共享目录」，其余为「独立目录」；侧栏在平台名称后用圆点区分。
-- 侧栏顺序为技能资源库、**技能集合库**，分割线下方为**技能中心**、软件平台、项目目录。技能集合只保留创建、编辑、删除、安装、添加技能和刷新。集合页使用单一平铺表格，不再提供目录视图，也不再提供导入/导出技能集。「安装」弹出目标选择，可勾选软件平台、项目目录和技能中心，默认全不选。
-- 技能资源库、技能中心、软件平台、项目目录和 Discover 的标题栏会显示目录路径，点击即可在文件管理器中打开。
-- 设置页支持配置文件路径（含便携模式）、技能资源库和技能中心路径（浏览 / 打开）、启用/关闭软件平台、编辑内置平台、添加自定义平台、为项目目录命名、本地 ZIP / WebDAV 备份，以及检查更新。「平台与项目目录」上的刷新会重新检测本机平台是否新增或消失。软件平台与已添加的项目目录列表都可以折叠。浏览选中目录后立即保存，也可以粘贴路径后按回车保存。完整备份包含技能资源库和技能集合，不包含技能中心。备份不会包含 API Key、Token 或密码类内容，也不会把本机资源库路径带到另一台电脑。
+---
+
+## 核心概念
+
+| 概念 | 做什么 | 默认路径 |
+|------|--------|----------|
+| **技能资源库** | 导入 / 本地添加的默认家；安装时从此同步 | `~/.skillshub/library` |
+| **技能中心** | 你主动「加入」后的共享兼容目录（符号链接指向资源库） | `~/.agents/skills` |
+| **软件平台** | 某个工具自己的 skills 目录（符号链接或复制） | 按平台配置 |
+| **项目目录** | 命名的项目级安装目标 | `<项目>/.agents/skills` |
+| **技能集合库** | 把资源库技能组成可复用分组，再批量安装 | 应用数据库 |
+| **配置目录** | 数据库、资源库、平台清单与图标 | `~/.skillshub`（或便携包同级 `.skillshub`） |
+
+```text
+技能资源库 ──安装──► 所选软件平台 / 项目目录
+      │
+      └──加入技能中心──► ~/.agents/skills
+                              │
+                              └── 共享给「共享目录」类平台
+```
+
+- 资源库技能可以**不进技能中心**，直接装到指定平台或项目。  
+- 加入技能中心只建符号链接，不复制一份；从中心移除只删链接。  
+- 若某平台的 skills 路径就是 `~/.agents/skills`，向它安装等价于「加入技能中心」，设置里标为 **共享目录**，其余为 **独立目录**。
+
+---
+
+## 功能一览
+
+- **统一表格**：资源库、技能中心、软件平台、项目目录同一套浏览体验；搜索、排序、平铺 / 目录视图。  
+- **导入技能**：填写 GitHub `owner/repo`，隔离执行 `npx skills add`，再写入资源库；可只导入仓库中某一个技能。  
+- **添加技能**：复制本机已有的单个或合集技能文件夹。  
+- **更新技能**：对有来源标记的技能检查更新后再下载；底部状态栏显示进度。  
+- **安装 / 卸载**：按平台或项目勾选目标；集合可一次分发到多个目标（含可选技能中心）。  
+- **Discover**：扫描磁盘上的项目技能（侧栏无入口，可通过全局搜索进入）。  
+- **设置**：路径配置、软件平台启用/编辑、项目目录、本地 ZIP / WebDAV 备份、GitHub PAT、可选 AI 解释、检查更新。  
+- **中英界面**、本地主题（Catppuccin 风格）。
+
+---
 
 ## 界面截图
-
-中文 README 使用中文界面截图；英文 README 使用英文界面截图。
 
 ### 技能资源库
 
@@ -54,128 +73,82 @@ SkillsHub 把技能的长期保存，和工具真正读取技能的位置分开�
 
 ![技能集合库](images/03.png)
 
-### 设置、软件平台与备份
+### 软件平台
 
-![设置、软件平台与备份](images/04.png)
+![软件平台](images/05.png)
 
-### 平台技能
+### 设置
 
-![平台技能](images/05.png)
+![设置](images/04.png)
 
-### 项目目录
+---
 
-![项目目录](images/06.png)
+## 下载与安装
 
-## 安装关系
+从 [GitHub Releases](https://github.com/yufenglyu/skillshub/releases) 获取对应系统的安装包或便携包：
 
-```text
-技能资源库 ── 安装 ──► 所选软件平台 / 项目目录
-     │
-     └── 加入技能中心 ──► ~/.agents/skills
-                              │
-                              └── 同步到已检测平台
-                                  和已配置项目
-```
+| 系统 | 常见产物 |
+|------|----------|
+| Windows | MSI、`skillshub_*_windows_x64.zip` |
+| macOS | DMG、`skillshub_*_macos_universal.zip` / `.tar.gz` |
+| Linux | deb / rpm、`skillshub-v*_Linux-*.tar.gz` |
 
-- 从技能资源库直接安装时，只写入你勾选的目标。
-- 加入技能中心会在中央目录创建符号链接。共享根平台（技能目录解析后等于 `~/.agents/skills`）不会再复制一份，而是通过技能中心共享。
-- 从技能中心按目录卸载时，会卸掉独立平台和项目目录中的对应安装，并清理留下的空文件夹。
-- 技能集合只保存引用。添加技能时从资源库选择；安装集合时，以资源库技能为来源分发到你勾选的软件平台、项目目录，以及可选的技能中心。
-- 修改资源库、技能中心、平台或项目路径不会自动改写已有软链接或副本。移动目录后需要按需重新安装。
+安装器或首次启动会准备 `.skillshub`（默认平台清单与图标、空资源库、SQLite）。便携包解压后，应用同级已带 `.skillshub`。从更旧版本升级时，若新目录尚不存在，可从 `~/.skillsmanage` 迁移。
 
-## 支持的平台
+---
 
-内置平台可以在设置页编辑、删除或启用/关闭。默认列表会写入 `.skillshub/platform/platform.json`，图标放在 `.skillshub/platform/icons/`；之后以该目录为准。旧版「每平台一个 JSON」会在启动时自动迁移。修改会写入本地配置，下次启动后仍然保留。新增平台使用 kebab-case ID（如 `github-copilot`），避免显示名里的空格进入文件名。
+## 支持的软件平台
 
-| 类型 | 示例 |
-|------|------|
-| 软件平台 | Claude Code、Codex CLI、Cursor、Gemini CLI、GitHub Copilot、OpenClaw、AutoClaw、QClaw、Warp、Windsurf、Trae、Aider、OpenCode、Continue、Qwen 等 |
-| 自定义 | 任意拥有稳定 skills 目录的本地平台 |
+内置平台定义写在配置目录的 `platform/platform.json`，图标在 `platform/icons/`。启动后以该目录为准；旧版「每平台一个 JSON」会自动迁移。可在设置中启用 / 关闭、编辑内置项，或添加自定义平台（kebab-case ID）。
 
-左侧栏默认只展示本机已存在对应 skills 目录、且已启用的软件平台；也可以手动切换为显示全部平台。软件平台与项目目录列表带缩进，均可独立折叠（点击分组标题）。已配置的项目目录不会被当成自定义软件平台。
+示例：Claude Code、Codex CLI、Cursor、Gemini CLI、GitHub Copilot、OpenClaw、Warp、Windsurf、Trae、Aider、OpenCode、Continue、Qwen 等。侧栏默认只显示**已启用且本机已检测到**的平台。
 
-## 导入和添加技能
-
-- **导入技能**：只填写 GitHub `owner/repo`。SkillsHub 会在隔离临时目录中执行 `npx skills add owner/repo`，然后把下载到的完整技能文件夹复制到技能资源库。
-- **添加技能**：选择本地已经准备好的 skill 文件夹。它可以是单个技能目录，也可以是包含多个技能的合集目录。
-
-通过 `npx skills` 导入的技能会保存来源仓库、可选技能名和来源更新标记，用于后续「更新技能」。本地添加的技能没有远程来源，不会参与来源更新。标签、备注和来源信息在重新扫描、导入、刷新和检查更新后都会保留。
+---
 
 ## 备份与隐私
 
-SkillsHub 支持导出和导入完整本地备份。本地导出会打开系统保存对话框，直接把 ZIP 写到所选路径。WebDAV 备份支持测试连接、查看远端列表、上传、选择恢复和删除选中备份。远端备份时间按系统时区显示。
+- **本地优先**，不含遥测。  
+- 网络仅用于：技能导入 / 更新、GitHub 相关请求、WebDAV、检查更新、可选 AI 解释。  
+- 完整备份包含技能资源库、技能集合、平台与安装关系、普通设置；**不含技能中心**，也**不含** API Key / Token / 密码。  
+- 凭证保存在本机，静态不加密。请勿在 Issue / PR / 日志中泄露真实令牌、私有路径或敏感截图。
 
-备份包含技能资源库文件、来源信息、技能集合、自定义平台、普通应用配置和已有平台安装关系。技能中心不会被导出或导入。导入将技能文件写回本机当前的技能资源库目录，不会改写该路径，因此 Windows 备份可以恢复到 macOS 上已设置的目录。旧版备份中的技能中心文件会在资源库尚不存在时迁入技能资源库。API Key、Token 和密码类内容会被排除，恢复后需要重新填写。
-
-- SkillsHub 本地优先，不包含遥测。
-- 只有在使用 `npx skills` 导入或更新、WebDAV 备份、检查更新或 AI 备注时才会发起网络请求。
-- 你选择保存的凭据会留在本机，应用不会对本地设置做静态加密。
-- 不要在 issue、PR、截图或日志中公开真实 Token、API Key、私有路径或其他敏感信息。
+---
 
 ## 开发
 
-### 环境要求
+### 环境
 
-- Node.js LTS
-- pnpm
-- Rust stable toolchain
+- Node.js LTS、pnpm、Rust stable  
 - Tauri v2 系统依赖：<https://v2.tauri.app/start/prerequisites/>
 
 ### 常用命令
 
 ```bash
 pnpm install
-pnpm tauri dev
-pnpm build
+pnpm tauri dev          # 完整应用（前端热更新，端口 24200）
 pnpm test
 pnpm typecheck
 pnpm lint
 cd src-tauri && cargo test
-cd src-tauri && cargo clippy -- -D warnings
 ```
 
-Vite 开发服务器默认使用 `24200` 端口。
-
-## 发布
-
-推送 `v0.70.0` 这样的版本 tag 后，GitHub Actions 会构建并发布桌面安装包。发布工作流会从 `CHANGELOG.md` 读取对应版本的 release notes，因此每次发布都必须有匹配的更新日志条目。
-
-本地仍可使用分平台脚本打包：
-
-| 平台 | 命令 |
-|------|------|
-| Windows | `pnpm package:release:windows -- -Version 0.70.0` |
-| macOS | `pnpm package:release:macos -- -Version 0.70.0` |
-| Linux | `pnpm package:release:linux -- -Version 0.70.0` |
-
-只需要更新版本元数据时使用 `-VersionOnly`。
-
-### 构建输出目录
-
-| 路径 | 生成者 | 用途 | 是否用于发布 |
-|------|--------|------|--------------|
-| `dist/` | Vite | 前端构建产物，供 Tauri 打包进桌面应用 | 否 |
-| `src-tauri/target/` | Cargo/Tauri | Rust 构建缓存、可执行文件和平台原始 bundle | 否 |
-| `release-assets/` | 本地打包脚本和 GitHub Actions | 已重命名整理好的最终安装包和压缩包 | 是 |
-
-本地打包完成后，只从 `release-assets/` 取发布文件。`dist/` 和 `src-tauri/target/` 视为构建内部目录，通常只在排查构建问题时查看。
-
-## 项目结构
+### 目录结构
 
 ```text
 skillshub/
-├── src/                 # React 前端
-├── src-tauri/           # Rust/Tauri 后端
-├── dist/                # 生成的 Vite 前端构建产物，供 Tauri 使用
-├── src-tauri/target/    # 生成的 Cargo/Tauri 构建输出
-├── release-assets/      # 生成的最终发布安装包和压缩包
-├── images/              # 中文 README 截图
-├── images/en/           # 英文 README 截图
-├── scripts/             # 发布打包脚本
-├── CHANGELOG.md         # 英文更新日志
-└── CHANGELOG.zh.md      # 中文更新日志
+├── src/           # React 前端
+├── src-tauri/     # Rust / Tauri 后端
+├── images/        # 中文 README 截图
+├── images/en/     # 英文 README 截图
+├── scripts/       # 打包与截图脚本
+├── CHANGELOG.md
+└── CHANGELOG.zh.md
 ```
 
-## 许可证
+本地打包：`pnpm package:release:windows|macos|linux`。CI 在推送版本 tag 时发布，说明文字来自 `CHANGELOG.md`。
 
-本项目使用 Apache License 2.0，详见 [LICENSE](LICENSE)。
+---
+
+## 许可
+
+[Apache License 2.0](LICENSE)

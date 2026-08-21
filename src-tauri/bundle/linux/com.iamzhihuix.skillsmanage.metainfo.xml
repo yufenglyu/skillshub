@@ -21,7 +21,13 @@
     <binary>skillshub</binary>
   </provides>
   <releases>
-    
+
+    <release version="0.80.2" date="2026-08-21"/>
+
+    <release version="0.80.1" date="2026-08-21"/>
+
+    <release version="0.80.0" date="2026-08-21"/>
+
     <release version="0.70.0" date="2026-08-21"/>
 
     <release version="0.60.0" date="2026-08-20"/>

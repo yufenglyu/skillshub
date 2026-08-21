@@ -74,3 +74,6 @@ reference/
 # Local agent instructions may include private workspace notes
 AGENTS.md
 HANDOFF.md
+
+# WorkBuddy local workspace state (memory, skills, etc.)
+.workbuddy/

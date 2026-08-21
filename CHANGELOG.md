@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.80.2 - 2026-08-21
+
+This release simplifies the Settings layout and rewrites the READMEs around the current product.
+
+### Improvements
+
+- Merge the Config folder, Resource Library, and Central Skills path cards in Settings into a single **Path Configuration** card.
+- Rename the Settings section to **Software Platforms & Project Directories**; the header now shows Built-in / Detected / Enabled counts, the inner collapsible group titles are gone, and the list starts collapsed.
+- Rewrite the English and Chinese READMEs from current product capabilities with fresh screenshots; the removed Skill Marketplace page is no longer described.
+
+### Fixes
+
+- Stop the build-time `prepare_config_dir` helper from being bundled into the Windows MSI. Its source moved out of `src/bin/` (Tauri's src/bin scan picked it up and referenced a `prepare_config_dir.exe` that was never built for the target, failing WiX `light` with LGHT0103). Also renamed the `[[bin]]` from `prepare-config-dir` to `prepare_config_dir` so the cargo-produced file matches Tauri's expected name. Fixes Windows MSI packaging, which had been failing since 0.80.0.
+- Show the current app version in Settings → About instead of a stale hardcoded constant; the version test now reads the constant so it no longer breaks on version bumps.
+- Add the missing 0.80.0 release entry to the Linux AppStream metadata.
+- The screenshot capture script now matches CDP pages on `tauri.localhost` or `localhost:24200` (Vite dev server), waits longer before capturing Central Skills, and scrolls Settings to the top before shooting.
+
 ## 0.80.1 - 2026-08-21
 
 ### Fixes

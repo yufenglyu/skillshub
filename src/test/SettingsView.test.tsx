@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { SettingsView } from "../pages/SettingsView";
+import { SettingsView, APP_VERSION } from "../pages/SettingsView";
 import { ScanDirectory, AgentWithStatus, AppUpdateInfo } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -244,6 +244,10 @@ function expandProjectDirectories() {
   fireEvent.click(screen.getByRole("button", { name: "展开项目目录列表" }));
 }
 
+function expandSoftwarePlatforms() {
+  fireEvent.click(screen.getByRole("button", { name: "展开软件平台列表" }));
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("SettingsView", () => {
@@ -272,23 +276,26 @@ describe("SettingsView", () => {
   it("renders the existing settings sections", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByRole("heading", { name: "平台与项目目录" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "软件平台与项目目录" })).toBeTruthy();
     expect(screen.getByText("项目目录")).toBeTruthy();
     expect(screen.getByText("软件平台")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "路径配置" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "扫描目录" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "自定义平台" })).toBeNull();
     expect(screen.getByText("关于")).toBeTruthy();
   });
 
-  it("groups directory settings in config, resource, central, software platform order", () => {
+  it("groups directory settings in path config then software platform order", () => {
     setupMocks();
     renderSettingsView();
 
-    const [config] = screen.getAllByText("配置文件路径");
-    const resource = screen.getByText("技能资源库目录");
-    const central = screen.getByText("技能中心目录");
-    const skillLocation = screen.getByRole("heading", { name: "平台与项目目录" });
+    const pathsConfig = screen.getByRole("heading", { name: "路径配置" });
+    const config = screen.getByLabelText("配置文件路径");
+    const resource = screen.getByLabelText("技能资源库目录");
+    const central = screen.getByLabelText("技能中心目录");
+    const skillLocation = screen.getByRole("heading", { name: "软件平台与项目目录" });
 
+    expect(pathsConfig.compareDocumentPosition(config) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(config.compareDocumentPosition(resource) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(resource.compareDocumentPosition(central) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(central.compareDocumentPosition(skillLocation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -990,13 +997,25 @@ describe("SettingsView", () => {
   it("shows empty state when no software platforms", () => {
     setupMocks({ agents: [] });
     renderSettingsView();
+    expandSoftwarePlatforms();
     expect(screen.getByText("暂无软件平台。点击「添加平台」注册平台。")).toBeTruthy();
+  });
+
+  it("keeps the software platform list collapsed by default", () => {
+    setupMocks({ agents: [mockBuiltinAgent] });
+    renderSettingsView();
+
+    expect(screen.queryByText("Claude Code")).toBeNull();
+    expect(screen.getByRole("button", { name: "展开软件平台列表" })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
   });
 
   it("renders builtin platform with edit and remove actions", () => {
     setupMocks({ agents: [mockBuiltinAgent] });
     renderSettingsView();
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
 
     expect(screen.getByText("Claude Code")).toBeTruthy();
     expect(screen.getByRole("button", { name: `编辑平台 ${mockBuiltinAgent.display_name}` })).toBeTruthy();
@@ -1006,7 +1025,7 @@ describe("SettingsView", () => {
   it("distinguishes builtin platforms with existing skills directories from missing ones", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockMissingBuiltinAgent] });
     renderSettingsView();
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
 
     expect(screen.getByText("Claude Code")).toBeTruthy();
     expect(screen.getByText("Cursor")).toBeTruthy();
@@ -1017,6 +1036,7 @@ describe("SettingsView", () => {
   it("lists all software platforms in one group without lobster/coding split", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
+    expandSoftwarePlatforms();
 
     expect(screen.queryByText("龙虾类")).toBeNull();
     expect(screen.queryByText("编程类")).toBeNull();
@@ -1024,17 +1044,19 @@ describe("SettingsView", () => {
     expect(screen.getByText("QClaw")).toBeTruthy();
   });
 
-  it("shows builtin and detected platform counts in group headers", () => {
+  it("shows builtin, detected, and enabled platform counts in section headers", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockMissingBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
 
     expect(screen.getByText("内置 2")).toBeTruthy();
-    expect(screen.getByText("已检测 1")).toBeTruthy();
+    expect(screen.getByText("已检测到 1")).toBeTruthy();
+    expect(screen.getByText("已启用 3")).toBeTruthy();
   });
 
   it("shows enable switches for software platforms", () => {
     setupMocks({ agents: [mockBuiltinAgent] });
     renderSettingsView();
+    expandSoftwarePlatforms();
 
     expect(
       screen.getByRole("switch", { name: `启用 ${mockBuiltinAgent.display_name}` })
@@ -1044,7 +1066,7 @@ describe("SettingsView", () => {
   it("renders custom platform with name and path", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
     expect(screen.getByText("QClaw")).toBeTruthy();
     expect(screen.getByText("/Users/test/.qclaw/skills/")).toBeTruthy();
   });
@@ -1052,7 +1074,7 @@ describe("SettingsView", () => {
   it("shows edit button for custom platforms", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
     expect(
       screen.getByRole("button", { name: `编辑平台 ${mockCustomAgent.display_name}` })
     ).toBeTruthy();
@@ -1061,7 +1083,7 @@ describe("SettingsView", () => {
   it("shows remove button for custom platforms", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
     expect(
       screen.getByRole("button", { name: `删除平台 ${mockCustomAgent.display_name}` })
     ).toBeTruthy();
@@ -1085,7 +1107,7 @@ describe("SettingsView", () => {
   it("opens edit platform dialog when edit button is clicked", async () => {
     setupMocks({ agents: [mockBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
     fireEvent.click(
       screen.getByRole("button", { name: `编辑平台 ${mockCustomAgent.display_name}` })
     );
@@ -1097,7 +1119,7 @@ describe("SettingsView", () => {
   it("opens editable platform dialog for builtin platforms", async () => {
     setupMocks({ agents: [mockBuiltinAgent] });
     renderSettingsView();
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
     fireEvent.click(
       screen.getByRole("button", { name: `编辑平台 ${mockBuiltinAgent.display_name}` })
     );
@@ -1117,7 +1139,7 @@ describe("SettingsView", () => {
       rescan,
     });
     renderSettingsView();
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
 
     fireEvent.click(
       screen.getByRole("button", { name: `删除平台 ${mockCustomAgent.display_name}` })
@@ -1140,7 +1162,7 @@ describe("SettingsView", () => {
       rescan,
     });
     renderSettingsView();
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
 
     fireEvent.click(
       screen.getByRole("button", { name: `删除平台 ${mockCustomAgent.display_name}` })
@@ -1169,7 +1191,7 @@ describe("SettingsView", () => {
     });
     renderSettingsView();
 
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
     expandProjectDirectories();
 
     expect(screen.getByText("Claude Code")).toBeTruthy();
@@ -1188,7 +1210,7 @@ describe("SettingsView", () => {
       agents: [{ ...mockBuiltinAgent, shares_central_skills: false }, sharedAgent],
     });
     renderSettingsView();
-    // platforms group starts expanded
+    expandSoftwarePlatforms();
 
     expect(screen.getByText("独立目录")).toBeTruthy();
     expect(screen.getByText("共享目录")).toBeTruthy();
@@ -1207,14 +1229,14 @@ describe("SettingsView", () => {
     const loadCallsAfterMount = loadScanDirectories.mock.calls.length;
 
     fireEvent.click(
-      screen.getByRole("button", { name: "刷新平台与项目目录" })
+      screen.getByRole("button", { name: "刷新软件平台与项目目录" })
     );
 
     await waitFor(() => {
       expect(refreshCounts).toHaveBeenCalledTimes(1);
       expect(loadScanDirectories.mock.calls.length).toBeGreaterThan(loadCallsAfterMount);
     });
-    expect(screen.getByRole("button", { name: "刷新平台与项目目录" })).toHaveTextContent(
+    expect(screen.getByRole("button", { name: "刷新软件平台与项目目录" })).toHaveTextContent(
       "刷新"
     );
   });
@@ -1234,7 +1256,7 @@ describe("SettingsView", () => {
     });
     renderSettingsView();
 
-    const refreshButton = screen.getByRole("button", { name: "刷新平台与项目目录" });
+    const refreshButton = screen.getByRole("button", { name: "刷新软件平台与项目目录" });
     fireEvent.click(refreshButton);
     fireEvent.click(refreshButton);
 
@@ -1254,7 +1276,7 @@ describe("SettingsView", () => {
   it("shows the app version in the about section", () => {
     setupMocks();
     renderSettingsView();
-    expect(screen.getByText("SkillsHub v0.70.0")).toBeTruthy();
+    expect(screen.getByText(`SkillsHub v${APP_VERSION}`)).toBeTruthy();
   });
 
   it("shows an editable config folder path", () => {

@@ -1,10 +1,19 @@
 $ErrorActionPreference = "Stop"
 
 function Get-Ws {
-  $page = (Invoke-RestMethod http://127.0.0.1:9222/json) |
-    Where-Object { $_.url -like "http://tauri.localhost*" } |
+  $pages = @(Invoke-RestMethod http://127.0.0.1:9222/json)
+  $page = $pages |
+    Where-Object {
+      $_.url -like "http://tauri.localhost*" -or
+      $_.url -like "https://tauri.localhost*" -or
+      $_.url -like "http://localhost:24200*" -or
+      $_.url -like "http://127.0.0.1:24200*"
+    } |
     Select-Object -First 1
-  if (-not $page) { throw "No tauri page on CDP" }
+  if (-not $page) {
+    $urls = ($pages | ForEach-Object { $_.url }) -join "; "
+    throw "No tauri page on CDP. Seen: $urls"
+  }
   return $page.webSocketDebuggerUrl
 }
 
@@ -89,22 +98,62 @@ $null = Cdp $ws "Page.enable" @{}
 $zh = (Resolve-Path "images").Path
 $en = Join-Path $zh "en"
 
+function Wait-Ready([string]$ws, [int]$seconds = 4) {
+  Start-Sleep -Seconds $seconds
+  $null = Eval-Js $ws @"
+(function(){
+  var root = document.querySelector('[data-tauri-drag-region], main, body');
+  return root ? 'ok' : 'missing';
+})()
+"@
+}
+
+function ShotSettings([string]$ws, [string]$path) {
+  $null = Eval-Js $ws @"
+(function(){
+  var main = document.querySelector('.overflow-auto') || document.querySelector('main') || document.body;
+  if (main && main.scrollTo) main.scrollTo(0, 0);
+  return 'scrolled';
+})()
+"@
+  Start-Sleep -Seconds 1
+  Shot $ws $path
+}
+
+function ClickSidebar([string]$ws, [string]$needle) {
+  $n = $needle.Replace("\", "\\").Replace("'", "\'")
+  $val = Eval-Js $ws @"
+(function(){
+  var needle = '$n';
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('button'));
+  var el = buttons.find(function(b){
+    var label = ((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')).trim();
+    return label.indexOf(needle) >= 0;
+  });
+  if (!el) return 'missing:' + needle;
+  el.click();
+  return 'clicked:' + needle;
+})()
+"@
+  Write-Host $val
+  Start-Sleep -Seconds 2
+}
+
 $ws = Prep $ws "zh"
-$ws = Go $ws "/resources"; Shot $ws (Join-Path $zh "01.png")
-$ws = Go $ws "/central"; Shot $ws (Join-Path $zh "02.png")
-$ws = Go $ws "/collections"; Shot $ws (Join-Path $zh "03.png")
-$ws = Go $ws "/settings"; Shot $ws (Join-Path $zh "04.png")
-$ws = Go $ws "/resources"
-ClickContains $ws "Claude Code"
+Wait-Ready $ws 4
+$ws = Go $ws "/resources"; Wait-Ready $ws 3; Shot $ws (Join-Path $zh "01.png")
+$ws = Go $ws "/central"; Wait-Ready $ws 5; Shot $ws (Join-Path $zh "02.png")
+$ws = Go $ws "/collections"; Wait-Ready $ws 3; Shot $ws (Join-Path $zh "03.png")
+$ws = Go $ws "/settings"; Wait-Ready $ws 3; ShotSettings $ws (Join-Path $zh "04.png")
+$ws = Go $ws "/resources"; Wait-Ready $ws 2
+ClickSidebar $ws "Claude Code"
 Shot $ws (Join-Path $zh "05.png")
-# Prefer a project target if present; otherwise keep Claude Code view for 06 fallback after trying
-ClickContains $ws "project:"
 $proj = Eval-Js $ws @"
 (function(){
   var buttons = Array.prototype.slice.call(document.querySelectorAll('button'));
   var el = buttons.find(function(b){
-    var label = (b.getAttribute('aria-label') || '');
-    return label.indexOf('project:') >= 0 || /Example|Demo Project/i.test(label);
+    var label = (b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '');
+    return label.indexOf('project:') >= 0 || /Example|Demo Project|项目/i.test(label);
   });
   if (!el) return 'none';
   el.click();
@@ -112,22 +161,23 @@ $proj = Eval-Js $ws @"
 })()
 "@
 Write-Host ("project=" + $proj)
-Start-Sleep -Seconds 1.5
+Start-Sleep -Seconds 2
 Shot $ws (Join-Path $zh "06.png")
 
 $ws = Prep $ws "en"
-$ws = Go $ws "/resources"; Shot $ws (Join-Path $en "01.png")
-$ws = Go $ws "/central"; Shot $ws (Join-Path $en "02.png")
-$ws = Go $ws "/collections"; Shot $ws (Join-Path $en "03.png")
-$ws = Go $ws "/settings"; Shot $ws (Join-Path $en "04.png")
-$ws = Go $ws "/resources"
-ClickContains $ws "Claude Code"
+Wait-Ready $ws 4
+$ws = Go $ws "/resources"; Wait-Ready $ws 3; Shot $ws (Join-Path $en "01.png")
+$ws = Go $ws "/central"; Wait-Ready $ws 5; Shot $ws (Join-Path $en "02.png")
+$ws = Go $ws "/collections"; Wait-Ready $ws 3; Shot $ws (Join-Path $en "03.png")
+$ws = Go $ws "/settings"; Wait-Ready $ws 3; ShotSettings $ws (Join-Path $en "04.png")
+$ws = Go $ws "/resources"; Wait-Ready $ws 2
+ClickSidebar $ws "Claude Code"
 Shot $ws (Join-Path $en "05.png")
 $proj = Eval-Js $ws @"
 (function(){
   var buttons = Array.prototype.slice.call(document.querySelectorAll('button'));
   var el = buttons.find(function(b){
-    var label = (b.getAttribute('aria-label') || '');
+    var label = (b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '');
     return label.indexOf('project:') >= 0 || /Example|Demo Project/i.test(label);
   });
   if (!el) return 'none';
@@ -136,7 +186,7 @@ $proj = Eval-Js $ws @"
 })()
 "@
 Write-Host ("project-en=" + $proj)
-Start-Sleep -Seconds 1.5
+Start-Sleep -Seconds 2
 Shot $ws (Join-Path $en "06.png")
 
 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue

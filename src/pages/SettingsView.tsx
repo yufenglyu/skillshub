@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-const APP_VERSION = "0.70.0";
+export const APP_VERSION = "0.80.2";
 const CONFIG_DIR_FALLBACK = "~/.skillshub";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
@@ -363,153 +363,29 @@ function SoftwarePlatformRow({
   );
 }
 
-interface SoftwarePlatformGroupProps {
-  platforms: AgentWithStatus[];
-  onEditPlatform: (agent: AgentWithStatus) => void;
-  onRemovePlatform: (agentId: string) => void;
-  onTogglePlatform: (agentId: string, enabled: boolean) => void;
-  removingAgent: string | null;
-}
-
-function SoftwarePlatformGroup({
-  platforms,
-  onEditPlatform,
-  onRemovePlatform,
-  onTogglePlatform,
-  removingAgent,
-}: SoftwarePlatformGroupProps) {
+function SectionStatCounts({
+  builtinCount,
+  detectedCount,
+  enabledCount,
+}: {
+  builtinCount: number;
+  detectedCount: number;
+  enabledCount: number;
+}) {
   const { t } = useTranslation();
-  const [isExpanded, setIsExpanded] = useState(true);
-  const builtinCount = platforms.filter((agent) => agent.is_builtin).length;
-  const detectedCount = platforms.filter((agent) => agent.is_detected).length;
 
   return (
-    <div className="rounded-lg border border-border">
-      <button
-        type="button"
-        onClick={() => setIsExpanded((expanded) => !expanded)}
-        aria-expanded={isExpanded}
-        className={cn(
-          "flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors",
-          isExpanded && "border-b border-border/60",
-          "hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-        )}
-      >
-        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-          {isExpanded ? (
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <span className="truncate">{t("settings.softwarePlatforms")}</span>
-        </div>
-        <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-          <span>
-            {t("settings.platformBuiltinCount", { count: builtinCount })}
-          </span>
-          <span aria-hidden="true" className="text-muted-foreground/50">·</span>
-          <span>
-            {t("settings.platformDetectedCount", { count: detectedCount })}
-          </span>
-        </span>
-      </button>
-      {isExpanded ? (
-        platforms.length > 0 ? (
-          <div className="grid grid-cols-1 gap-2 p-2 xl:grid-cols-2">
-            {platforms.map((agent) => (
-              <SoftwarePlatformRow
-                key={agent.id}
-                agent={agent}
-                onEdit={() => onEditPlatform(agent)}
-                onRemove={() => onRemovePlatform(agent.id)}
-                onToggle={(enabled) => onTogglePlatform(agent.id, enabled)}
-                isRemoving={removingAgent === agent.id}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="px-3 py-3 text-xs text-muted-foreground">-</p>
-        )
-      ) : null}
-    </div>
-  );
-}
-
-interface ProjectDirectoriesGroupProps {
-  dirs: ScanDirectory[];
-  isLoading: boolean;
-  removingDir: string | null;
-  onEditDirectory: (dir: ScanDirectory) => void;
-  onRemoveDirectory: (path: string) => void;
-  onToggleDirectory: (path: string, active: boolean) => void;
-}
-
-function ProjectDirectoriesGroup({
-  dirs,
-  isLoading,
-  removingDir,
-  onEditDirectory,
-  onRemoveDirectory,
-  onToggleDirectory,
-}: ProjectDirectoriesGroupProps) {
-  const { t } = useTranslation();
-  const [isExpanded, setIsExpanded] = useState(false);
-  const toggleLabel = isExpanded
-    ? t("settings.collapseProjectDirectories")
-    : t("settings.expandProjectDirectories");
-
-  return (
-    <div className="rounded-lg border border-border">
-      <button
-        type="button"
-        onClick={() => setIsExpanded((expanded) => !expanded)}
-        aria-expanded={isExpanded}
-        aria-label={toggleLabel}
-        className={cn(
-          "flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors",
-          isExpanded && "border-b border-border/60",
-          "hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-        )}
-      >
-        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-          {isExpanded ? (
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{t("settings.addedDirectories")}</span>
-        </div>
-        <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-          {t("settings.projectDirectoryCount", { count: dirs.length })}
-        </span>
-      </button>
-      {isExpanded ? (
-        isLoading ? (
-          <div className="flex items-center gap-2 py-4 text-muted-foreground text-sm justify-center">
-            <Loader2 className="size-4 animate-spin" />
-            <span>{t("settings.loading")}</span>
-          </div>
-        ) : dirs.length > 0 ? (
-          <div className="overflow-hidden">
-            {dirs.map((dir) => (
-              <ScanDirectoryRow
-                key={dir.id}
-                dir={dir}
-                onEdit={() => onEditDirectory(dir)}
-                onRemove={() => onRemoveDirectory(dir.path)}
-                onToggle={(active) => onToggleDirectory(dir.path, active)}
-                isRemoving={removingDir === dir.path}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="px-3 py-3 text-center text-xs text-muted-foreground">
-            {t("settings.noDirs")}
-          </p>
-        )
-      ) : null}
-    </div>
+    <span className="flex shrink-0 items-center gap-2 text-xs font-normal text-muted-foreground">
+      <span>{t("settings.platformBuiltinCount", { count: builtinCount })}</span>
+      <span aria-hidden="true" className="text-muted-foreground/50">
+        ·
+      </span>
+      <span>{t("settings.platformDetectedCount", { count: detectedCount })}</span>
+      <span aria-hidden="true" className="text-muted-foreground/50">
+        ·
+      </span>
+      <span>{t("settings.platformEnabledCount", { count: enabledCount })}</span>
+    </span>
   );
 }
 
@@ -554,6 +430,22 @@ function SoftwarePlatformsCard({
 }: SoftwarePlatformsCardProps) {
   const { t } = useTranslation();
   const customDirs = scanDirectories.filter((d) => !d.is_builtin);
+  const [platformsExpanded, setPlatformsExpanded] = useState(false);
+  const [directoriesExpanded, setDirectoriesExpanded] = useState(false);
+
+  const platformBuiltinCount = softwarePlatforms.filter((agent) => agent.is_builtin).length;
+  const platformDetectedCount = softwarePlatforms.filter((agent) => agent.is_detected).length;
+  const platformEnabledCount = softwarePlatforms.filter((agent) => agent.is_enabled).length;
+  const directoryBuiltinCount = customDirs.filter((dir) => dir.is_builtin).length;
+  const directoryDetectedCount = customDirs.length;
+  const directoryEnabledCount = customDirs.filter((dir) => dir.is_active).length;
+
+  const platformsToggleLabel = platformsExpanded
+    ? t("settings.collapseSoftwarePlatforms")
+    : t("settings.expandSoftwarePlatforms");
+  const directoriesToggleLabel = directoriesExpanded
+    ? t("settings.collapseProjectDirectories")
+    : t("settings.expandProjectDirectories");
 
   return (
     <Card>
@@ -577,11 +469,32 @@ function SoftwarePlatformsCard({
           <div>
             <div
               data-testid="settings-software-platforms-header"
-              className="mb-2 flex items-center justify-between gap-3"
+              className="flex items-center justify-between gap-3"
             >
-              <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                <Cpu className="size-4 text-muted-foreground" />
-                <span>{t("settings.softwarePlatforms")}</span>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPlatformsExpanded((expanded) => !expanded)}
+                  aria-expanded={platformsExpanded}
+                  aria-label={platformsToggleLabel}
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm font-medium transition-colors",
+                    "hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                  )}
+                >
+                  {platformsExpanded ? (
+                    <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  <Cpu className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{t("settings.softwarePlatforms")}</span>
+                  <SectionStatCounts
+                    builtinCount={platformBuiltinCount}
+                    detectedCount={platformDetectedCount}
+                    enabledCount={platformEnabledCount}
+                  />
+                </button>
                 <HintIcon text={t("settings.customPlatformsDesc")} />
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -597,49 +510,95 @@ function SoftwarePlatformsCard({
               </div>
             </div>
             {platformError && (
-              <p className="text-xs text-destructive mb-3" role="alert">
+              <p className="mt-2 text-xs text-destructive" role="alert">
                 {platformError}
               </p>
             )}
-
-            {softwarePlatforms.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                {t("settings.noPlatforms")}
-              </p>
-            ) : (
-              <SoftwarePlatformGroup
-                platforms={softwarePlatforms}
-                onEditPlatform={onEditPlatform}
-                onRemovePlatform={onRemovePlatform}
-                onTogglePlatform={onTogglePlatform}
-                removingAgent={removingAgent}
-              />
-            )}
+            {platformsExpanded ? (
+              softwarePlatforms.length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  {t("settings.noPlatforms")}
+                </p>
+              ) : (
+                <div className="mt-2 grid grid-cols-1 gap-2 xl:grid-cols-2">
+                  {softwarePlatforms.map((agent) => (
+                    <SoftwarePlatformRow
+                      key={agent.id}
+                      agent={agent}
+                      onEdit={() => onEditPlatform(agent)}
+                      onRemove={() => onRemovePlatform(agent.id)}
+                      onToggle={(enabled) => onTogglePlatform(agent.id, enabled)}
+                      isRemoving={removingAgent === agent.id}
+                    />
+                  ))}
+                </div>
+              )
+            ) : null}
           </div>
 
           <div>
             <div
               data-testid="settings-project-directories-header"
-              className="mb-2 flex items-center justify-between gap-3"
+              className="flex items-center justify-between gap-3"
             >
-              <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                <FolderOpen className="size-4 text-muted-foreground" />
-                <span>{t("settings.projectDirectories")}</span>
-              </div>
+              <button
+                type="button"
+                onClick={() => setDirectoriesExpanded((expanded) => !expanded)}
+                aria-expanded={directoriesExpanded}
+                aria-label={directoriesToggleLabel}
+                className={cn(
+                  "flex min-w-0 flex-1 items-center gap-2 rounded-md text-left text-sm font-medium transition-colors",
+                  "hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                )}
+              >
+                {directoriesExpanded ? (
+                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                )}
+                <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{t("settings.projectDirectories")}</span>
+                <SectionStatCounts
+                  builtinCount={directoryBuiltinCount}
+                  detectedCount={directoryDetectedCount}
+                  enabledCount={directoryEnabledCount}
+                />
+              </button>
               <Button variant="outline" size="sm" onClick={onAddDirectory} aria-label={t("settings.addDirAriaLabel")}>
                 <Plus className="size-3.5" />
                 <span>{t("settings.addDirectory")}</span>
               </Button>
             </div>
-            {scanDirError && <p className="text-xs text-destructive mb-3" role="alert">{scanDirError}</p>}
-            <ProjectDirectoriesGroup
-              dirs={customDirs}
-              isLoading={isLoadingScanDirs}
-              removingDir={removingDir}
-              onEditDirectory={onEditDirectory}
-              onRemoveDirectory={onRemoveDirectory}
-              onToggleDirectory={onToggleDirectory}
-            />
+            {scanDirError && (
+              <p className="mt-2 text-xs text-destructive" role="alert">
+                {scanDirError}
+              </p>
+            )}
+            {directoriesExpanded ? (
+              isLoadingScanDirs ? (
+                <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  <span>{t("settings.loading")}</span>
+                </div>
+              ) : customDirs.length > 0 ? (
+                <div className="mt-2 overflow-hidden rounded-lg border border-border">
+                  {customDirs.map((dir) => (
+                    <ScanDirectoryRow
+                      key={dir.id}
+                      dir={dir}
+                      onEdit={() => onEditDirectory(dir)}
+                      onRemove={() => onRemoveDirectory(dir.path)}
+                      onToggle={(active) => onToggleDirectory(dir.path, active)}
+                      isRemoving={removingDir === dir.path}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  {t("settings.noDirs")}
+                </p>
+              )
+            ) : null}
           </div>
         </div>
       </CardContent>
@@ -1349,137 +1308,105 @@ export function SettingsView() {
       {/* Content */}
       <div className="flex-1 overflow-auto p-6 space-y-6">
 
-        {/* Section 1: Config folder */}
+        {/* Section 1: Path settings */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <FolderOpen className="size-5 text-muted-foreground" />
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <CardTitle>{t("settings.configDirTitle")}</CardTitle>
-                  <HintIcon text={t("settings.configDirDesc")} />
-                </div>
+              <div className="flex items-center gap-1.5">
+                <CardTitle role="heading" aria-level={2}>{t("settings.pathsConfigTitle")}</CardTitle>
+                <HintIcon text={t("settings.pathsConfigDesc")} />
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="config-dir" className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                  <span>{t("settings.configDirLabel")}</span>
-                  <HintIcon text={t("settings.configDirHint")} className="size-4" />
-                </label>
-                <DirectoryPathField
-                  id="config-dir"
-                  value={configDirInput}
-                  placeholder={CONFIG_DIR_FALLBACK}
-                  disabled={isSavingConfigDir}
-                  browseAriaLabel={t("settings.browseConfigDir")}
-                  openAriaLabel={t("settings.openConfigDir")}
-                  browseTitle={t("settings.browsePathTitle")}
-                  onChange={setConfigDirInput}
-                  onCommit={handleSaveConfigDir}
-                  onOpen={handleOpenDirectoryPath}
-                />
+            <div className="space-y-5">
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="config-dir" className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <span>{t("settings.configDirLabel")}</span>
+                    <HintIcon text={`${t("settings.configDirDesc")}\n\n${t("settings.configDirHint")}`} className="size-4" />
+                  </label>
+                  <DirectoryPathField
+                    id="config-dir"
+                    value={configDirInput}
+                    placeholder={CONFIG_DIR_FALLBACK}
+                    disabled={isSavingConfigDir}
+                    browseAriaLabel={t("settings.browseConfigDir")}
+                    openAriaLabel={t("settings.openConfigDir")}
+                    browseTitle={t("settings.browsePathTitle")}
+                    onChange={setConfigDirInput}
+                    onCommit={handleSaveConfigDir}
+                    onOpen={handleOpenDirectoryPath}
+                  />
+                </div>
+                {configDirMessage ? (
+                  <p
+                    className={configDirMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
+                    role="status"
+                  >
+                    {configDirMessage.text}
+                  </p>
+                ) : null}
               </div>
-              {configDirMessage ? (
-                <p
-                  className={configDirMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
-                  role="status"
-                >
-                  {configDirMessage.text}
-                </p>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Section 2: Skill Resource Library Root */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Database className="size-5 text-muted-foreground" />
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <CardTitle>{t("settings.resourcePathTitle")}</CardTitle>
-                  <HintIcon text={t("settings.resourcePathDesc")} />
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="skill-resource-library-dir" className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <span>{t("settings.resourcePathLabel")}</span>
+                    <HintIcon text={`${t("settings.resourcePathDesc")}\n\n${t("settings.resourcePathHint")}`} className="size-4" />
+                  </label>
+                  <DirectoryPathField
+                    id="skill-resource-library-dir"
+                    value={resourcePathInput}
+                    placeholder={`${CONFIG_DIR_FALLBACK}/library`}
+                    disabled={isSavingResourcePath}
+                    browseAriaLabel={t("settings.browseResourcePath")}
+                    openAriaLabel={t("settings.openResourcePath")}
+                    browseTitle={t("settings.browsePathTitle")}
+                    onChange={setResourcePathInput}
+                    onCommit={handleSaveResourcePath}
+                    onOpen={handleOpenDirectoryPath}
+                  />
                 </div>
+                {resourcePathMessage ? (
+                  <p
+                    className={resourcePathMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
+                    role="status"
+                  >
+                    {resourcePathMessage.text}
+                  </p>
+                ) : null}
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="skill-resource-library-dir" className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                  <span>{t("settings.resourcePathLabel")}</span>
-                  <HintIcon text={t("settings.resourcePathHint")} className="size-4" />
-                </label>
-                <DirectoryPathField
-                  id="skill-resource-library-dir"
-                  value={resourcePathInput}
-                  placeholder={`${CONFIG_DIR_FALLBACK}/library`}
-                  disabled={isSavingResourcePath}
-                  browseAriaLabel={t("settings.browseResourcePath")}
-                  openAriaLabel={t("settings.openResourcePath")}
-                  browseTitle={t("settings.browsePathTitle")}
-                  onChange={setResourcePathInput}
-                  onCommit={handleSaveResourcePath}
-                  onOpen={handleOpenDirectoryPath}
-                />
-              </div>
-              {resourcePathMessage ? (
-                <p
-                  className={resourcePathMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
-                  role="status"
-                >
-                  {resourcePathMessage.text}
-                </p>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Section 1.5: Central Skills Root */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <FolderOpen className="size-5 text-muted-foreground" />
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <CardTitle>{t("settings.centralPathTitle")}</CardTitle>
-                  <HintIcon text={t("settings.centralPathDesc")} />
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="central-skills-dir" className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <span>{t("settings.centralPathLabel")}</span>
+                    <HintIcon text={`${t("settings.centralPathDesc")}\n\n${t("settings.centralPathHint")}`} className="size-4" />
+                  </label>
+                  <DirectoryPathField
+                    id="central-skills-dir"
+                    value={centralPathInput}
+                    placeholder={`${CONFIG_DIR_FALLBACK}/central-skills`}
+                    disabled={isSavingCentralPath}
+                    browseAriaLabel={t("settings.browseCentralPath")}
+                    openAriaLabel={t("settings.openCentralPath")}
+                    browseTitle={t("settings.browsePathTitle")}
+                    onChange={setCentralPathInput}
+                    onCommit={handleSaveCentralPath}
+                    onOpen={handleOpenDirectoryPath}
+                  />
                 </div>
+                {centralPathMessage ? (
+                  <p
+                    className={centralPathMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
+                    role="status"
+                  >
+                    {centralPathMessage.text}
+                  </p>
+                ) : null}
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="central-skills-dir" className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                  <span>{t("settings.centralPathLabel")}</span>
-                  <HintIcon text={t("settings.centralPathHint")} className="size-4" />
-                </label>
-                <DirectoryPathField
-                  id="central-skills-dir"
-                  value={centralPathInput}
-                  placeholder={`${CONFIG_DIR_FALLBACK}/central-skills`}
-                  disabled={isSavingCentralPath}
-                  browseAriaLabel={t("settings.browseCentralPath")}
-                  openAriaLabel={t("settings.openCentralPath")}
-                  browseTitle={t("settings.browsePathTitle")}
-                  onChange={setCentralPathInput}
-                  onCommit={handleSaveCentralPath}
-                  onOpen={handleOpenDirectoryPath}
-                />
-              </div>
-              {centralPathMessage ? (
-                <p
-                  className={centralPathMessage.type === "error" ? "text-sm text-destructive" : "text-sm text-emerald-600 dark:text-emerald-400"}
-                  role="status"
-                >
-                  {centralPathMessage.text}
-                </p>
-              ) : null}
             </div>
           </CardContent>
         </Card>

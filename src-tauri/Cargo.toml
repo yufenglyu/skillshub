@@ -1,6 +1,6 @@
 [package]
 name = "skillshub"
-version = "0.80.1"
+version = "0.80.2"
 description = "AI Agent Skills Hub"
 authors = ["yufenglyu"]
 license = "Apache-2.0"
@@ -17,9 +17,12 @@ path = "src/main.rs"
 
 # Build-time helper only. Gate behind a feature so `tauri build` does not try to
 # bundle it (universal macOS packaging expects every [[bin]] under the lipo output).
+# The source lives under src/build/ (not src/bin/) so tauri-cli's src/bin scan does
+# not pick it up and try to bundle it as prepare_config_dir.exe (which broke WiX
+# light with LGHT0103 when the file was absent from the target dir).
 [[bin]]
-name = "prepare-config-dir"
-path = "src/bin/prepare_config_dir.rs"
+name = "prepare_config_dir"
+path = "src/build/prepare_config_dir.rs"
 required-features = ["prepare-config"]
 
 [features]
