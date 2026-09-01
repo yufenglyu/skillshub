@@ -14,7 +14,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 const mockBuiltinDir: ScanDirectory = {
   id: 1,
   path: "~/.agents/skills/",
-  label: "Central Skills",
+  label: "Shared Hub",
   is_active: true,
   is_builtin: true,
   added_at: "2026-01-01T00:00:00Z",

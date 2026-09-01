@@ -49,7 +49,7 @@ export function CollectionInstallDialog({
   const [result, setResult] = useState<CollectionBatchInstallResult | null>(null);
 
   // Reset when dialog opens. Install targets always start empty so the user
-  // explicitly chooses software platforms, project directories, and Central Skills.
+  // explicitly chooses software platforms, project directories, and Shared Hub.
   useEffect(() => {
     if (open) {
       setSelectedAgentIds(new Set());

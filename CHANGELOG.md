@@ -2,13 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.90.0 - 2026-09-01
+
+This release unifies the core product terminology and restores the shared packaging helpers used by the desktop release flow.
+
+### Improvements
+
+- Rename the three core areas in English to **Skill Repository**, **Skill Bundles**, and **Shared Hub**, matching the updated Chinese labels **技能仓库**, **技能合集**, and **共享中心**.
+- Refresh the English and Chinese READMEs and screenshots with the new terminology.
+
+### Fixes
+
+- Restore the shared Windows and Unix release-layout helper scripts required by local packaging and desktop release workflows.
+
 ## 0.80.2 - 2026-08-21
 
 This release simplifies the Settings layout and rewrites the READMEs around the current product.
 
 ### Improvements
 
-- Merge the Config folder, Resource Library, and Central Skills path cards in Settings into a single **Path Configuration** card.
+- Merge the Config folder, Skill Repository, and Shared Hub path cards in Settings into a single **Path Configuration** card.
 - Rename the Settings section to **Software Platforms & Project Directories**; the header now shows Built-in / Detected / Enabled counts, the inner collapsible group titles are gone, and the list starts collapsed.
 - Rewrite the English and Chinese READMEs from current product capabilities with fresh screenshots; the removed Skill Marketplace page is no longer described.
 
@@ -17,7 +30,7 @@ This release simplifies the Settings layout and rewrites the READMEs around the 
 - Stop the build-time `prepare_config_dir` helper from being bundled into the Windows MSI. Its source moved out of `src/bin/` (Tauri's src/bin scan picked it up and referenced a `prepare_config_dir.exe` that was never built for the target, failing WiX `light` with LGHT0103). Also renamed the `[[bin]]` from `prepare-config-dir` to `prepare_config_dir` so the cargo-produced file matches Tauri's expected name. Fixes Windows MSI packaging, which had been failing since 0.80.0.
 - Show the current app version in Settings → About instead of a stale hardcoded constant; the version test now reads the constant so it no longer breaks on version bumps.
 - Add the missing 0.80.0 release entry to the Linux AppStream metadata.
-- The screenshot capture script now matches CDP pages on `tauri.localhost` or `localhost:24200` (Vite dev server), waits longer before capturing Central Skills, and scrolls Settings to the top before shooting.
+- The screenshot capture script now matches CDP pages on `tauri.localhost` or `localhost:24200` (Vite dev server), waits longer before capturing Shared Hub, and scrolls Settings to the top before shooting.
 
 ## 0.80.1 - 2026-08-21
 
@@ -27,7 +40,7 @@ This release simplifies the Settings layout and rewrites the READMEs around the 
 
 ## 0.80.0 - 2026-08-21
 
-This release unifies software platforms (no Lobster/Coding split), stores platform config in `platform.json` with icons under `icons/`, and renames the Chinese Central Skills label to 技能中心.
+This release unifies software platforms (no Lobster/Coding split), stores platform config in `platform.json` with icons under `icons/`, and renames the Chinese Shared Hub label to 共享中心.
 
 ### Features
 
@@ -37,7 +50,7 @@ This release unifies software platforms (no Lobster/Coding split), stores platfo
 
 ### Improvements
 
-- Move Central Skills below the sidebar divider with Software Platforms and Project Directories; use a distinct icon and matching section chrome; Chinese UI label is **技能中心**.
+- Move Shared Hub below the sidebar divider with Software Platforms and Project Directories; use a distinct icon and matching section chrome; Chinese UI label is **共享中心**.
 - Remove expand/collapse chevrons from Software Platforms and Project Directories headers; keep equal spacing between those three section cards.
 - Remove the Settings “Open platform folder” button from Software Platforms.
 - Detection badges read **Detected** / **Not detected** (Chinese: 已检测到 / 未检测到).
@@ -45,17 +58,17 @@ This release unifies software platforms (no Lobster/Coding split), stores platfo
 
 ## 0.70.0 - 2026-08-21
 
-This release puts the Skill Collections Library above Central Skills, stops treating Obsidian vaults as a special source, and keeps complete backups to the Resource Library and collections only.
+This release puts the Skill Bundles above Shared Hub, stops treating Obsidian vaults as a special source, and keeps complete backups to the Skill Repository and Skill Bundles only.
 
 ### Features
 
-- Rename sidebar Collections to Skill Collections Library and place it between the Skill Resource Library and Central Skills.
-- Click the folder path in Resource Library, Central Skills, software platform, project directory, and Discover headers to open that directory in the file manager.
+- Rename sidebar Skill Bundles to Skill Bundles and place it between the Skill Repository and Shared Hub.
+- Click the folder path in Skill Repository, Shared Hub, software platform, project directory, and Discover headers to open that directory in the file manager.
 - Collapse the added project directories list on Settings the same way as the Lobster and Coding platform groups.
 
 ### Improvements
 
-- Complete local and WebDAV backups include the Resource Library and collections, plus app settings and existing platform installs. Central Skills is not exported or restored. Files from older backups that still contain Central Skills are copied into the Resource Library when they are missing there.
+- Complete local and WebDAV backups include the Skill Repository and Skill Bundles, plus app settings and existing platform installs. Shared Hub is not exported or restored. Files from older backups that still contain Shared Hub are copied into the Skill Repository when they are missing there.
 - Windows MSI and Linux deb/rpm installers seed `~/.skillshub` without overwriting existing files. Portable Windows ZIP, macOS ZIP/tar.gz, and Linux tar.gz archives include `.skillshub` next to the app.
 - Ignore `release-assets` and `dist` in the Vite watcher so packaging an installer does not crash `pnpm dev` on Windows.
 - Refresh English and Chinese README content and screenshots for the new sidebar order, clickable header paths, collapsible project directories, and backup scope.
@@ -67,61 +80,61 @@ This release puts the Skill Collections Library above Central Skills, stops trea
 
 ## 0.60.0 - 2026-08-20
 
-This release makes Central Skills a symlink into the Resource Library, labels independent vs shared platform directories, and cleans up leftover folders when you uninstall a Central Skills group.
+This release makes Shared Hub a symlink into the Skill Repository, labels independent vs shared platform directories, and cleans up leftover folders when you uninstall a Shared Hub group.
 
 ### Features
 
-- Add a Resource Library skill to Central Skills as a symlink instead of a copy. Removing it from Central Skills deletes the link and leaves the original files.
+- Add a Skill Repository skill to Shared Hub as a symlink instead of a copy. Removing it from Shared Hub deletes the link and leaves the original files.
 - Mark software platforms that share `~/.agents/skills` as Shared, and others as Independent, in Settings and as a color dot in the sidebar.
 - Add one Refresh control on Settings → Platforms and Project Directories to re-detect which platforms exist and reload project directories.
-- Rename collection batch install to Install. The dialog can target software platforms, project directories, and Central Skills, and starts with nothing selected.
+- Rename collection batch install to Install. The dialog can target software platforms, project directories, and Shared Hub, and starts with nothing selected.
 
 ### Improvements
 
-- Keep source-column labels aligned with the actual symlink target (Resource Library vs Central Skills).
-- After uninstalling a Central Skills folder, remove leftover empty folders and dangling links from platform and project skills directories.
+- Keep source-column labels aligned with the actual symlink target (Skill Repository vs Shared Hub).
+- After uninstalling a Shared Hub folder, remove leftover empty folders and dangling links from platform and project skills directories.
 - Fall back to a GitHub API download when `npx skills` cannot clone github.com, and pass a saved PAT into git.
-- Refresh English and Chinese README content and screenshots for Central Skills links, Settings refresh, shared-directory labels, and collection install.
+- Refresh English and Chinese README content and screenshots for Shared Hub links, Settings refresh, shared-directory labels, and collection install.
 
 ### Fixes
 
-- Stop a Resource Library scan from dropping legitimate Central Skills → Resource Library symlinks, which made Central Skills entries disappear after adding them.
-- Do not leave Central Skills table rows behind after deleting a parent folder of symlink children.
-- Do not fail a Central Skills folder delete when leftover cleanup on one platform cannot remove a directory.
+- Stop a Skill Repository scan from dropping legitimate Shared Hub → Skill Repository symlinks, which made Shared Hub entries disappear after adding them.
+- Do not leave Shared Hub table rows behind after deleting a parent folder of symlink children.
+- Do not fail a Shared Hub folder delete when leftover cleanup on one platform cannot remove a directory.
 - Truncate oversized import error toasts when GitHub is unreachable.
 
 ## 0.50.2 - 2026-08-20
 
-This release makes Central Skills folders open in the same in-page table as other views, and removes bulk uninstall from software platforms and project directories.
+This release makes Shared Hub folders open in the same in-page table as other views, and removes bulk uninstall from software platforms and project directories.
 
 ### Improvements
 
-- Open a Central Skills folder as an in-page skill table with a back button, matching the Resource Library, software platforms, and project directories.
+- Open a Shared Hub folder as an in-page skill table with a back button, matching the Skill Repository, software platforms, and project directories.
 - Remove multi-select bulk uninstall from software platforms and project directories. Row uninstall and folder uninstall remain.
 
 ## 0.50.1 - 2026-08-20
 
-This release keeps Central Skills as a subset of the Resource Library across backup and restore.
+This release keeps Shared Hub as a subset of the Skill Repository across backup and restore.
 
 ### Fixes
 
-- Include Resource Library copies of skills that were added to Central Skills in complete backups, so restore puts them back in both libraries.
-- When a backup only has the Central Skills copy, restore also writes that skill into the current Resource Library.
+- Include Skill Repository copies of skills that were added to Shared Hub in complete backups, so restore puts them back in both libraries.
+- When a backup only has the Shared Hub copy, restore also writes that skill into the current Skill Repository.
 
 ## 0.50.0 - 2026-08-20
 
-This release makes Settings path fields easier to use, keeps Collections in sync with a refresh control, and makes backups and the sidebar match what you see on disk.
+This release makes Settings path fields easier to use, keeps Skill Bundles in sync with a refresh control, and makes backups and the sidebar match what you see on disk.
 
 ### Features
 
-- Add Browse and Open next to the config folder, Resource Library, and Central Skills paths in Settings. Choosing a folder saves immediately; pasting or typing a path and pressing Enter also saves.
-- Add a refresh button on the Collections page, matching the Resource Library and Central Skills headers.
+- Add Browse and Open next to the config folder, Skill Repository, and Shared Hub paths in Settings. Choosing a folder saves immediately; pasting or typing a path and pressing Enter also saves.
+- Add a refresh button on the Skill Bundles page, matching the Skill Repository and Shared Hub headers.
 
 ### Improvements
 
-- Keep complete local and WebDAV backups: Resource Library, Central Skills, collections, custom platforms, source caches, existing platform installs, and ordinary settings. Restore writes into this computer's current library folders and does not copy Windows or macOS path settings.
-- Index the Resource Library from disk before export so the backup matches the skill count shown in the app.
-- Refresh English and Chinese README content and screenshots for Settings path actions, Collections refresh, sidebar platforms, and backup restore.
+- Keep complete local and WebDAV backups: Skill Repository, Shared Hub, Skill Bundles, custom platforms, source caches, existing platform installs, and ordinary settings. Restore writes into this computer's current library folders and does not copy Windows or macOS path settings.
+- Index the Skill Repository from disk before export so the backup matches the skill count shown in the app.
+- Refresh English and Chinese README content and screenshots for Settings path actions, Skill Bundles refresh, sidebar platforms, and backup restore.
 
 ### Fixes
 
@@ -135,13 +148,13 @@ This release makes the app config folder portable, keeps project directories out
 
 ### Features
 
-- Store database, Resource Library, and other app files in a `.skillshub` config folder. Default is `~/.skillshub`; place `.skillshub` next to the executable for a portable install, or pick another folder in Settings.
+- Store database, Skill Repository, and other app files in a `.skillshub` config folder. Default is `~/.skillshub`; place `.skillshub` next to the executable for a portable install, or pick another folder in Settings.
 - Give project directories a display name, like software platforms.
 - Show live import, update, and install item status in the bottom status bar, including unchanged, locally skipped, and unupdatable skills.
 
 ### Improvements
 
-- Reorder Settings to Config folder, Resource Library, Central Skills, then software platforms and project directories.
+- Reorder Settings to Config folder, Skill Repository, Shared Hub, then software platforms and project directories.
 - Indent Lobster and Coding platform lists in the sidebar the same way as Project Directories.
 - Let table columns shrink to content on double-click, keep a compact index column, and fill extra window width instead of leaving a blank strip on the right.
 - Show WebDAV backup times in the local timezone and name new backup files with the local clock.
@@ -156,61 +169,61 @@ This release makes the app config folder portable, keeps project directories out
 
 ## 0.30.0 - 2026-08-15
 
-This release replaces card browsing with a shared skill table, simplifies Collections, and makes shared `.agents/skills` installs follow Central Skills instead of failing.
+This release replaces card browsing with a shared skill table, simplifies Skill Bundles, and makes shared `.agents/skills` installs follow Shared Hub instead of failing.
 
 ### Features
 
-- Browse the Resource Library, Central Skills, software platforms, and project directories in a shared table with resizable columns and double-click auto-fit.
+- Browse the Skill Repository, Shared Hub, software platforms, and project directories in a shared table with resizable columns and double-click auto-fit.
 - Move the flat/folder view switch next to the search box on those pages.
 - Show two-line install stats: direct installs split into platforms and projects, plus shared availability, with hover details.
-- Treat a platform or project whose skills directory is the shared `.agents/skills` path as Add to Central Skills, and disable already-shared targets.
-- Keep Collections as a compact flat table with create, edit, delete, batch install, and add-skill actions.
+- Treat a platform or project whose skills directory is the shared `.agents/skills` path as Add to Shared Hub, and disable already-shared targets.
+- Keep Skill Bundles as a compact flat table with create, edit, delete, batch install, and add-skill actions.
 
 ### Improvements
 
-- Use paired Central Skills and platform/project action icons, with short tooltips that do not include skill names.
+- Use paired Shared Hub and platform/project action icons, with short tooltips that do not include skill names.
 - Hide Windows `\\?\` prefixes from displayed paths.
-- Fall back from symlink to copy when installing a Resource Library folder if the host cannot create a symlink.
+- Fall back from symlink to copy when installing a Skill Repository folder if the host cannot create a symlink.
 - Remove collection import/export and the collection folder view to avoid fragmented layout and mixed install states.
 - Refresh English and Chinese README content and screenshots for the current table, collection, platform, and settings interfaces.
 
 ### Fixes
 
-- Fix Resource Library folder installs that targeted a shared `.agents/skills` platform or project.
-- Keep collection and table action order stable after a skill is added to Central Skills or installed to a target.
+- Fix Skill Repository folder installs that targeted a shared `.agents/skills` platform or project.
+- Keep collection and table action order stable after a skill is added to Shared Hub or installed to a target.
 
 ## 0.20.1 - 2026-08-14
 
-This patch release tightens the shared skill browsing UI and keeps Resource Library metadata stable across scans and imports.
+This patch release tightens the shared skill browsing UI and keeps Skill Repository metadata stable across scans and imports.
 
 ### Improvements
 
 - Replace the separate ascending and descending sort buttons with field buttons that toggle direction for name, created time, and updated time.
-- Share the grouped Sort and View toolbar across the Resource Library, Central Skills, software platform views, and project directory views.
+- Share the grouped Sort and View toolbar across the Skill Repository, Shared Hub, software platform views, and project directory views.
 - Improve selected-state contrast for sort and view controls, including the folder/list view switch.
 - Add a Browse button when adding project directories from Settings.
 - Refresh English and Chinese README content and screenshots for the current browsing, folder, platform, project-directory, and settings interfaces.
 
 ### Fixes
 
-- Preserve Resource Library tags and notes when skills are rescanned, imported, or refreshed.
-- Apply Resource Library tag filters consistently in both all-skill view and folder view.
-- Apply name, created-time, and updated-time sorting to Resource Library folder view instead of only the all-skill view.
-- Refresh the Resource Library automatically after importing skills.
+- Preserve Skill Repository tags and notes when skills are rescanned, imported, or refreshed.
+- Apply Skill Repository tag filters consistently in both all-skill view and folder view.
+- Apply name, created-time, and updated-time sorting to Skill Repository folder view instead of only the all-skill view.
+- Refresh the Skill Repository automatically after importing skills.
 - Fix AI notes so generated content is written into the notes editor immediately after a successful generation.
 
 ## 0.20.0 - 2026-08-13
 
-This release focuses on a more reliable Resource Library workflow for importing, adding, and updating skills, plus better update visibility.
+This release focuses on a more reliable Skill Repository workflow for importing, adding, and updating skills, plus better update visibility.
 
 ### Features
 
-- Replace direct network import flows with an isolated `npx skills add owner/repo` import that copies complete downloaded skill folders into the Resource Library.
+- Replace direct network import flows with an isolated `npx skills add owner/repo` import that copies complete downloaded skill folders into the Skill Repository.
 - Support an optional skill name during import; leave it empty to import every discovered skill from the repository, or fill it to import one skill.
-- Add a local **Add Skills** flow that copies a prepared single-skill folder or skill-pack folder into the Resource Library and marks it separately from npx imports.
+- Add a local **Add Skills** flow that copies a prepared single-skill folder or skill-pack folder into the Skill Repository and marks it separately from npx imports.
 - Add source update marker checks for imported skills, skipping unchanged sources and re-downloading plus overwriting local copies when the source changed.
 - Add a bottom status bar for live import, update, and install progress, including update summaries.
-- Support folder-level install, Central Skills promotion, and uninstall actions across the Resource Library, Central Skills, software platforms, and project directories.
+- Support folder-level install, Shared Hub promotion, and uninstall actions across the Skill Repository, Shared Hub, software platforms, and project directories.
 
 ### Improvements
 
@@ -218,16 +231,16 @@ This release focuses on a more reliable Resource Library workflow for importing,
 - Hide background command windows when running `npx` on Windows and improve Node.js/npx path discovery.
 - Move import/add dialog explanations into help icons to keep dialogs compact.
 - Normalize local skill folder inputs so Windows paths display with single backslashes.
-- Align single-skill and folder-card install icons while keeping Central promotion distinct from platform/project installation.
+- Align single-skill and folder-card install icons while keeping Shared Hub promotion distinct from platform/project installation.
 - Make skill detail content read-only preview by default and merge time, source, and storage path metadata into Basic Info.
 - Clarify local packaging script output so `dist/`, `src-tauri/target/`, and `release-assets/` have distinct roles.
-- Refresh English and Chinese README content and screenshots for the current Resource Library, Central Skills, Collections, Settings, platform, and project-directory views.
+- Refresh English and Chinese README content and screenshots for the current Skill Repository, Shared Hub, Skill Bundles, Settings, platform, and project-directory views.
 
 ### Fixes
 
 - Fix skill detail not found errors caused by mismatched paths and records after npx imports.
 - Improve source update failures so the status bar and toast include the failed skill and reason.
-- Keep Resource Library updates aligned when a multi-skill repository adds, removes, or changes skills.
+- Keep Skill Repository updates aligned when a multi-skill repository adds, removes, or changes skills.
 
 ## 0.16.0 - 2026-08-10
 
@@ -236,19 +249,19 @@ Release focused on making project directories first-class install targets and ke
 ### Features
 
 - Treat configured Project Directories as install targets that manage skills under `<project>/.agents/skills`.
-- Allow Resource Library and Central Skills installs to target project directories alongside software platforms.
-- Allow Resource Library folders to be installed into Central Skills, software platforms, or project directories as a single folder-level action.
+- Allow Skill Repository and Shared Hub installs to target project directories alongside software platforms.
+- Allow Skill Repository folders to be installed into Shared Hub, software platforms, or project directories as a single folder-level action.
 - Allow software platform and project directory folder views to uninstall installed folders.
-- Automatically synchronize managed Central Skills to active project directories when Central Skills already contains skills.
+- Automatically synchronize managed Shared Hub to active project directories when Shared Hub already contains skills.
 - Add collapsible sidebar sections for Software Platforms, Lobster platforms, Coding platforms, and Project Directories.
 
 ### Improvements
 
 - Rename the old project-skill sidebar concept to Project Directories and place it below Software Platforms.
 - Reorder Settings so Software Platforms appear above Project Directories.
-- Keep Resource Library, Central Skills, and platform stores aware of project directory targets in browser and Tauri modes.
-- Use Resource Library skills as the source for adding skills to Collections, and keep collection single-skill installs aligned with Resource Library installs.
-- Align single-skill and folder-card install icons so Central promotion and target installation have distinct visual meanings.
+- Keep Skill Repository, Shared Hub, and platform stores aware of project directory targets in browser and Tauri modes.
+- Use Skill Repository skills as the source for adding skills to Skill Bundles, and keep bundle single-skill installs aligned with Skill Repository installs.
+- Align single-skill and folder-card install icons so Shared Hub promotion and target installation have distinct visual meanings.
 - Update English and Chinese documentation and screenshots for the new sidebar and project-directory install model.
 
 ### Fixes
@@ -264,7 +277,7 @@ Release focused on central-platform synchronization, WebDAV backup controls, and
 ### Features
 
 - Add WebDAV connection testing and selected remote backup deletion from Settings.
-- Automatically synchronize managed Central Skills to newly detected local platforms when Central Skills already contains skills.
+- Automatically synchronize managed Shared Hub to newly detected local platforms when Shared Hub already contains skills.
 - Show Settings platform group counts as both built-in platform totals and detected local platform counts.
 
 ### Improvements
@@ -276,28 +289,28 @@ Release focused on central-platform synchronization, WebDAV backup controls, and
 
 ### Fixes
 
-- Keep sidebar platform entries in sync with all detected platform directories that should receive Central Skills.
+- Keep sidebar platform entries in sync with all detected platform directories that should receive Shared Hub.
 - Avoid mismatched counts between detected Settings platforms and visible sidebar platforms after central synchronization.
 - Improve WebDAV backup error handling around remote list, upload, import, test, and delete operations.
 
 ## 0.14.0 - 2026-07-23
 
-Release focused on the Resource Library workflow, reliable source updates, settings cleanup, and a more consistent interface.
+Release focused on the Skill Repository workflow, reliable source updates, settings cleanup, and a more consistent interface.
 
 ### Features
 
-- Add a unified Resource Library import menu that combines GitHub repository import and supported skills.sh skill-link import.
-- Import GitHub-backed skills into the Skill Resource Library with preview, selection, conflict handling, and source metadata tracking.
+- Add a unified Skill Repository import menu that combines GitHub repository import and supported skills.sh skill-link import.
+- Import GitHub-backed skills into the Skill Repository with preview, selection, conflict handling, and source metadata tracking.
 - Allow built-in software platforms to be edited, removed, and restored through local persisted configuration.
 - Add update checking in Settings so users can compare the installed app version with the latest GitHub release.
 
 ### Improvements
 
 - Remove the dedicated Skill Marketplace page and related frontend market browsing UI.
-- Rework the Resource Library directory view around `author/project` grouping instead of author-only cards.
+- Rework the Skill Repository directory view around `author/project` grouping instead of author-only cards.
 - Show both created and updated dates on skill cards, with localized labels in Chinese and English.
 - Show per-skill source-update actions whenever a skill has recoverable GitHub source metadata, even if the direct source URL was missing.
-- Improve the skill detail sidebar with clearer grouped sections for notes, tags, source information, time information, storage paths, install status, and collections.
+- Improve the skill detail sidebar with clearer grouped sections for notes, tags, source information, time information, storage paths, install status, and Skill Bundles.
 - Compact Settings by hiding explanatory copy behind hint icons, aligning directory save buttons with their inputs, and reorganizing backup/WebDAV controls.
 - Group software platforms by Lobster and Coding categories while keeping each group in a responsive two-column layout.
 - Distinguish detected built-in platform directories from missing ones in Settings and hide missing built-in platforms from the main sidebar by default.
@@ -308,7 +321,7 @@ Release focused on the Resource Library workflow, reliable source updates, setti
 ### Fixes
 
 - Keep GitHub import functionality after removing the Skill Marketplace UI.
-- Fix Resource Library "Update from sources" so it updates resource-library skills instead of clearing the visible resource list.
+- Fix Skill Repository "Update from sources" so it updates skill-repository skills instead of clearing the visible resource list.
 - Recover missing source URLs from stored GitHub repository and path metadata before updating source-backed skills.
 - Validate downloaded source-update content before overwriting local `SKILL.md` files.
 - Prevent imported GitHub skills from losing update capability when source metadata is partially missing.

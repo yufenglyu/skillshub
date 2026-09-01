@@ -101,7 +101,7 @@ const mockAgents: AgentWithStatus[] = [
   },
   {
     id: "central",
-    display_name: "Central Skills",
+    display_name: "Shared Hub",
     category: "central",
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
@@ -557,7 +557,7 @@ describe("SkillDetailView", () => {
       screen.getByText(/不可安装或卸载|Install and uninstall are unavailable/i)
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/不可调整技能集|Collection management is unavailable/i)
+      screen.getByText(/不可调整技能集|Bundle management is unavailable/i)
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /切换 .* 的链接状态/i })
@@ -733,11 +733,11 @@ describe("SkillDetailView", () => {
     expect(mockRefreshInstallations).toHaveBeenCalledWith("frontend-design");
   });
 
-  // ── Collections ───────────────────────────────────────────────────────────
+  // ── Skill Bundles ─────────────────────────────────────────────────────────
 
   it("shows collections section", () => {
     renderView();
-    expect(screen.getByRole("region", { name: /技能集/i })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /技能合集/i })).toBeInTheDocument();
   });
 
   it("shows Add to collection button", () => {

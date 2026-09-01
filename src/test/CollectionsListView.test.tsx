@@ -76,7 +76,7 @@ const mockAgents: AgentWithStatus[] = [
   },
   {
     id: "central",
-    display_name: "Central Skills",
+    display_name: "Shared Hub",
     category: "central",
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
@@ -326,17 +326,17 @@ describe("CollectionsListView", () => {
 
   it("shows a refresh button next to the collections title", () => {
     renderList();
-    expect(screen.getByRole("button", { name: "刷新技能集合" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "刷新技能合集" })).toBeInTheDocument();
   });
 
-  it("reloads collections, the selected detail, and the resource library on refresh", async () => {
+  it("reloads collections, the selected detail, and the skill repository on refresh", async () => {
     renderList();
     mockLoadCollections.mockClear();
     mockLoadCollectionDetail.mockClear();
     mockLoadResourceLibrary.mockClear();
     mockRefreshCounts.mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: "刷新技能集合" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新技能合集" }));
 
     await waitFor(() => {
       expect(mockLoadCollections).toHaveBeenCalled();
@@ -369,7 +369,7 @@ describe("CollectionsListView", () => {
     expect(within(toolbar as HTMLElement).getByRole("button", { name: /添加技能/i })).toBeInTheDocument();
   });
 
-  it("opens the install dialog with Central Skills and every target unchecked", async () => {
+  it("opens the install dialog with Shared Hub and every target unchecked", async () => {
     renderList();
 
     const heading = screen.getByRole("heading", { name: /Frontend · 2/ });
@@ -377,9 +377,9 @@ describe("CollectionsListView", () => {
     fireEvent.click(within(toolbar).getByRole("button", { name: /^安装$/ }));
 
     const dialog = await screen.findByRole("dialog", { name: /批量安装 — Frontend/i });
-    expect(within(dialog).getByRole("heading", { name: "技能中心" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "共享中心" })).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Claude Code")).not.toBeChecked();
-    expect(within(dialog).getByLabelText("技能中心")).not.toBeChecked();
+    expect(within(dialog).getByLabelText("共享中心")).not.toBeChecked();
   });
 
   it("requires a second confirmation click before removing a skill from the selected collection", async () => {

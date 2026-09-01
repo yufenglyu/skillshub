@@ -293,7 +293,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
             {/* Icon action buttons */}
             {hasActions && (
               <div className="flex items-center gap-0.5 shrink-0">
-                {/* Install to Central (resource/discover) */}
+                {/* Install to Shared Hub (resource/discover) */}
                 {onInstallToCentral && !isCentral && (
                   <button
                     onClick={onInstallToCentral}
@@ -419,7 +419,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
             {/* Source indicator (platform) */}
             {sourceType && <SourceIndicator sourceType={sourceType} sourceLocation={sourceLocation} />}
 
-            {/* "Already in Central" badge */}
+            {/* "Already in Shared Hub" badge */}
             {isCentral && (
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
                 <Globe className="size-3" />
@@ -615,8 +615,8 @@ function ReadOnlyBadge() {
   });
   const description = t("platform.readOnlyHint", {
     defaultValue: i18n.language.startsWith("zh")
-      ? "来自技能中心或插件缓存的只读可见项，不是当前平台的可删除安装。"
-      : "Visible from Central or a plugin cache; this is not a removable install in the current platform.",
+      ? "来自共享中心或插件缓存的只读可见项，不是当前平台的可删除安装。"
+      : "Visible from Shared Hub or a plugin cache; this is not a removable install in the current platform.",
   });
 
   return (

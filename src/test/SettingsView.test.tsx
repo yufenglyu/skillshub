@@ -52,7 +52,7 @@ import { toast } from "sonner";
 const mockBuiltinDir: ScanDirectory = {
   id: 1,
   path: "/Users/test/.agents/skills/",
-  label: "Central Skills",
+  label: "Shared Hub",
   is_active: true,
   is_builtin: true,
   added_at: "2026-01-01T00:00:00Z",
@@ -291,8 +291,8 @@ describe("SettingsView", () => {
 
     const pathsConfig = screen.getByRole("heading", { name: "路径配置" });
     const config = screen.getByLabelText("配置文件路径");
-    const resource = screen.getByLabelText("技能资源库目录");
-    const central = screen.getByLabelText("技能中心目录");
+    const resource = screen.getByLabelText("技能仓库目录");
+    const central = screen.getByLabelText("共享中心目录");
     const skillLocation = screen.getByRole("heading", { name: "软件平台与项目目录" });
 
     expect(pathsConfig.compareDocumentPosition(config) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -327,8 +327,8 @@ describe("SettingsView", () => {
     renderSettingsView();
 
     expect(screen.queryByText("备份内容")).toBeNull();
-    expect(screen.queryByRole("checkbox", { name: "技能资源库" })).toBeNull();
-    expect(screen.queryByRole("checkbox", { name: "技能中心" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "技能仓库" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "共享中心" })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "软件配置" })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "技能安装的平台" })).toBeNull();
   });
@@ -1289,10 +1289,10 @@ describe("SettingsView", () => {
     expect(screen.getByLabelText("配置文件路径")).toHaveValue("/Users/test/.skillshub");
     expect(screen.getByRole("button", { name: "浏览配置文件路径" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "打开配置文件路径" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "浏览技能资源库路径" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "打开技能资源库路径" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "浏览技能中心路径" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "打开技能中心路径" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "浏览技能仓库路径" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "打开技能仓库路径" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "浏览共享中心路径" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "打开共享中心路径" })).toBeTruthy();
   });
 
   it("saves a custom config folder path", async () => {

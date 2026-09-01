@@ -228,7 +228,7 @@ describe("ResourceLibraryView delete", () => {
     window.localStorage.removeItem("skills-manage.skillListViewMode.resource-library");
   });
 
-  it("opens the resource library directory from the header path", async () => {
+  it("opens the skill repository directory from the header path", async () => {
     render(
       <MemoryRouter>
         <ResourceLibraryView />
@@ -248,7 +248,7 @@ describe("ResourceLibraryView delete", () => {
     });
   });
 
-  it("toasts when opening the resource library directory fails", async () => {
+  it("toasts when opening the skill repository directory fails", async () => {
     vi.mocked(invoke).mockRejectedValue("disk missing");
     render(
       <MemoryRouter>
@@ -684,7 +684,7 @@ describe("ResourceLibraryView delete", () => {
     });
   });
 
-  it("refreshes resource library, central skills, and counts after npx import", async () => {
+  it("refreshes skill repository, central skills, and counts after npx import", async () => {
     mockImportSkillsViaNpx.mockResolvedValue({
       command: "npx skills add mattpocock/skills --yes",
       stagingDir: "~/.skillshub/tmp/npx-import",
@@ -724,7 +724,7 @@ describe("ResourceLibraryView delete", () => {
       </MemoryRouter>
     );
 
-    const searchInput = screen.getByPlaceholderText(/搜索技能资源库|Search resource library/i);
+    const searchInput = screen.getByPlaceholderText(/搜索技能仓库|Search skill repository/i);
     const organization = screen.getByRole("group", { name: /组织|Organize/i });
     expect(searchInput.closest(".flex.items-center")).toContainElement(organization);
 
@@ -743,7 +743,7 @@ describe("ResourceLibraryView delete", () => {
     });
   });
 
-  it("refreshes project directory caches after adding a resource skill to Central Skills", async () => {
+  it("refreshes project directory caches after adding a resource skill to Shared Hub", async () => {
     mockAddToCentral.mockResolvedValue(undefined);
 
     render(
@@ -754,7 +754,7 @@ describe("ResourceLibraryView delete", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /^加入技能中心$|^Add to Central Skills$/i,
+        name: /^加入共享中心$|^Add to Shared Hub$/i,
       })
     );
 
@@ -785,7 +785,7 @@ describe("ResourceLibraryView delete", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /^从技能中心移除$|^Remove from Central Skills$/i,
+        name: /^从共享中心移除$|^Remove from Shared Hub$/i,
       })
     );
     fireEvent.click(screen.getByRole("button", { name: /确认删除|Confirm/i }));
@@ -851,10 +851,10 @@ describe("ResourceLibraryView delete", () => {
     expect(within(dialog).getByLabelText("temp")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Hermes")).toBeEnabled();
     expect(within(dialog).getByLabelText("Home")).toBeEnabled();
-    expect(within(dialog).getAllByText("将加入技能中心")).toHaveLength(2);
+    expect(within(dialog).getAllByText("将加入共享中心")).toHaveLength(2);
     fireEvent.click(within(dialog).getByLabelText("Home"));
     expect(
-      within(dialog).getByText(/选中的共享平台会按技能中心规则同步/)
+      within(dialog).getByText(/选中的共享平台会按共享中心规则同步/)
     ).toBeInTheDocument();
   });
 
@@ -883,7 +883,7 @@ describe("ResourceLibraryView delete", () => {
     });
     expect(within(dialog).getByLabelText("Hermes")).toHaveAttribute("aria-disabled", "true");
     expect(within(dialog).getByLabelText("Home")).toHaveAttribute("aria-disabled", "true");
-    expect(within(dialog).getAllByText("已通过技能中心共享")).toHaveLength(2);
+    expect(within(dialog).getAllByText("已通过共享中心共享")).toHaveLength(2);
   });
 
   it("shows two-line install summary counts for resource skills", () => {

@@ -59,7 +59,7 @@ const mockAgents: AgentWithStatus[] = [
   },
   {
     id: "central",
-    display_name: "Central Skills",
+    display_name: "Shared Hub",
     category: "central",
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
@@ -243,15 +243,15 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: /Cursor/ })).toBeInTheDocument();
   });
 
-  it("renders Central Skills icon button", () => {
+  it("renders Shared Hub icon button", () => {
     renderSidebar();
-    expect(screen.getByRole("button", { name: /技能中心/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /共享中心/ })).toBeInTheDocument();
   });
 
-  it("renders Collections icon button", () => {
+  it("renders Skill Bundles icon button", () => {
     renderSidebar();
     // Use exact string match to avoid also matching "导入技能集"
-    expect(screen.getByRole("button", { name: "技能集合库" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "技能合集" })).toBeInTheDocument();
   });
 
   it("new/import collection buttons are on the list page, not sidebar", () => {
@@ -317,9 +317,9 @@ describe("Sidebar", () => {
     expect(claudeButton.className).toContain("bg-hover-bg");
   });
 
-  it("highlights Central Skills when on /central", () => {
+  it("highlights Shared Hub when on /central", () => {
     renderSidebar("/central");
-    const centralButton = screen.getByRole("button", { name: /技能中心/ });
+    const centralButton = screen.getByRole("button", { name: /共享中心/ });
     expect(centralButton.className).toContain("bg-hover-bg");
   });
 
@@ -332,14 +332,14 @@ describe("Sidebar", () => {
       },
     });
 
-    const centralButton = screen.getByRole("button", { name: /技能中心|Central Skills/i });
+    const centralButton = screen.getByRole("button", { name: /共享中心|Shared Hub/i });
     expect(within(centralButton).getByText("2")).toBeInTheDocument();
   });
 
-  it("highlights Skill Resource Library when on root route", () => {
+  it("highlights Skill Repository when on root route", () => {
     renderSidebar("/");
-    const resourceButton = screen.getByRole("button", { name: /技能资源库/ });
-    const centralButton = screen.getByRole("button", { name: /技能中心/ });
+    const resourceButton = screen.getByRole("button", { name: /技能仓库/ });
+    const centralButton = screen.getByRole("button", { name: /共享中心/ });
     expect(resourceButton.className).toContain("bg-hover-bg");
     expect(centralButton.className).not.toContain("bg-hover-bg");
   });
@@ -358,7 +358,7 @@ describe("Sidebar", () => {
       agents: [
         {
           id: "central",
-          display_name: "Central Skills",
+          display_name: "Shared Hub",
           category: "central",
           global_skills_dir: "~/.agents/skills/",
           is_detected: true,
@@ -441,14 +441,14 @@ describe("Sidebar", () => {
     fireEvent.click(claudeButton);
   });
 
-  it("Central Skills button is clickable", () => {
+  it("Shared Hub button is clickable", () => {
     renderSidebar();
-    const centralButton = screen.getByRole("button", { name: /技能中心/ });
+    const centralButton = screen.getByRole("button", { name: /共享中心/ });
     expect(centralButton).not.toBeDisabled();
     fireEvent.click(centralButton);
   });
 
-  // ── Collections ───────────────────────────────────────────────────────────
+  // ── Skill Bundles ─────────────────────────────────────────────────────────
 
   it("collections button navigates to /collections list page", () => {
     vi.mocked(useCollectionStore).mockImplementation((selector) =>
@@ -461,7 +461,7 @@ describe("Sidebar", () => {
       })
     );
     renderSidebar();
-    expect(screen.getByRole("button", { name: "技能集合库" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "技能合集" })).toBeInTheDocument();
   });
 
   it("highlights active collection route", () => {
@@ -480,15 +480,15 @@ describe("Sidebar", () => {
       </MemoryRouter>
     );
     // The collections icon button should be highlighted (exact match)
-    const colButton = screen.getByRole("button", { name: "技能集合库" });
+    const colButton = screen.getByRole("button", { name: "技能合集" });
     expect(colButton.className).toContain("bg-hover-bg");
   });
 
-  it("orders library nav as Skill Resource Library, Skill Collections Library, then Central Skills", () => {
+  it("orders library nav as Skill Repository, Skill Bundles, then Shared Hub", () => {
     renderSidebar();
-    const resourceButton = screen.getByRole("button", { name: "技能资源库" });
-    const collectionsButton = screen.getByRole("button", { name: "技能集合库" });
-    const centralButton = screen.getByRole("button", { name: "技能中心" });
+    const resourceButton = screen.getByRole("button", { name: "技能仓库" });
+    const collectionsButton = screen.getByRole("button", { name: "技能合集" });
+    const centralButton = screen.getByRole("button", { name: "共享中心" });
 
     expect(
       resourceButton.compareDocumentPosition(collectionsButton) &
@@ -632,8 +632,8 @@ describe("Sidebar", () => {
       },
     });
 
-    const collections = screen.getByRole("button", { name: /技能集合库|Collections/i });
-    const central = screen.getByRole("button", { name: /技能中心|Central Skills/i });
+    const collections = screen.getByRole("button", { name: /技能合集|Skill Bundles/i });
+    const central = screen.getByRole("button", { name: /共享中心|Shared Hub/i });
     const platformHeading = screen.getByText("软件平台");
     const projectHeading = screen.getByText("项目目录");
 
@@ -704,9 +704,9 @@ describe("Sidebar", () => {
     );
     expect(shared).toHaveAttribute(
       "title",
-      expect.stringContaining("该平台技能目录与技能中心指向同一位置")
+      expect.stringContaining("该平台技能目录与共享中心指向同一位置")
     );
-    expect(screen.getByRole("button", { name: "技能中心" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "共享中心" })).toBeInTheDocument();
   });
 
   // ── Collapse Toggle ───────────────────────────────────────────────────────

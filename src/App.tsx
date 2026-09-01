@@ -12,17 +12,17 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<AppShell />}>
-        {/* Default redirect to Skill Resource Library */}
+        {/* Default redirect to Skill Repository */}
         <Route index element={<Navigate to="/resources" replace />} />
         {/* Platform view: lists skills for a specific agent */}
         <Route path="platform/:agentId" element={<PlatformView />} />
-        {/* Central Skills: canonical ~/.agents/skills/ view */}
+        {/* Shared Hub: canonical ~/.agents/skills/ view */}
         <Route path="central" element={<CentralSkillsView />} />
-        {/* Resource Library: downloaded/imported skill source library */}
+        {/* Skill Repository: downloaded/imported skill source library */}
         <Route path="resources" element={<ResourceLibraryView />} />
         {/* Skill detail page */}
         <Route path="skill/:skillId" element={<SkillDetailPage />} />
-        {/* Collections */}
+        {/* Skill Bundles */}
         <Route path="collections" element={<CollectionsListView />} />
         {/* Discover project skills */}
         <Route path="discover" element={<DiscoverView />} />

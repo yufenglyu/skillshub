@@ -101,7 +101,7 @@ export function CollectionPickerDialog({
               {t("collectionPicker.desc")}
             </DialogDescription>
 
-            {/* Collections list */}
+            {/* Skill Bundles list */}
             <div
               className="max-h-60 overflow-y-auto space-y-1 border border-border rounded-md p-2"
               role="group"

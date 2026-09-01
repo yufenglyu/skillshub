@@ -8,7 +8,7 @@ export function isInstallTargetAgent(agent: Pick<AgentWithStatus, "id">): boolea
   return !NON_INSTALL_TARGET_AGENT_IDS.has(agent.id);
 }
 
-/** Collection batch install may also target Central Skills. */
+/** Bundle batch install may also target Shared Hub. */
 export function isCollectionInstallTargetAgent(
   _agent: Pick<AgentWithStatus, "id">
 ): boolean {

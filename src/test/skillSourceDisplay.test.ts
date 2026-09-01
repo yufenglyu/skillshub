@@ -5,7 +5,7 @@ import {
 } from "@/lib/skillSourceDisplay";
 
 describe("skill source display", () => {
-  it("labels a platform symlink into Central Skills", () => {
+  it("labels a platform symlink into Shared Hub", () => {
     expect(
       getSkillSourceLocation({
         is_central: true,
@@ -18,7 +18,7 @@ describe("skill source display", () => {
     );
   });
 
-  it("labels a Central Skills entry that links to the resource library", () => {
+  it("labels a Shared Hub entry that links to the skill repository", () => {
     expect(
       getSkillSourceLocation({
         is_central: true,
@@ -31,7 +31,7 @@ describe("skill source display", () => {
     );
   });
 
-  it("labels a real directory in Central Skills", () => {
+  it("labels a real directory in Shared Hub", () => {
     expect(
       getSkillSourceLocation({
         is_central: true,

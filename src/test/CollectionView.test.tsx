@@ -70,7 +70,7 @@ const mockAgents: AgentWithStatus[] = [
   },
   {
     id: "central",
-    display_name: "Central Skills",
+    display_name: "Shared Hub",
     category: "central",
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
@@ -219,7 +219,7 @@ function renderCollectionView(collectionId = "col-1", storeOverrides = {}) {
     <MemoryRouter initialEntries={[`/collection/${collectionId}`]}>
       <Routes>
         <Route path="/collection/:collectionId" element={<CollectionView />} />
-        <Route path="/central" element={<div>Central Skills</div>} />
+        <Route path="/central" element={<div>Shared Hub</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -295,7 +295,7 @@ describe("CollectionView", () => {
 
     const skillRow = screen.getByRole("row", { name: /code-reviewer/i });
     expect(
-      within(skillRow).getByRole("button", { name: "加入技能中心" })
+      within(skillRow).getByRole("button", { name: "加入共享中心" })
     ).toBeInTheDocument();
     expect(
       within(skillRow).getByRole("button", { name: "安装到平台或项目" })
@@ -318,15 +318,15 @@ describe("CollectionView", () => {
     expect(screen.getByRole("button", { name: /^安装$/ })).toBeInTheDocument();
   });
 
-  it("opens the install dialog with Central Skills and every target unchecked", async () => {
+  it("opens the install dialog with Shared Hub and every target unchecked", async () => {
     renderCollectionView();
     fireEvent.click(screen.getByRole("button", { name: /^安装$/ }));
 
     const dialog = await screen.findByRole("dialog", { name: /批量安装 — Frontend/i });
-    expect(within(dialog).getByRole("heading", { name: "技能中心" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "共享中心" })).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Claude Code")).not.toBeChecked();
     expect(within(dialog).getByLabelText("Cursor")).not.toBeChecked();
-    expect(within(dialog).getByLabelText("技能中心")).not.toBeChecked();
+    expect(within(dialog).getByLabelText("共享中心")).not.toBeChecked();
   });
 
   // ── Error State ───────────────────────────────────────────────────────────

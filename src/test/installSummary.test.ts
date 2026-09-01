@@ -86,7 +86,7 @@ describe("mergeProjectAgents", () => {
     const softwareAgents: AgentWithStatus[] = [
       {
         id: "central",
-        display_name: "Central Skills",
+        display_name: "Shared Hub",
         category: "central",
         global_skills_dir: "C:/Users/alice/.agents/skills",
         is_detected: true,

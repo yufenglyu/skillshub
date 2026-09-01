@@ -24,7 +24,7 @@ const BROWSER_RESOURCE_SKILLS: SkillWithLinks[] = [
   {
     id: "fixture-resource-skill",
     name: "fixture-resource-skill",
-    description: "Browser validation fixture for the Skill Resource Library.",
+    description: "Browser validation fixture for the Skill Repository.",
     file_path: "~/.skillshub/library/example/skills/fixture-resource-skill/SKILL.md",
     canonical_path: "~/.skillshub/library/example/skills/fixture-resource-skill",
     is_central: false,

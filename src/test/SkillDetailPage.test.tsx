@@ -179,7 +179,7 @@ describe("SkillDetailPage", () => {
           {
             pathname: "/skill/frontend-design",
             state: {
-              from: { pageLabel: "Central Skills", route: "/central" },
+              from: { pageLabel: "Shared Hub", route: "/central" },
             },
           },
         ]}
@@ -196,7 +196,7 @@ describe("SkillDetailPage", () => {
     const link = breadcrumb.querySelector("a");
     expect(link).not.toBeNull();
     expect(link).toHaveAttribute("href", "/central");
-    expect(link).toHaveTextContent("Central Skills");
+    expect(link).toHaveTextContent("Shared Hub");
     expect(breadcrumb).toHaveTextContent("frontend-design");
   });
 

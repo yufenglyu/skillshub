@@ -151,7 +151,7 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("contentinfo", { name: /状态栏|Status bar/i })).toBeInTheDocument();
     expect(screen.getByText("就绪")).toBeInTheDocument();
-    expect(screen.getByText("技能资源库 2 · 技能中心 1")).toBeInTheDocument();
+    expect(screen.getByText("技能仓库 2 · 共享中心 1")).toBeInTheDocument();
   });
 
   it("shows expandable update statistics in the bottom status bar", () => {

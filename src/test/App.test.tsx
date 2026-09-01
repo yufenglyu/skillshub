@@ -116,8 +116,8 @@ describe("App", () => {
       );
     });
 
-    expect(screen.getAllByText("技能资源库").length).toBeGreaterThanOrEqual(1);
-    expect(screen.queryByRole("heading", { name: "技能中心" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("技能仓库").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByRole("heading", { name: "共享中心" })).not.toBeInTheDocument();
   });
 
   it("renders the app shell with sidebar branding", async () => {
@@ -139,8 +139,8 @@ describe("App", () => {
         </MemoryRouter>
       );
     });
-    // "技能中心" appears as icon button tooltip in sidebar + possibly in main content header
-    expect(screen.getAllByText("技能中心").length).toBeGreaterThanOrEqual(1);
+    // "共享中心" appears as icon button tooltip in sidebar + possibly in main content header
+    expect(screen.getAllByText("共享中心").length).toBeGreaterThanOrEqual(1);
     // Icon-only sidebar has no "By Tool" section header
     expect(screen.queryByText("按工具")).not.toBeInTheDocument();
   });

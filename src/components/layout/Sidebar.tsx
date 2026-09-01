@@ -277,7 +277,7 @@ export function Sidebar() {
 
       {/* Scrollable nav items */}
       <div className="flex-1 overflow-y-auto py-2 px-1.5 space-y-0.5">
-        {/* Resource Library */}
+        {/* Skill Repository */}
         <NavItem
           label={t("sidebar.resourceLibrary")}
           isActive={pathname === "/resources" || pathname === "/"}
@@ -287,7 +287,7 @@ export function Sidebar() {
           count={resourceSkillsCount}
         />
 
-        {/* Collections */}
+        {/* Skill Bundles */}
         <NavItem
           label={t("sidebar.collections")}
           isActive={isCollectionActive}
@@ -300,7 +300,7 @@ export function Sidebar() {
         {/* Divider */}
         <div className="border-t border-sidebar-border/70 my-2" />
 
-        {/* Central Skills — same section shell as platforms / projects */}
+        {/* Shared Hub — same section shell as platforms / projects */}
         {expanded ? (
           <div
             data-testid="central-skills-heading"

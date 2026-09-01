@@ -1445,7 +1445,7 @@ export function SkillDetailView({
                     </SectionPanel>
                   </section>
 
-                  {/* Collections */}
+                  {/* Skill Bundles */}
                   <section aria-label={t("detail.collections")}>
                     <SectionLabel>{t("detail.collections")}</SectionLabel>
                     <SectionPanel>
@@ -1454,7 +1454,7 @@ export function SkillDetailView({
                         {t("detail.readOnlyCollectionsBlocked", {
                           defaultValue: i18n.language.startsWith("zh")
                             ? "只读观测副本不可调整技能集。"
-                            : "Collection management is unavailable for read-only observed copies.",
+                            : "Bundle management is unavailable for read-only observed copies.",
                         })}
                       </p>
                     ) : (

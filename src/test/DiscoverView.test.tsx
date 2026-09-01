@@ -105,11 +105,11 @@ vi.mock("react-i18next", () => ({
         "discover.noMatch": `No skills match "${params?.query ?? ""}"`,
         "discover.noProjectMatch": `No projects match "${params?.query ?? ""}"`,
         "discover.clearSearch": "Clear search",
-        "discover.installToCentral": "Install to Central",
+        "discover.installToCentral": "Install to Shared Hub",
         "discover.installToPlatform": "Install to Platform",
-        "discover.alreadyCentral": "Already in Central",
+        "discover.alreadyCentral": "Already in Shared Hub",
         "discover.selected": `${params?.count ?? 0} selected`,
-        "discover.installSelectedCentral": "Install selected to Central",
+        "discover.installSelectedCentral": "Install selected to Shared Hub",
         "discover.deselectAll": "Deselect all",
         "discover.selectSkill": "Select skill",
         "discover.importSuccess": "Skill imported successfully",
@@ -125,7 +125,7 @@ vi.mock("react-i18next", () => ({
         "common.openPathError": `Failed to open path: ${params?.error ?? ""}`,
         "sidebar.categoryLobster": "Lobster",
         "sidebar.categoryCoding": "Coding",
-        "platform.sourceCentral": "Central Skills",
+        "platform.sourceCentral": "Shared Hub",
         "platform.sourceStandalone": "Standalone",
         "platform.sourceSymlinkLabel": "symlink",
         "platform.sourceCopyLabel": "copy",
@@ -247,7 +247,7 @@ const mockAgents: AgentWithStatus[] = [
   },
   {
     id: "central",
-    display_name: "Central Skills",
+    display_name: "Shared Hub",
     category: "central",
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
@@ -448,10 +448,10 @@ describe("DiscoverView", () => {
     expect(screen.getByText("review")).toBeInTheDocument();
   });
 
-  it("shows 'Already in Central' badge for already-central skills", () => {
+  it("shows 'Already in Shared Hub' badge for already-central skills", () => {
     const encoded = encodeURIComponent("/home/user/projects/my-app");
     renderDiscoverView(`/discover/${encoded}`);
-    expect(screen.getByText("Already in Central")).toBeInTheDocument();
+    expect(screen.getByText("Already in Shared Hub")).toBeInTheDocument();
   });
 
   it("opens the skill detail drawer without navigating away or using scroll restoration helpers", async () => {
@@ -584,7 +584,7 @@ describe("DiscoverView", () => {
     renderDiscoverView(`/discover/${encoded}`);
 
     expect(screen.getAllByTitle("Install to Platform").length).toBeGreaterThan(0);
-    expect(screen.getAllByTitle("Install to Central").length).toBe(1);
+    expect(screen.getAllByTitle("Install to Shared Hub").length).toBe(1);
     expect(screen.getByText("Claude Code")).toBeInTheDocument();
   });
 
@@ -605,7 +605,7 @@ describe("DiscoverView", () => {
     expect(screen.getByText(OBSIDIAN_CROSS_AREA_FIXTURE.skillName)).toBeInTheDocument();
     expect(screen.getByText(OBSIDIAN_CROSS_AREA_FIXTURE.skillDescription)).toBeInTheDocument();
     expect(screen.getByText(OBSIDIAN_CROSS_AREA_FIXTURE.platformName)).toBeInTheDocument();
-    expect(screen.getByTitle("Install to Central")).toBeInTheDocument();
+    expect(screen.getByTitle("Install to Shared Hub")).toBeInTheDocument();
     expect(screen.getByTitle("Install to Platform")).toBeInTheDocument();
 
     fireEvent.click(
@@ -722,11 +722,11 @@ describe("DiscoverView", () => {
     const encoded = encodeURIComponent("/home/user/projects/my-app");
     renderDiscoverView(`/discover/${encoded}`);
     expect(screen.getByText("1 selected")).toBeInTheDocument();
-    expect(screen.getByText("Install selected to Central")).toBeInTheDocument();
+    expect(screen.getByText("Install selected to Shared Hub")).toBeInTheDocument();
     expect(screen.getByText("Deselect all")).toBeInTheDocument();
   });
 
-  // ── Install to Central ─────────────────────────────────────────────────────
+  // ── Install to Shared Hub ─────────────────────────────────────────────────────
 
   it("calls importToCentral when install-to-central button is clicked", async () => {
     mockImportToCentral.mockResolvedValueOnce({ skill_id: "deploy", target: "central" });
@@ -735,7 +735,7 @@ describe("DiscoverView", () => {
     const encoded = encodeURIComponent("/home/user/projects/my-app");
     renderDiscoverView(`/discover/${encoded}`);
 
-    const installBtn = screen.getAllByTitle("Install to Central")[0];
+    const installBtn = screen.getAllByTitle("Install to Shared Hub")[0];
     fireEvent.click(installBtn);
 
     await waitFor(() => {
@@ -743,7 +743,7 @@ describe("DiscoverView", () => {
     });
   });
 
-  it("imports the correlated discovered fixture to Central through the card action", async () => {
+  it("imports the correlated discovered fixture to Shared Hub through the card action", async () => {
     mockImportToCentral.mockResolvedValueOnce({
       skill_id: OBSIDIAN_CROSS_AREA_FIXTURE.skillDirName,
       target: "central",
@@ -761,7 +761,7 @@ describe("DiscoverView", () => {
 
     renderDiscoverView(`/discover/${encodeURIComponent(obsidianVaultPath)}`);
 
-    fireEvent.click(screen.getByTitle("Install to Central"));
+    fireEvent.click(screen.getByTitle("Install to Shared Hub"));
 
     await waitFor(() => {
       expect(mockImportToCentral).toHaveBeenCalledWith(OBSIDIAN_CROSS_AREA_FIXTURE.skillId);

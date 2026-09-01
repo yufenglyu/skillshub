@@ -112,7 +112,7 @@ export function GlobalSearchDialog({
 
     const result: SearchItem[] = [];
 
-    // Central Skills
+    // Shared Hub
     for (const skill of centralSkills) {
       const labelText = skill.name.toLowerCase();
       const descriptionText = (skill.description ?? "").toLowerCase();
@@ -161,7 +161,7 @@ export function GlobalSearchDialog({
       });
     }
 
-    // Collections
+    // Skill Bundles
     for (const col of collections) {
       result.push({
         id: `collection-${col.id}`,

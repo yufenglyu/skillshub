@@ -39,7 +39,7 @@ export const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   },
   {
     id: "central",
-    display_name: "Central Skills",
+    display_name: "Shared Hub",
     category: "central",
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
@@ -144,7 +144,7 @@ export const useCentralSkillsStore = create<CentralSkillsState>((set, get) => ({
   error: null,
 
   /**
-   * Load all Central Skills with per-platform link status, along with the
+   * Load all Shared Hub skills with per-platform link status, along with the
    * list of all registered agents. Called when navigating to /central.
    */
   loadCentralSkills: async () => {
@@ -238,7 +238,7 @@ export const useCentralSkillsStore = create<CentralSkillsState>((set, get) => ({
         method,
       });
 
-      // Refresh central skills to get updated link status.
+      // Refresh Shared Hub skills to get updated link status.
       const skills = await invoke<SkillWithLinks[]>("get_central_skills");
       set({ skills, isInstalling: false });
 
@@ -250,7 +250,7 @@ export const useCentralSkillsStore = create<CentralSkillsState>((set, get) => ({
   },
 
   /**
-   * Delete a skill from the Central Skills root.
+   * Delete a skill from the Shared Hub root.
    * By default the backend refuses linked skills; callers must explicitly pass
    * cascadeUninstall=true after showing the broader-impact confirmation.
    */

@@ -33,7 +33,7 @@ const agents: AgentWithStatus[] = [
   },
   {
     id: "central",
-    display_name: "Central Skills",
+    display_name: "Shared Hub",
     category: "central",
     global_skills_dir: "~/.agents/skills",
     is_detected: true,
@@ -70,7 +70,7 @@ describe("PlatformInstallDrawer", () => {
     expect(screen.getByRole("dialog", { name: /管理 demo-skill 的平台安装/i })).toBeInTheDocument();
     expect(screen.getByText("Claude Code")).toBeInTheDocument();
     expect(screen.getByText("Cursor")).toBeInTheDocument();
-    expect(screen.queryByText("Central Skills")).not.toBeInTheDocument();
+    expect(screen.queryByText("Shared Hub")).not.toBeInTheDocument();
     expect(screen.getAllByText("已安装").length).toBeGreaterThan(0);
     expect(screen.getByText("共享只读")).toBeInTheDocument();
   });

@@ -4,7 +4,7 @@ A local-first desktop app for collecting and organizing AI agent skills (`SKILL.
 
 [中文文档](README_CN.md) · [Releases](https://github.com/yufenglyu/skillshub/releases) · [Changelog](CHANGELOG.md)
 
-> **Disclaimer**  
+> **Disclaimer**
 > SkillsHub is an independent, unofficial application. It is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, GitHub, skills.sh, MiniMax, or any other supported platform, publisher, or trademark owner.
 
 ---
@@ -13,11 +13,11 @@ A local-first desktop app for collecting and organizing AI agent skills (`SKILL.
 
 You use tools like Claude Code, Codex, Cursor, Gemini CLI, or OpenClaw, and you don’t want to:
 
-- Keep a separate copy of every skill in every tool  
-- Mix “download stash” with the folders tools actually read  
-- Lose install relationships after a reinstall or machine switch  
+- Keep a separate copy of every skill in every tool
+- Mix “download stash” with the folders tools actually read
+- Lose install relationships after a reinstall or machine switch
 
-SkillsHub keeps **long-term storage**, a **shared compatibility library**, and **per-tool install targets** separate.
+SkillsHub keeps **long-term storage**, a **shared compatibility hub**, and **per-tool install targets** separate.
 
 ---
 
@@ -25,53 +25,53 @@ SkillsHub keeps **long-term storage**, a **shared compatibility library**, and *
 
 | Concept | Role | Default path |
 |---------|------|--------------|
-| **Skill Resource Library** | Home for imported and locally added skills | `~/.skillshub/library` |
-| **Central Skills** | Shared compatibility library you opt into (symlink into the library) | `~/.agents/skills` |
+| **Skill Repository** | Home for imported and locally added skills | `~/.skillshub/library` |
+| **Shared Hub** | Shared compatibility hub you opt into (symlink into the repository) | `~/.agents/skills` |
 | **Software platforms** | Tool-specific skills directories (symlink or copy) | Per platform config |
 | **Project directories** | Named project-scoped install targets | `<project>/.agents/skills` |
-| **Skill Collections Library** | Reusable groups of Resource Library skills | App database |
-| **Config folder** | Database, library, platform manifest and icons | `~/.skillshub` (or `.skillshub` next to a portable binary) |
+| **Skill Bundles** | Reusable groups of Skill Repository skills | App database |
+| **Config folder** | Database, repository, platform manifest and icons | `~/.skillshub` (or `.skillshub` next to a portable binary) |
 
 ```text
-Resource Library ── install ──► selected platforms / projects
+Skill Repository ── install ──► selected platforms / projects
        │
-       └── add to Central Skills ──► ~/.agents/skills
+       └── add to Shared Hub ──► ~/.agents/skills
                                         │
                                         └── available to “shared” platforms
 ```
 
-- Resource Library skills can install **directly** to platforms or projects without entering Central Skills.  
-- Adding to Central Skills creates a symlink only; removing from Central Skills deletes the link.  
-- If a platform’s skills path resolves to `~/.agents/skills`, installing there means **Add to Central Skills**. Settings labels those platforms **Shared**; others are **Independent**.
+- Skill Repository skills can install **directly** to platforms or projects without entering Shared Hub.
+- Adding to Shared Hub creates a symlink only; removing from Shared Hub deletes the link.
+- If a platform’s skills path resolves to `~/.agents/skills`, installing there means **Add to Shared Hub**. Settings labels those platforms **Shared**; others are **Independent**.
 
 ---
 
 ## Features
 
-- **One table UX** across Resource Library, Central Skills, platforms, and projects — search, sort, flat / folder views.  
-- **Import skills** via GitHub `owner/repo` (`npx skills add` in an isolated temp dir), optionally one skill from a multi-skill repo.  
-- **Add skills** by copying a prepared local skill or skill pack.  
-- **Update skills** when a source marker changed; live progress in the status bar.  
-- **Install / uninstall** to checked platforms or projects; collections can fan out to many targets (including optional Central Skills).  
-- **Discover** scans disk for unmanaged project skills (no sidebar entry; reachable from global search).  
-- **Settings** for paths, enable/edit platforms, project directories, local ZIP / WebDAV backup, GitHub PAT, optional AI notes, and updates.  
+- **One table UX** across Skill Repository, Shared Hub, platforms, and projects — search, sort, flat / folder views.
+- **Import skills** via GitHub `owner/repo` (`npx skills add` in an isolated temp dir), optionally one skill from a multi-skill repo.
+- **Add skills** by copying a prepared local skill or skill pack.
+- **Update skills** when a source marker changed; live progress in the status bar.
+- **Install / uninstall** to checked platforms or projects; bundles can fan out to many targets (including optional Shared Hub).
+- **Discover** scans disk for unmanaged project skills (no sidebar entry; reachable from global search).
+- **Settings** for paths, enable/edit platforms, project directories, local ZIP / WebDAV backup, GitHub PAT, optional AI notes, and updates.
 - **Chinese / English UI** and Catppuccin-style themes.
 
 ---
 
 ## Screenshots
 
-### Skill Resource Library
+### Skill Repository
 
-![Skill Resource Library](images/en/01.png)
+![Skill Repository](images/en/01.png)
 
-### Central Skills
+### Shared Hub
 
-![Central Skills](images/en/02.png)
+![Shared Hub](images/en/02.png)
 
-### Skill Collections Library
+### Skill Bundles
 
-![Skill Collections Library](images/en/03.png)
+![Skill Bundles](images/en/03.png)
 
 ### Software platforms
 
@@ -107,9 +107,9 @@ Examples: Claude Code, Codex CLI, Cursor, Gemini CLI, GitHub Copilot, OpenClaw, 
 
 ## Backup And Privacy
 
-- **Local-first**, no telemetry.  
-- Network use is limited to skill import/update, GitHub-related requests, WebDAV, update checks, and optional AI notes.  
-- Full backups include the Resource Library, collections, platform/install state, and ordinary settings — **not** Central Skills, and **not** API keys / tokens / passwords.  
+- **Local-first**, no telemetry.
+- Network use is limited to skill import/update, GitHub-related requests, WebDAV, update checks, and optional AI notes.
+- Full backups include the Skill Repository, Skill Bundles, platform/install state, and ordinary settings — **not** Shared Hub, and **not** API keys / tokens / passwords.
 - Credentials stay on disk unencrypted at rest. Do not paste real tokens, private paths, or sensitive screenshots into issues, PRs, or logs.
 
 ---
@@ -118,7 +118,7 @@ Examples: Claude Code, Codex CLI, Cursor, Gemini CLI, GitHub Copilot, OpenClaw, 
 
 ### Requirements
 
-- Node.js LTS, pnpm, Rust stable  
+- Node.js LTS, pnpm, Rust stable
 - Tauri v2 prerequisites: <https://v2.tauri.app/start/prerequisites/>
 
 ### Commands
@@ -140,7 +140,7 @@ skillshub/
 ├── src-tauri/     # Rust / Tauri backend
 ├── images/        # Chinese README screenshots
 ├── images/en/     # English README screenshots
-├── scripts/       # Packaging and screenshot helpers
+├── scripts/       # Packaging helpers
 ├── CHANGELOG.md
 └── CHANGELOG.zh.md
 ```

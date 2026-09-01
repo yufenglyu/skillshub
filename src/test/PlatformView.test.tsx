@@ -118,7 +118,7 @@ const mockSkills: ScannedSkill[] = [
   {
     id: "resource-linked-skill",
     name: "resource-linked-skill",
-    description: "Installed directly from the resource library",
+    description: "Installed directly from the skill repository",
     file_path: "~/.claude/skills/resource-linked-skill/SKILL.md",
     dir_path: "~/.claude/skills/resource-linked-skill",
     link_type: "symlink",
@@ -607,7 +607,7 @@ describe("PlatformView", () => {
   it("shows source indicator on skill cards", () => {
     renderPlatformView();
     expect(
-      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到技能中心")
+      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到共享中心")
         .length
     ).toBeGreaterThan(0);
     expect(
@@ -615,12 +615,12 @@ describe("PlatformView", () => {
         .length
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到资源库")
+      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到仓库")
         .length
     ).toBeGreaterThan(0);
   });
 
-  it("labels a shared Central Skills symlink as linked from the resource library", () => {
+  it("labels a shared Shared Hub symlink as linked from the skill repository", () => {
     const antigravityAgent: AgentWithStatus = {
       id: "antigravity",
       display_name: "Antigravity",
@@ -645,7 +645,7 @@ describe("PlatformView", () => {
             {
               id: "promoted-skill",
               name: "promoted-skill",
-              description: "Promoted from the resource library",
+              description: "Promoted from the skill repository",
               file_path: "~/.agents/skills/promoted-skill/SKILL.md",
               dir_path: "~/.agents/skills/promoted-skill",
               link_type: "symlink",
@@ -663,11 +663,11 @@ describe("PlatformView", () => {
     renderPlatformView("antigravity");
 
     expect(
-      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到资源库")
+      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到仓库")
         .length
     ).toBeGreaterThan(0);
     expect(
-      screen.queryByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "文件在技能中心")
+      screen.queryByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "文件在共享中心")
     ).not.toBeInTheDocument();
   });
 
@@ -705,7 +705,7 @@ describe("PlatformView", () => {
 
     expect(await screen.findByRole("button", { name: /查看 fixture-central-skill 的详情/i })).toBeInTheDocument();
     expect(
-      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到技能中心")
+      screen.getAllByText((_, element) => element?.textContent?.replace(/\s+/g, " ").trim() === "链接到共享中心")
         .length
     ).toBeGreaterThan(0);
 

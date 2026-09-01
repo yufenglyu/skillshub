@@ -166,12 +166,12 @@ describe("UnifiedSkillCard action buttons", () => {
         name="resource-skill"
         description="Resource skill"
         onInstallToCentral={onInstallToCentral}
-        installToCentralLabel="加入技能中心：resource-skill"
+        installToCentralLabel="加入共享中心：resource-skill"
       />
     );
 
     const button = screen.getByRole("button", {
-      name: "加入技能中心：resource-skill",
+      name: "加入共享中心：resource-skill",
     });
     fireEvent.click(button);
 
@@ -184,13 +184,13 @@ describe("UnifiedSkillCard action buttons", () => {
         name="resource-skill"
         description="Resource skill"
         onInstallToCentral={vi.fn()}
-        installToCentralLabel="加入技能中心：resource-skill"
+        installToCentralLabel="加入共享中心：resource-skill"
         onInstallTo={vi.fn()}
       />
     );
 
     const centralButton = screen.getByRole("button", {
-      name: "加入技能中心：resource-skill",
+      name: "加入共享中心：resource-skill",
     });
     const installTargetButton = screen.getByRole("button", {
       name: "将 resource-skill 安装到平台",

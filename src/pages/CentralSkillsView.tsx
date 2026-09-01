@@ -62,7 +62,7 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   },
   {
     id: "central",
-    display_name: "Central Skills",
+    display_name: "Shared Hub",
     category: "central",
     global_skills_dir: "/Users/browser/.agents/skills/",
     is_detected: true,
@@ -291,14 +291,15 @@ export function CentralSkillsView() {
   const isFolderOpen = viewMode === "folders" && activeFolderKey !== null;
   const activeFolderName =
     activeFolderGroup?.name ?? activeBundle?.name ?? activeFolderKey;
-  const visibleSkills = viewMode === "folders"
-    ? isFolderOpen
-      ? (activeFolderGroup?.skills ?? [])
-      : centralFolderSplit.rootSkills
-    : skills;
-  const searchableSkills = useMemo(
-    () =>
-      visibleSkills.map((skill) => ({
+  const searchableSkills = useMemo(() => {
+    const visibleSkills =
+      viewMode === "folders"
+        ? isFolderOpen
+          ? (activeFolderGroup?.skills ?? [])
+          : centralFolderSplit.rootSkills
+        : skills;
+
+    return visibleSkills.map((skill) => ({
         skill,
         searchText: buildSearchText([
           skill.name,
@@ -308,9 +309,8 @@ export function CentralSkillsView() {
           skill.source_author,
           skill.source_repo,
         ]),
-      })),
-    [visibleSkills]
-  );
+      }));
+  }, [activeFolderGroup?.skills, centralFolderSplit.rootSkills, isFolderOpen, skills, viewMode]);
   const availableTags = useMemo(() => {
     const tags = new Map<string, string>();
     for (const skill of skills) {
