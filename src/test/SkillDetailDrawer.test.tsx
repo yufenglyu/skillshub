@@ -183,7 +183,7 @@ describe("SkillDetailDrawer", () => {
 
     const drawer = await screen.findByTestId("skill-detail-drawer");
     expect(drawer).toHaveAttribute("role", "dialog");
-    expect(drawer).toHaveAttribute("aria-modal", "true");
+    expect(drawer).toHaveAttribute("aria-modal", "false");
     expect(screen.getByTestId("skill-detail-drawer-overlay")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /close/i })).toBeInTheDocument();
   });
@@ -232,14 +232,12 @@ describe("SkillDetailDrawer", () => {
     });
   });
 
-  it("closes on overlay click", async () => {
+  it("stays open when the overlay is clicked", async () => {
     render(<TestHarness />);
 
     fireEvent.click(await screen.findByTestId("skill-detail-drawer-overlay"));
 
-    await waitFor(() => {
-      expect(screen.queryByTestId("skill-detail-drawer")).toBeNull();
-    });
+    expect(screen.getByTestId("skill-detail-drawer")).toBeInTheDocument();
   });
 
   it("fully unmounts the shared overlay after close", async () => {

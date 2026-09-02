@@ -52,7 +52,12 @@ export function SkillDetailDrawer({
   }, [open, returnFocusRef]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      modal={false}
+      disablePointerDismissal
+    >
       <DialogPortal keepMounted={false}>
         <DialogOverlay
           data-testid="skill-detail-drawer-overlay"
@@ -60,7 +65,7 @@ export function SkillDetailDrawer({
         />
         <DialogPrimitive.Popup
           role="dialog"
-          aria-modal="true"
+          aria-modal="false"
           aria-labelledby={showContent ? titleId : undefined}
           data-testid="skill-detail-drawer"
           className={cn(
