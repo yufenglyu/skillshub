@@ -25,6 +25,7 @@ This release unifies the core product terminology and restores the shared packag
 - Make update statistics actionable by filtering status groups and allowing failed items to be rechecked or manually updated.
 - Remove the Settings built-in platform badge so built-in and user-added software platforms are shown uniformly.
 - Show the real Skill Repository directory for Shared Hub skill details, with the Shared Hub symlink shown separately as the shared link path.
+- Fix source path inference and update recovery for single-skill GitHub repositories that keep `SKILL.md` at the repository root.
 - Open Skill Bundles from the command palette through the active bundles page instead of a removed legacy route.
 - Remove the legacy Discover project skills UI, store, tests, and IPC command registration.
 - Remove the command palette rescan action and its shortcut.

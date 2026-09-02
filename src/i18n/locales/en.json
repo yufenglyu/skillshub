@@ -478,7 +478,7 @@
     "metadataSaveError": "Failed to save notes and tags: {{error}}",
     "filePath": "File path",
     "canonical": "Canonical",
-    "source": "Source",
+    "source": "Source repository",
     "sourceAuthor": "Source author",
     "sourceRepo": "Source repository",
     "sourcePath": "Source path",

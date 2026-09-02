@@ -611,6 +611,19 @@ fn relocated_github_skill_md_url(
     let repo = source.source_repo.as_deref()?.trim_matches('/');
     let source_path = source.source_path.as_deref()?;
     let skill_dir = skill_directory_name_from_source_path(source_path)?;
+    let repo_name = repo.rsplit('/').next()?;
+    let root_repo_skill_name = repo_name.strip_suffix("-skill").unwrap_or(repo_name);
+    if repo_paths.iter().any(|path| path == "SKILL.md")
+        && (skill_dir == repo_name
+            || skill_dir == root_repo_skill_name
+            || skill_dir == source.skill_id)
+    {
+        return Some((
+            format!("https://raw.githubusercontent.com/{repo}/{branch}/SKILL.md"),
+            ".".to_string(),
+        ));
+    }
+
     let expected_suffix = format!("/{skill_dir}/SKILL.md");
     let mut matches = repo_paths
         .iter()
@@ -3247,6 +3260,29 @@ mod tests {
                 "https://raw.githubusercontent.com/mattpocock/skills/main/skills/engineering/ask-matt/SKILL.md"
                     .to_string(),
                 "skills/engineering/ask-matt/SKILL.md".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn relocated_github_skill_md_url_recovers_root_repo_skill_path() {
+        let source = db::SkillSource {
+            skill_id: "guizang-ppt-skill".to_string(),
+            source_type: "github".to_string(),
+            source_url: None,
+            source_author: Some("op7418".to_string()),
+            source_repo: Some("op7418/guizang-ppt-skill".to_string()),
+            source_path: Some("guizang-ppt-skill/SKILL.md".to_string()),
+            updated_at: "2026-09-02T12:00:00Z".to_string(),
+        };
+        let repo_paths = vec!["SKILL.md".to_string(), "assets/template.html".to_string()];
+
+        assert_eq!(
+            relocated_github_skill_md_url(&source, "main", &repo_paths),
+            Some((
+                "https://raw.githubusercontent.com/op7418/guizang-ppt-skill/main/SKILL.md"
+                    .to_string(),
+                ".".to_string()
             ))
         );
     }

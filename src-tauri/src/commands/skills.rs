@@ -420,13 +420,21 @@ fn infer_resource_github_source(
         return None;
     }
 
+    let relative_skill_path = parts[2..].join("/");
+    let root_skill_dir = repo.strip_suffix("-skill").unwrap_or(repo);
+    let source_path = if parts.len() == 3 && (parts[2] == repo || parts[2] == root_skill_dir) {
+        ".".to_string()
+    } else {
+        format!("{relative_skill_path}/SKILL.md")
+    };
+
     Some(db::SkillSource {
         skill_id: skill_id.to_string(),
         source_type: "github".to_string(),
         source_url: None,
         source_author: Some(owner.to_string()),
         source_repo: Some(format!("{owner}/{repo}")),
-        source_path: Some(format!("{}/SKILL.md", parts[2..].join("/"))),
+        source_path: Some(source_path),
         updated_at: Utc::now().to_rfc3339(),
     })
 }
@@ -3246,6 +3254,47 @@ mod tests {
             skill.canonical_path.as_deref(),
             Some(skill_dir.to_string_lossy().as_ref())
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_resource_library_skills_impl_infers_root_repo_source_path() {
+        let pool = setup_test_db().await;
+        let tmp = TempDir::new().unwrap();
+        let resource_root = tmp.path().join("resource-library");
+        let skill_dir = resource_root
+            .join("op7418")
+            .join("guizang-ppt-skill")
+            .join("guizang-ppt-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: guizang-ppt-skill\ndescription: Root repo skill\n---\n\n# Guizang PPT\n",
+        )
+        .unwrap();
+        db::set_skill_resource_library_dir(&pool, &resource_root.to_string_lossy())
+            .await
+            .unwrap();
+
+        let skills = get_resource_library_skills_impl(&pool).await.unwrap();
+
+        let skill = skills
+            .iter()
+            .find(|skill| skill.id == "guizang-ppt-skill")
+            .expect("root repo skill should be indexed");
+        assert_eq!(
+            skill.source.as_deref(),
+            Some("github:op7418/guizang-ppt-skill")
+        );
+        assert_eq!(skill.source_path.as_deref(), Some("."));
+        let source = db::get_skill_source(&pool, "guizang-ppt-skill")
+            .await
+            .unwrap()
+            .expect("source metadata should be inferred");
+        assert_eq!(
+            source.source_repo.as_deref(),
+            Some("op7418/guizang-ppt-skill")
+        );
+        assert_eq!(source.source_path.as_deref(), Some("."));
     }
 
     #[tokio::test]

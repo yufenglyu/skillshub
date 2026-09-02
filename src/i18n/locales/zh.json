@@ -478,7 +478,7 @@
     "metadataSaveError": "保存备注与标签失败: {{error}}",
     "filePath": "文件路径",
     "canonical": "规范路径",
-    "source": "来源",
+    "source": "来源仓库",
     "sourceAuthor": "来源作者",
     "sourceRepo": "来源仓库",
     "sourcePath": "来源路径",
