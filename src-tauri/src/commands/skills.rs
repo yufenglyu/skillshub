@@ -459,6 +459,43 @@ fn skill_dir_path(skill: &db::Skill) -> String {
         .unwrap_or_else(|| skill.file_path.clone())
 }
 
+fn symlink_target_dir(path: &Path) -> Option<PathBuf> {
+    if !std::fs::symlink_metadata(path)
+        .ok()?
+        .file_type()
+        .is_symlink()
+    {
+        return None;
+    }
+
+    let target = std::fs::read_link(path).ok()?;
+    let absolute_target = if target.is_absolute() {
+        target
+    } else {
+        path.parent().unwrap_or_else(|| Path::new("")).join(target)
+    };
+    Some(absolute_target)
+}
+
+fn skill_detail_file_and_dir_paths(skill: &db::Skill) -> (String, String) {
+    let link_dir = skill
+        .canonical_path
+        .as_deref()
+        .map(PathBuf::from)
+        .or_else(|| Path::new(&skill.file_path).parent().map(Path::to_path_buf));
+
+    if skill.is_central {
+        if let Some(target_dir) = link_dir.as_deref().and_then(symlink_target_dir) {
+            return (
+                target_dir.join("SKILL.md").to_string_lossy().into_owned(),
+                target_dir.to_string_lossy().into_owned(),
+            );
+        }
+    }
+
+    (skill.file_path.clone(), skill_dir_path(skill))
+}
+
 fn canonical_delete_dir(skill: &db::Skill, central_root: &Path) -> PathBuf {
     skill
         .canonical_path
@@ -1399,21 +1436,24 @@ async fn get_skill_detail_with_row_impl(
     let skill = skill.ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
 
     let row_id = skill.id.clone();
-    let dir_path = skill_dir_path(&skill);
+    let (file_path, dir_path) = skill_detail_file_and_dir_paths(&skill);
     let installations = installation_details(db::get_skill_installations(pool, skill_id).await?);
     let collections = db::get_skill_collections(pool, skill_id).await?;
     let read_only_agents = read_only_agent_ids_for_skill(pool, skill_id, skill.is_central).await?;
     let source_metadata = db::get_skill_source(pool, skill_id).await?;
     let metadata = db::get_skill_metadata(pool, skill_id).await?;
     let tags = db::parse_skill_metadata_tags(metadata.as_ref());
-    let (created_at, updated_at) = skill_filesystem_timestamps(&skill);
+    let mut timestamp_skill = skill.clone();
+    timestamp_skill.file_path = file_path.clone();
+    timestamp_skill.canonical_path = Some(dir_path.clone());
+    let (created_at, updated_at) = skill_filesystem_timestamps(&timestamp_skill);
 
     Ok(SkillDetail {
         row_id,
         id: skill.id,
         name: skill.name,
         description: skill.description,
-        file_path: skill.file_path,
+        file_path,
         dir_path,
         canonical_path: skill.canonical_path,
         is_central: skill.is_central,
@@ -5563,6 +5603,48 @@ mod tests {
         assert_eq!(detail.dir_path, skill_dir.to_string_lossy());
         assert!(detail.is_central);
         assert!(detail.source_kind.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_skill_detail_for_central_symlink_uses_resource_directory() {
+        let tmp = TempDir::new().unwrap();
+        let pool = setup_test_db().await;
+        let central_root = tmp.path().join(".agents").join("skills");
+        let resource_dir = tmp.path().join("resource-library").join("canvas-design");
+        let central_link = central_root.join("canvas-design");
+        fs::create_dir_all(&central_root).unwrap();
+        fs::create_dir_all(&resource_dir).unwrap();
+        fs::write(resource_dir.join("SKILL.md"), "# Canvas Design\n").unwrap();
+        create_symlink(&resource_dir, &central_link).unwrap();
+
+        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
+            .bind(central_root.to_string_lossy().to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let skill = make_skill_with_path(
+            "canvas-design",
+            "Canvas Design",
+            &central_link.join("SKILL.md"),
+            &central_link,
+            true,
+        );
+        db::upsert_skill(&pool, &skill).await.unwrap();
+
+        let detail = get_skill_detail_impl(&pool, "canvas-design").await.unwrap();
+
+        assert_eq!(detail.dir_path, resource_dir.to_string_lossy());
+        assert_eq!(
+            detail.file_path,
+            resource_dir.join("SKILL.md").to_string_lossy()
+        );
+        let central_link_string = central_link.to_string_lossy().to_string();
+        assert_eq!(
+            detail.canonical_path.as_deref(),
+            Some(central_link_string.as_str())
+        );
+        assert!(detail.is_central);
     }
 
     #[tokio::test]

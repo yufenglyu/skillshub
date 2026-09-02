@@ -24,6 +24,7 @@ This release unifies the core product terminology and restores the shared packag
 - Keep GitHub source grouping inside the Skill Repository only; Shared Hub, platform, and project installs now create the skill directory itself instead of `github-resource` grouping shortcuts.
 - Make update statistics actionable by filtering status groups and allowing failed items to be rechecked or manually updated.
 - Remove the Settings built-in platform badge so built-in and user-added software platforms are shown uniformly.
+- Show the real Skill Repository directory for Shared Hub skill details, with the Shared Hub symlink shown separately as the shared link path.
 - Open Skill Bundles from the command palette through the active bundles page instead of a removed legacy route.
 - Remove the legacy Discover project skills UI, store, tests, and IPC command registration.
 - Remove the command palette rescan action and its shortcut.

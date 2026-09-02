@@ -394,6 +394,29 @@ describe("SkillDetailView", () => {
     expect(within(metadataRegion).getByText("native")).toBeInTheDocument();
   });
 
+  it("shows the resource directory and shared link path for central symlink skills", () => {
+    applyStoreMocks({
+      detail: {
+        ...mockDetail,
+        is_central: true,
+        file_path: "D:/SkillsHub/repository/owner/repo/frontend-design/SKILL.md",
+        dir_path: "D:/SkillsHub/repository/owner/repo/frontend-design",
+        canonical_path: "C:/Users/test/.agents/skills/frontend-design",
+      },
+    });
+    renderView("frontend-design", "page", { skipMockSetup: true });
+
+    const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
+    expect(within(metadataRegion).getByText("目录路径")).toBeInTheDocument();
+    expect(
+      within(metadataRegion).getByText("D:\\SkillsHub\\repository\\owner\\repo\\frontend-design")
+    ).toBeInTheDocument();
+    expect(within(metadataRegion).getByText("共享链接路径")).toBeInTheDocument();
+    expect(
+      within(metadataRegion).getByText("C:\\Users\\test\\.agents\\skills\\frontend-design")
+    ).toBeInTheDocument();
+  });
+
   it("shows GitHub repository source without exposing the basic info editor", () => {
     applyStoreMocks({
       detail: {

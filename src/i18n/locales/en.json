@@ -523,6 +523,7 @@
     "sourceStatus": "Source status",
     "sourceStatusRegion": "Source status",
     "directoryPath": "Directory path",
+    "sharedLinkPath": "Shared link path",
     "sourceRoot": "Source root",
     "readOnlySource": "Read-only source",
     "readOnlyDesc": "Read-only observed copies are display-only here, so install, uninstall, and bundle changes are unavailable.",
