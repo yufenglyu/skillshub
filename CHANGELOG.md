@@ -14,6 +14,7 @@ This release unifies the core product terminology and restores the shared packag
 - Use shorter Chinese bundle creation labels, including **新建合集** in Skill Bundles.
 - Add configurable keyboard shortcuts in Settings, with defaults for the command palette, sidebar toggle, page navigation, and toggling flat/folder skill views.
 - Refresh the Skill Repository and Shared Hub icons and align the matching skill action icons.
+- Streamline the skill detail metadata panel by removing duplicate source fields, scan timestamps, and redundant file paths.
 
 ### Fixes
 

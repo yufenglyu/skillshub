@@ -360,10 +360,14 @@ describe("SkillDetailView", () => {
 
   // ── Metadata ──────────────────────────────────────────────────────────────
 
-  it("shows basic metadata section with scan timestamp", () => {
+  it("shows a compact basic metadata section", () => {
     renderView();
     const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
-    expect(within(metadataRegion).getByText(/扫描时间/i)).toBeInTheDocument();
+    expect(within(metadataRegion).getByText("native")).toBeInTheDocument();
+    expect(within(metadataRegion).getByText("~/.agents/skills/frontend-design")).toBeInTheDocument();
+    expect(within(metadataRegion).queryByText(/扫描时间/i)).toBeNull();
+    expect(within(metadataRegion).queryByText(/文件路径/i)).toBeNull();
+    expect(within(metadataRegion).queryByText(/规范路径/i)).toBeNull();
   });
 
   it("shows file tree above basic metadata and keeps directories collapsed by default", async () => {
@@ -384,18 +388,6 @@ describe("SkillDetailView", () => {
     expect(within(filesRegion).getByRole("button", { name: "notes.txt" })).toBeInTheDocument();
   });
 
-  it("shows file path", () => {
-    renderView();
-    expect(
-      screen.getByText("~/.agents/skills/frontend-design/SKILL.md")
-    ).toBeInTheDocument();
-  });
-
-  it("shows canonical path", () => {
-    renderView();
-    expect(screen.getAllByText("~/.agents/skills/frontend-design").length).toBeGreaterThan(0);
-  });
-
   it("shows source", () => {
     renderView();
     const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
@@ -410,12 +402,17 @@ describe("SkillDetailView", () => {
         source: "resource-library",
         source_repo: "owner/repo",
         source_url: "https://github.com/owner/repo",
+        source_author: "skills@1.5.23",
+        source_path: "frontend-design",
       },
     });
     renderView("frontend-design", "page", { skipMockSetup: true });
 
     const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
     expect(within(metadataRegion).getByText("owner/repo")).toBeInTheDocument();
+    expect(within(metadataRegion).getByText("frontend-design")).toBeInTheDocument();
+    expect(within(metadataRegion).queryByText("https://github.com/owner/repo")).toBeNull();
+    expect(within(metadataRegion).queryByText("skills@1.5.23")).toBeNull();
     expect(screen.queryByDisplayValue("resource-library")).toBeNull();
     expect(screen.queryByRole("button", { name: /保存基本信息/i })).toBeNull();
   });
@@ -546,10 +543,10 @@ describe("SkillDetailView", () => {
     expect(
       within(sourceStatusRegion).getByText(/只读来源|Read-only source/i)
     ).toBeInTheDocument();
+    const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
     expect(
-      screen.getByText("~/.claude/plugins/cache/publisher/frontend-design/unknown/skills/frontend-design/SKILL.md")
+      within(metadataRegion).getByText("~/.claude/plugins/cache/publisher/frontend-design/unknown/skills/frontend-design")
     ).toBeInTheDocument();
-    expect(screen.getByText("~/.claude/plugins/cache/publisher/frontend-design/unknown")).toBeInTheDocument();
     expect(
       screen.getByText(/只读观测副本仅供查看|display-only/i)
     ).toBeInTheDocument();
@@ -587,8 +584,7 @@ describe("SkillDetailView", () => {
     const sourceStatusRegion = screen.getByRole("region", { name: /来源状态|Source status/i });
     expect(within(sourceStatusRegion).getByText("用户目录")).toBeInTheDocument();
     expect(screen.queryByText(/只读来源|Read-only source/i)).toBeNull();
-    expect(screen.getByText("~/.claude/skills/frontend-design/SKILL.md")).toBeInTheDocument();
-    expect(screen.getByText("~/.claude/skills")).toBeInTheDocument();
+    expect(screen.getByText("~/.claude/skills/frontend-design")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /切换 frontend-design 在 Cursor 的链接状态/i })
     ).toBeInTheDocument();
@@ -1246,7 +1242,7 @@ describe("SkillDetailView", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("~/.claude/plugins/cache/publisher/frontend-design/unknown/skills/frontend-design/SKILL.md")).toBeInTheDocument();
+    expect(screen.getByText("~/.claude/plugins/cache/publisher/frontend-design/unknown/skills/frontend-design")).toBeInTheDocument();
     expect(screen.getByTestId("react-markdown")).toHaveTextContent("# Plugin Frontend Design");
     expect(screen.queryByRole("button", { name: /加入技能集/i })).toBeNull();
 
@@ -1275,7 +1271,7 @@ describe("SkillDetailView", () => {
       });
     });
 
-    expect(screen.getByText("~/.claude/skills/frontend-design/SKILL.md")).toBeInTheDocument();
+    expect(screen.getByText("~/.claude/skills/frontend-design")).toBeInTheDocument();
     expect(screen.getByTestId("react-markdown")).toHaveTextContent("# User Frontend Design");
     expect(screen.getByRole("button", { name: /加入技能集/i })).toBeInTheDocument();
     expect(

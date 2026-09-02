@@ -426,7 +426,6 @@ export function SkillDetailView({
   const [isGeneratingNoteIntoNotes, setIsGeneratingNoteIntoNotes] = useState(false);
   const [sourceTypeInput, setSourceTypeInput] = useState("github");
   const [sourceUrlInput, setSourceUrlInput] = useState("");
-  const [sourceAuthorInput, setSourceAuthorInput] = useState("");
   const [sourceRepoInput, setSourceRepoInput] = useState("");
   const [sourcePathInput, setSourcePathInput] = useState("");
   const [isSavingSourceMetadata, setIsSavingSourceMetadata] = useState(false);
@@ -494,13 +493,11 @@ export function SkillDetailView({
     const source = detail?.source ?? "";
     setSourceTypeInput(source.startsWith("github:") || detail?.source_repo ? "github" : "manual");
     setSourceUrlInput(detail?.source_url ?? "");
-    setSourceAuthorInput(detail?.source_author ?? "");
     setSourceRepoInput(detail?.source_repo ?? (source.startsWith("github:") ? source.slice("github:".length) : ""));
     setSourcePathInput(detail?.source_path ?? "");
   }, [
     detail?.id,
     detail?.source,
-    detail?.source_author,
     detail?.source_path,
     detail?.source_repo,
     detail?.source_url,
@@ -713,7 +710,7 @@ export function SkillDetailView({
       await updateSourceMetadata(detail.id, {
         sourceType: sourceTypeInput,
         sourceUrl: sourceUrlInput.trim() || null,
-        sourceAuthor: sourceAuthorInput.trim() || null,
+        sourceAuthor: null,
         sourceRepo: sourceRepoInput.trim() || null,
         sourcePath: sourcePathInput.trim() || null,
       });
@@ -787,19 +784,11 @@ export function SkillDetailView({
     if (!detail) return [];
     const seen = new Set<string>();
     return [
-      [t("detail.filePath"), detail.file_path],
       [
         t("detail.directoryPath", {
           defaultValue: i18n.language.startsWith("zh") ? "目录路径" : "Directory path",
         }),
         detail.dir_path,
-      ],
-      [t("detail.canonical"), detail.canonical_path],
-      [
-        t("detail.sourceRoot", {
-          defaultValue: i18n.language.startsWith("zh") ? "来源根目录" : "Source root",
-        }),
-        detail.source_root,
       ],
     ]
       .filter((row): row is [string, string] => Boolean(row[1]))
@@ -1156,17 +1145,6 @@ export function SkillDetailView({
                           </div>
                           <div className="space-y-1.5">
                             <label className="text-[11px] font-medium text-muted-foreground">
-                              {t("detail.sourceAuthor")}
-                            </label>
-                            <Input
-                              value={sourceAuthorInput}
-                              onChange={(event) => setSourceAuthorInput(event.target.value)}
-                              placeholder={t("detail.sourceAuthorPlaceholder")}
-                              className="h-9 text-sm"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[11px] font-medium text-muted-foreground">
                               {t("detail.sourcePath")}
                             </label>
                             <Input
@@ -1209,14 +1187,6 @@ export function SkillDetailView({
                           {!detail.source_kind && displayedSource && (
                             <MetadataRow label={t("detail.source")} value={displayedSource} />
                           )}
-                          {detail.source_author && (
-                            <MetadataRow
-                              label={t("detail.sourceAuthor", {
-                                defaultValue: i18n.language.startsWith("zh") ? "来源作者" : "Source author",
-                              })}
-                              value={detail.source_author}
-                            />
-                          )}
                           {detail.source_repo && detail.source_repo !== displayedSource && (
                             <MetadataRow
                               label={t("detail.sourceRepo", {
@@ -1232,9 +1202,6 @@ export function SkillDetailView({
                               })}
                               value={detail.source_path}
                             />
-                          )}
-                          {detail.source_url && (
-                            <MetadataRow label={t("detail.sourceUrl")} value={detail.source_url} />
                           )}
                         </>
                       )}
@@ -1254,10 +1221,6 @@ export function SkillDetailView({
                           value={new Date(detail.updated_at).toLocaleString()}
                         />
                       )}
-                      <MetadataRow
-                        label={t("detail.scannedAt")}
-                        value={new Date(detail.scanned_at).toLocaleString()}
-                      />
                       {storageMetadataRows.map(([label, value]) => (
                         <MetadataRow key={`${label}:${value}`} label={label} value={value} />
                       ))}
