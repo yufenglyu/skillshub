@@ -424,6 +424,8 @@ describe("SkillBrowserTable", () => {
             uninstallLabel: "卸载目录",
             onInstall: vi.fn(),
             installLabel: "安装到平台/项目",
+            onUpdate: vi.fn(),
+            updateLabel: "更新目录",
             onDelete: vi.fn(),
             deleteLabel: "删除目录",
           },
@@ -439,6 +441,7 @@ describe("SkillBrowserTable", () => {
 
     expect(actionLabels).toEqual([
       "卸载目录",
+      "更新目录",
       "删除目录",
     ]);
     expect(row.querySelector(".lucide-package-minus")).toBeInTheDocument();

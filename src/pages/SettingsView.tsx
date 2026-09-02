@@ -635,7 +635,7 @@ function ShortcutRecorder({
   return (
     <div className="flex shrink-0 items-center gap-2">
       <kbd
-        className="min-w-24 rounded border border-border bg-muted/60 px-2 py-1 text-center text-xs font-medium text-foreground"
+        className="min-w-32 rounded border border-border bg-muted/60 px-2 py-1 text-center text-xs font-medium text-foreground"
         aria-label={displayCombo}
       >
         {displayCombo}

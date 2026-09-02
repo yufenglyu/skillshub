@@ -214,7 +214,7 @@ function ActionButton({
     <button
       type="button"
       className={cn(
-        "inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors",
+        "inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors",
         destructive
           ? "hover:bg-destructive/10 hover:text-destructive"
           : "hover:bg-primary/10 hover:text-primary",
@@ -965,19 +965,6 @@ export function SkillBrowserTable({
                                 icon={<SharedHubActionIcon installed />}
                               />
                             ) : null}
-                            {folder.onUpdate ? (
-                              <ActionButton
-                                label={folder.updateLabel ?? t("resource.updateAction")}
-                                disabled={folder.isUpdating}
-                                onClick={folder.onUpdate}
-                              >
-                                {folder.isUpdating ? (
-                                  <Loader2 className="size-4 animate-spin" />
-                                ) : (
-                                  <RefreshCw className="size-4" />
-                                )}
-                              </ActionButton>
-                            ) : null}
                             {folder.onUninstall ? (
                               <ActionButton
                                 label={folder.uninstallLabel ?? t("resource.uninstallFromTargetsAction")}
@@ -1001,6 +988,19 @@ export function SkillBrowserTable({
                                   <Loader2 className="size-4 animate-spin" />
                                 ) : (
                                   <InstallTargetsActionIcon />
+                                )}
+                              </ActionButton>
+                            ) : null}
+                            {folder.onUpdate ? (
+                              <ActionButton
+                                label={folder.updateLabel ?? t("resource.updateAction")}
+                                disabled={folder.isUpdating}
+                                onClick={folder.onUpdate}
+                              >
+                                {folder.isUpdating ? (
+                                  <Loader2 className="size-4 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="size-4" />
                                 )}
                               </ActionButton>
                             ) : null}
