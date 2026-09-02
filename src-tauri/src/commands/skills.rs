@@ -1383,7 +1383,7 @@ async fn get_skill_detail_with_row_impl(
             .any(|installation| installation.agent_id == agent_id);
         let selects_observation = row_id.is_some_and(|row_id| row_id != skill_id);
 
-        if !has_managed_installation || selects_observation {
+        if selects_observation || (!has_managed_installation && row_id.is_none()) {
             if let Some(detail) = get_observation_detail(pool, skill_id, agent_id, row_id).await? {
                 return Ok(detail);
             }
@@ -5487,6 +5487,48 @@ mod tests {
             skill_dir.to_string_lossy(),
             "shared Central Skills must use the real central skill directory"
         );
+    }
+
+    #[tokio::test]
+    async fn test_get_skill_detail_with_row_impl_opens_shared_central_platform_row() {
+        let tmp = TempDir::new().unwrap();
+        let pool = setup_test_db().await;
+        let central_root = tmp.path().join(".agents").join("skills");
+        let skill_dir = central_root.join("canvas-design");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "# Canvas Design\n").unwrap();
+
+        sqlx::query(
+            "UPDATE agents SET global_skills_dir = ? WHERE id IN ('central', 'antigravity')",
+        )
+        .bind(central_root.to_string_lossy().to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let skill = make_skill_with_path(
+            "canvas-design",
+            "Canvas Design",
+            &skill_dir.join("SKILL.md"),
+            &skill_dir,
+            true,
+        );
+        db::upsert_skill(&pool, &skill).await.unwrap();
+
+        let detail = get_skill_detail_with_row_impl(
+            &pool,
+            "canvas-design",
+            Some("antigravity"),
+            Some("canvas-design"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(detail.row_id, "canvas-design");
+        assert_eq!(detail.id, "canvas-design");
+        assert_eq!(detail.dir_path, skill_dir.to_string_lossy());
+        assert!(detail.is_central);
+        assert!(detail.source_kind.is_none());
     }
 
     #[tokio::test]
