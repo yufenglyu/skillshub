@@ -2201,6 +2201,7 @@ fn is_portable_backup_path(value: &str) -> bool {
 mod tests {
     use super::*;
     use crate::commands::linker::add_resource_skill_to_central_impl;
+    use crate::path_utils::remove_symlink_path;
     use std::io::{Cursor, Read};
     use tempfile::tempdir;
 
@@ -2971,7 +2972,7 @@ mod tests {
             "Central Skills symlink entries should not duplicate resource files in the archive"
         );
 
-        std::fs::remove_dir_all(central_root.join("owner")).expect("remove central files");
+        remove_symlink_path(&central_root.join("promoted-skill")).expect("remove central files");
         std::fs::remove_dir_all(&resource_skill_dir).expect("remove resource files");
         db::delete_skill(&pool, "promoted-skill")
             .await
@@ -2982,10 +2983,7 @@ mod tests {
             .expect("archive import");
 
         assert!(resource_skill_dir.join("SKILL.md").exists());
-        let restored_central = central_root
-            .join("owner")
-            .join("repo")
-            .join("promoted-skill");
+        let restored_central = central_root.join("promoted-skill");
         assert!(
             !restored_central.exists(),
             "complete restore must not recreate Central Skills paths"

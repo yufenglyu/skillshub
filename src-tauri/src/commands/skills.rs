@@ -4647,18 +4647,52 @@ mod tests {
         .await
         .unwrap();
 
-        crate::commands::linker::add_resource_skill_to_central_impl(&pool, "ask-matt")
-            .await
-            .unwrap();
-
         let central_skill = central_dir
             .join("mattpocock")
             .join("skills")
             .join("ask-matt");
+        fs::create_dir_all(central_skill.parent().unwrap()).unwrap();
+        crate::commands::linker::create_symlink(&resource_skill, &central_skill).unwrap();
+        db::upsert_skill(
+            &pool,
+            &db::Skill {
+                id: "ask-matt".to_string(),
+                name: "ask-matt".to_string(),
+                description: Some("Ask Matt".to_string()),
+                file_path: central_skill
+                    .join("SKILL.md")
+                    .to_string_lossy()
+                    .into_owned(),
+                canonical_path: Some(central_skill.to_string_lossy().into_owned()),
+                is_central: true,
+                source: Some("resource-library".to_string()),
+                content: None,
+                scanned_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
         let platform_skill = claude_dir
             .join("mattpocock")
             .join("skills")
             .join("ask-matt");
+        fs::create_dir_all(platform_skill.parent().unwrap()).unwrap();
+        crate::commands::linker::create_symlink(&central_skill, &platform_skill).unwrap();
+        db::upsert_skill_installation(
+            &pool,
+            &SkillInstallation {
+                skill_id: "ask-matt".to_string(),
+                agent_id: "claude-code".to_string(),
+                installed_path: platform_skill.to_string_lossy().into_owned(),
+                link_type: "symlink".to_string(),
+                symlink_target: Some(central_skill.to_string_lossy().into_owned()),
+                created_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
         assert!(fs::symlink_metadata(&central_skill)
             .unwrap()
             .file_type()

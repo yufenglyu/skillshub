@@ -1,12 +1,24 @@
+<div align="center">
+
+[简体中文](README_CN.md) | [English](README.md)
+
 # SkillsHub
 
 ### A local-first desktop manager for AI agent skills
 
-SkillsHub helps you collect, update, group, and install `SKILL.md` skills across coding tools and project directories without mixing long-term storage with runtime install folders.
+Collect, update, group, and install `SKILL.md` skills across coding tools and project directories with one shared workflow.
 
-[简体中文](README_CN.md) · [Download](https://github.com/yufenglyu/skillshub/releases) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/yufenglyu/skillshub/issues)
+![Release](https://img.shields.io/github/v/release/yufenglyu/skillshub?style=for-the-badge&label=RELEASE&color=5865f2)
+![Downloads](https://img.shields.io/github/downloads/yufenglyu/skillshub/total?style=for-the-badge&label=DOWNLOADS&color=56b6c2)
+![License](https://img.shields.io/github/license/yufenglyu/skillshub?style=for-the-badge&label=LICENSE&color=57c778)
+![Tauri](https://img.shields.io/badge/TAURI-2-24c8db?style=for-the-badge)
+![Windows](https://img.shields.io/badge/WINDOWS-10%20%7C%2011-3b82f6?style=for-the-badge)
 
-Current document language: **English**. App languages: **English / Simplified Chinese**.
+[Download Latest](https://github.com/yufenglyu/skillshub/releases) · [Features](#core-capabilities) · [Local Development](#local-development) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/yufenglyu/skillshub/issues)
+
+**Current document: English | App languages: English · Simplified Chinese**
+
+</div>
 
 > **Disclaimer**
 > SkillsHub is an independent, unofficial application. It is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, GitHub, skills.sh, MiniMax, or any other supported platform, publisher, or trademark owner.
@@ -48,7 +60,7 @@ Skill Repository ── install ──► software platforms / project directori
 ### Organize And Automate
 
 - Create Skill Bundles, then batch-install a bundle to multiple targets.
-- Configure keyboard shortcuts for the command palette, sidebar toggle, flat/folder view toggle, global rescan, and page navigation.
+- Configure keyboard shortcuts for the command palette, sidebar toggle, flat/folder view toggle, and page navigation.
 - Manage platform definitions, project directories, paths, GitHub PAT, AI notes, update checks, local ZIP backup, and WebDAV backup in Settings.
 
 ---

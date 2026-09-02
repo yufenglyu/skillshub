@@ -1,12 +1,24 @@
+<div align="center">
+
+[简体中文](README_CN.md) | [English](README.md)
+
 # SkillsHub
 
 ### 本地优先的 AI Agent Skills 管理桌面应用
 
-SkillsHub 用于收集、更新、分组和安装 `SKILL.md` 技能，让多个编程工具和项目目录共用同一套技能管理流程，而不是把长期仓库和运行时目录混在一起。
+收集、更新、分组和安装 `SKILL.md` 技能，让多个编程工具和项目目录共用同一套技能管理流程。
 
-[English](README.md) · [下载](https://github.com/yufenglyu/skillshub/releases) · [更新日志](CHANGELOG.zh.md) · [问题反馈](https://github.com/yufenglyu/skillshub/issues)
+![Release](https://img.shields.io/github/v/release/yufenglyu/skillshub?style=for-the-badge&label=RELEASE&color=5865f2)
+![Downloads](https://img.shields.io/github/downloads/yufenglyu/skillshub/total?style=for-the-badge&label=DOWNLOADS&color=56b6c2)
+![License](https://img.shields.io/github/license/yufenglyu/skillshub?style=for-the-badge&label=LICENSE&color=57c778)
+![Tauri](https://img.shields.io/badge/TAURI-2-24c8db?style=for-the-badge)
+![Windows](https://img.shields.io/badge/WINDOWS-10%20%7C%2011-3b82f6?style=for-the-badge)
 
-当前文档语言：**简体中文**。软件界面语言：**简体中文 / English**。
+[下载最新版](https://github.com/yufenglyu/skillshub/releases) · [查看功能](#核心能力) · [本地开发](#本地开发) · [更新日志](CHANGELOG.zh.md) · [反馈问题](https://github.com/yufenglyu/skillshub/issues)
+
+**当前文档：简体中文｜应用界面：简体中文 · English**
+
+</div>
 
 > **免责声明**  
 > SkillsHub 是独立的非官方应用，与 Anthropic、OpenAI、GitHub、skills.sh、MiniMax 或其他受支持平台、发布方、商标所有者均无隶属、背书或赞助关系。
@@ -48,7 +60,7 @@ SkillsHub 用于收集、更新、分组和安装 `SKILL.md` 技能，让多个�
 ### 组织和自动化
 
 - 创建技能合集，并批量安装到多个目标。
-- 在设置页配置命令面板、侧边栏展开/收起、平铺/目录视图切换、全局刷新和页面跳转快捷键。
+- 在设置页配置命令面板、侧边栏展开 / 收起、平铺 / 目录视图切换和页面跳转快捷键。
 - 在设置页管理平台定义、项目目录、路径、GitHub PAT、AI 解释、检查更新、本地 ZIP 备份和 WebDAV 备份。
 
 ---

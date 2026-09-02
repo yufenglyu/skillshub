@@ -20,6 +20,7 @@ This release unifies the core product terminology and restores the shared packag
 - Restore the shared Windows and Unix release-layout helper scripts required by local packaging and desktop release workflows.
 - Allow Skill Repository folder rows to update source-backed skills by directory.
 - Remove dangling Shared Hub shortcuts such as `github-resource` when the target no longer exists, including mirrored platform links.
+- Keep GitHub source grouping inside the Skill Repository only; Shared Hub, platform, and project installs now create the skill directory itself instead of `github-resource` grouping shortcuts.
 - Make update statistics actionable by filtering status groups and allowing failed items to be rechecked or manually updated.
 - Remove the Settings built-in platform badge so built-in and user-added software platforms are shown uniformly.
 - Open Skill Bundles from the command palette through the active bundles page instead of a removed legacy route.
