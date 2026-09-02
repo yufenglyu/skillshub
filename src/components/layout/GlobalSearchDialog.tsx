@@ -3,11 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   Blocks,
-  Radar,
   Layers,
   RefreshCw,
   Plus,
-  ArrowUpRight,
 } from "lucide-react";
 
 import {
@@ -20,7 +18,6 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
-import { useDiscoverStore } from "@/stores/discoverStore";
 import { useCollectionStore } from "@/stores/collectionStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
@@ -39,7 +36,7 @@ type SearchItem = {
   id: string;
   label: string;
   description?: string;
-  groupKey: "central" | "discovered" | "collections" | "platforms" | "actions";
+  groupKey: "central" | "collections" | "platforms" | "actions";
   groupLabel: string;
   icon: React.ReactNode;
   searchText: string;
@@ -58,7 +55,6 @@ export function GlobalSearchDialog({
 
   // Data sources
   const centralSkills = useCentralSkillsStore((s) => s.skills);
-  const discoveredProjects = useDiscoverStore((s) => s.discoveredProjects);
   const collections = useCollectionStore((s) => s.collections);
   const agents = usePlatformStore((s) => s.agents);
   const [query, setQuery] = useState("");
@@ -74,11 +70,6 @@ export function GlobalSearchDialog({
       {
         key: "central" as const,
         label: t("globalSearch.centralSkills"),
-        initialLimit: 8,
-      },
-      {
-        key: "discovered" as const,
-        label: t("globalSearch.discovered"),
         initialLimit: 8,
       },
       {
@@ -140,27 +131,6 @@ export function GlobalSearchDialog({
       });
     }
 
-    // Discovered Skills
-    const discoveredSkills = discoveredProjects.flatMap((p) => p.skills);
-    for (const skill of discoveredSkills) {
-      const description = `${skill.project_name} / ${skill.platform_name}`;
-      result.push({
-        id: `discovered-${skill.id}`,
-        label: skill.name,
-        description,
-        groupKey: "discovered",
-        groupLabel: t("globalSearch.discovered"),
-        icon: <Radar className="size-4 shrink-0 text-primary/70" />,
-        searchText: buildSearchText([skill.name, description, skill.project_path]),
-        labelText: skill.name.toLowerCase(),
-        descriptionText: description.toLowerCase(),
-        onSelect: () => {
-          close();
-          navigate("/discover");
-        },
-      });
-    }
-
     // Skill Bundles
     for (const col of collections) {
       result.push({
@@ -175,7 +145,13 @@ export function GlobalSearchDialog({
         descriptionText: (col.description ?? "").toLowerCase(),
         onSelect: () => {
           close();
-          navigate(`/collection/${col.id}`);
+          navigate("/collections", {
+            state: {
+              collectionContext: {
+                collectionId: col.id,
+              },
+            },
+          });
         },
       });
     }
@@ -232,27 +208,12 @@ export function GlobalSearchDialog({
           close();
           onAction("new-collection");
         },
-      },
-      {
-        id: "action-discover",
-        label: t("globalSearch.actionDiscover"),
-        groupKey: "actions",
-        groupLabel: t("globalSearch.actions"),
-        icon: <ArrowUpRight className="size-4 shrink-0 text-primary/70" />,
-        searchText: buildSearchText([t("globalSearch.actionDiscover")]),
-        labelText: t("globalSearch.actionDiscover").toLowerCase(),
-        descriptionText: "",
-        onSelect: () => {
-          close();
-          navigate("/discover");
-        },
       }
     );
 
     return result;
   }, [
     centralSkills,
-    discoveredProjects,
     collections,
     agents,
     navigate,

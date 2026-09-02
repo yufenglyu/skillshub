@@ -286,7 +286,7 @@ describe("SkillDetailDrawer", () => {
     const sidebar = screen.getByTestId("skill-detail-right-sidebar");
 
     expect(drawer.className).toContain("w-screen");
-    expect(drawer.className).not.toContain("md:w-[min(900px,90vw)]");
+    expect(drawer.className).toContain("md:w-[calc(100vw-var(--app-sidebar-width,56px))]");
     expect(layout.className).toContain("flex-col");
     expect(layout.className).toContain("md:flex-row");
     expect(sidebar.className).toContain("border-t");

@@ -5,8 +5,8 @@ import { AppStatusBar } from "./AppStatusBar";
 import { GlobalSearchDialog } from "./GlobalSearchDialog";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
-import { useDiscoverStore } from "@/stores/discoverStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
+import { useSidebarStore } from "@/stores/sidebarStore";
 import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
 
 /**
@@ -23,7 +23,7 @@ export function AppShell() {
   const rescan = usePlatformStore((s) => s.rescan);
   const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
   const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
-  const rescanDiscoverFromDisk = useDiscoverStore((s) => s.rescanFromDisk);
+  const toggleSidebar = useSidebarStore((s) => s.toggleExpanded);
 
   useEffect(() => {
     initialize();
@@ -35,12 +35,22 @@ export function AppShell() {
     mainRef.current.scrollTop = 0;
   }, [pathname]);
 
+  useEffect(() => {
+    function preventDefaultContextMenu(event: MouseEvent) {
+      event.preventDefault();
+    }
+
+    window.addEventListener("contextmenu", preventDefaultContextMenu);
+    return () => {
+      window.removeEventListener("contextmenu", preventDefaultContextMenu);
+    };
+  }, []);
+
   async function handleGlobalRescan() {
     await rescan();
     await Promise.allSettled([
       loadCentralSkills(),
       loadResourceLibrary(),
-      rescanDiscoverFromDisk(),
     ]);
   }
 
@@ -55,6 +65,7 @@ export function AppShell() {
   useConfiguredHotkey("globalRescan", () => {
     void handleGlobalRescan();
   });
+  useConfiguredHotkey("toggleSidebar", toggleSidebar);
   useConfiguredHotkey("goResources", () => navigate("/resources"));
   useConfiguredHotkey("goCollections", () => navigate("/collections"));
   useConfiguredHotkey("goCentral", () => navigate("/central"));

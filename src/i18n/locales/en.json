@@ -671,6 +671,8 @@
     "shortcuts": {
       "globalSearch": "Command palette",
       "globalSearchDesc": "Open global search and commands.",
+      "toggleSidebar": "Toggle sidebar",
+      "toggleSidebarDesc": "Expand or collapse the main left sidebar.",
       "toggleSkillViewMode": "Toggle view",
       "toggleSkillViewModeDesc": "Switch skill lists between flat and folder views.",
       "globalRescan": "Global rescan",
@@ -870,13 +872,11 @@
     "placeholder": "Search skills, bundles, actions...",
     "noResults": "No results found.",
     "centralSkills": "Shared Hub",
-    "discovered": "Project Directories",
     "collections": "Skill Bundles",
     "platforms": "Platforms",
     "actions": "Actions",
     "actionRescan": "Rescan all skills",
     "actionNewCollection": "Create new bundle",
-    "actionDiscover": "Open Discover scan",
     "skillDetail": "Skill Detail"
   },
   "discover": {

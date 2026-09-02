@@ -2,6 +2,7 @@ export const SHORTCUT_STORAGE_KEY = "skills-manage.shortcuts.v1";
 
 export type ShortcutActionId =
   | "globalSearch"
+  | "toggleSidebar"
   | "toggleSkillViewMode"
   | "globalRescan"
   | "goResources"
@@ -22,6 +23,12 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     defaultCombo: "mod+k",
     labelKey: "settings.shortcuts.globalSearch",
     descriptionKey: "settings.shortcuts.globalSearchDesc",
+  },
+  {
+    id: "toggleSidebar",
+    defaultCombo: "mod+b",
+    labelKey: "settings.shortcuts.toggleSidebar",
+    descriptionKey: "settings.shortcuts.toggleSidebarDesc",
   },
   {
     id: "toggleSkillViewMode",

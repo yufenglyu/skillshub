@@ -27,6 +27,7 @@ import { isEnabledInstallTargetAgent } from "@/lib/agents";
 import { isProjectAgentId } from "@/lib/projectTargets";
 import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import { SharedHubIcon, SkillRepositoryIcon } from "@/components/skill/SkillActionIcons";
+import { useSidebarStore } from "@/stores/sidebarStore";
 
 // ─── Nav Item ────────────────────────────────────────────────────────────────
 
@@ -134,7 +135,8 @@ export function Sidebar() {
   const themeMode = useThemeStore((s) => s.mode);
   const cycleThemeMode = useThemeStore((s) => s.cycleMode);
 
-  const [expanded, setExpanded] = useState(true);
+  const expanded = useSidebarStore((s) => s.expanded);
+  const setExpanded = useSidebarStore((s) => s.setExpanded);
   const [showAllPlatforms, setShowAllPlatforms] = useState(() => {
     try {
       return window.localStorage.getItem(SHOW_ALL_PLATFORMS_KEY) === "true";
@@ -163,6 +165,14 @@ export function Sidebar() {
     loadResourceLibrary();
     loadCentralSkills();
   }, [loadCentralSkills, loadCollections, loadResourceLibrary]);
+
+  useEffect(() => {
+    const width = expanded ? sidebarWidth.width : 56;
+    document.documentElement.style.setProperty("--app-sidebar-width", `${width}px`);
+    return () => {
+      document.documentElement.style.removeProperty("--app-sidebar-width");
+    };
+  }, [expanded, sidebarWidth.width]);
 
   function toggleShowAllPlatforms() {
     setShowAllPlatforms((previous) => {
@@ -258,7 +268,7 @@ export function Sidebar() {
           </span>
         )}
         <button
-          onClick={() => setExpanded((e) => !e)}
+          onClick={() => setExpanded(!expanded)}
           className={cn(
             "p-1 rounded-md transition-colors cursor-pointer",
             "text-muted-foreground hover:text-foreground hover:bg-muted/60"

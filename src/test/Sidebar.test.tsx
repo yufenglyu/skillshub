@@ -6,6 +6,7 @@ import { usePlatformStore } from "../stores/platformStore";
 import { useResourceLibraryStore } from "../stores/resourceLibraryStore";
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
 import { useThemeStore } from "../stores/themeStore";
+import { useSidebarStore } from "../stores/sidebarStore";
 import type { AgentWithStatus } from "../types";
 
 // Mock the platformStore to avoid real Tauri invocations
@@ -188,6 +189,7 @@ describe("Sidebar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage?.clear?.();
+    useSidebarStore.setState({ expanded: true });
     // Default: collection store returns empty state.
     vi.mocked(useCollectionStore).mockImplementation((selector) =>
       selector(defaultCollectionState)

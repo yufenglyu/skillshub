@@ -671,6 +671,8 @@
     "shortcuts": {
       "globalSearch": "命令面板",
       "globalSearchDesc": "打开全局搜索和命令入口。",
+      "toggleSidebar": "展开/收起侧边栏",
+      "toggleSidebarDesc": "切换左侧主侧边栏的展开状态。",
       "toggleSkillViewMode": "切换视图",
       "toggleSkillViewModeDesc": "在技能列表的平铺和目录视图之间切换。",
       "globalRescan": "全局刷新",
@@ -870,13 +872,11 @@
     "placeholder": "搜索技能、技能集、操作...",
     "noResults": "未找到结果。",
     "centralSkills": "共享中心",
-    "discovered": "项目目录",
     "collections": "技能合集",
     "platforms": "平台",
     "actions": "操作",
     "actionRescan": "重新扫描所有技能",
     "actionNewCollection": "新建合集",
-    "actionDiscover": "打开发现扫描",
     "skillDetail": "技能详情"
   },
   "discover": {

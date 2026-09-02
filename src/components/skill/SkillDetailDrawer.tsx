@@ -62,7 +62,7 @@ export function SkillDetailDrawer({
       <DialogPortal keepMounted={false}>
         <DialogOverlay
           data-testid="skill-detail-drawer-overlay"
-          className="bg-black/30"
+          className="bg-black/30 md:left-[var(--app-sidebar-width,56px)]"
         />
         <DialogPrimitive.Popup
           role="dialog"
@@ -70,7 +70,7 @@ export function SkillDetailDrawer({
           aria-labelledby={showContent ? titleId : undefined}
           data-testid="skill-detail-drawer"
           className={cn(
-            "fixed inset-y-0 right-0 z-50 flex h-full w-screen flex-col bg-background shadow-2xl ring-1 ring-border outline-none"
+            "fixed inset-y-0 right-0 z-50 flex h-full w-screen flex-col bg-background shadow-2xl ring-1 ring-border outline-none md:w-[calc(100vw-var(--app-sidebar-width,56px))]"
           )}
         >
           <div className="flex h-10 shrink-0 items-center justify-end border-b border-border px-2">

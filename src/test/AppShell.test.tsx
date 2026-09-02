@@ -4,7 +4,6 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
-import { useDiscoverStore } from "@/stores/discoverStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useAppStatusStore } from "@/stores/appStatusStore";
 
@@ -16,10 +15,6 @@ vi.mock("@/stores/platformStore", () => ({
 
 vi.mock("@/stores/centralSkillsStore", () => ({
   useCentralSkillsStore: vi.fn(),
-}));
-
-vi.mock("@/stores/discoverStore", () => ({
-  useDiscoverStore: vi.fn(),
 }));
 
 vi.mock("@/stores/resourceLibraryStore", () => ({
@@ -53,7 +48,6 @@ vi.mock("@/components/layout/GlobalSearchDialog", () => ({
 
 const mockUsePlatformStore = vi.mocked(usePlatformStore);
 const mockUseCentralSkillsStore = vi.mocked(useCentralSkillsStore);
-const mockUseDiscoverStore = vi.mocked(useDiscoverStore);
 const mockUseResourceLibraryStore = vi.mocked(useResourceLibraryStore);
 const mockUseAppStatusStore = vi.mocked(useAppStatusStore);
 
@@ -92,14 +86,6 @@ describe("AppShell", () => {
     mockUseCentralSkillsStore.mockImplementation((selector?: unknown) => {
       const state = {
         loadCentralSkills: vi.fn(),
-      };
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-    mockUseDiscoverStore.mockImplementation((selector?: unknown) => {
-      const state = {
-        refreshCounts: vi.fn(),
-        rescanFromDisk: vi.fn(),
       };
       if (typeof selector === "function") return selector(state);
       return state;
@@ -152,6 +138,23 @@ describe("AppShell", () => {
     expect(screen.getByRole("contentinfo", { name: /状态栏|Status bar/i })).toBeInTheDocument();
     expect(screen.getByText("就绪")).toBeInTheDocument();
     expect(screen.getByText("技能仓库 2 · 共享中心 1")).toBeInTheDocument();
+  });
+
+  it("suppresses the default Chromium context menu", () => {
+    render(
+      <MemoryRouter initialEntries={["/a"]}>
+        <Routes>
+          <Route path="/" element={<AppShell />}>
+            <Route path="a" element={<DummyPage label="page-a" />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("shows expandable and filterable update statistics in the bottom status bar", () => {
@@ -293,11 +296,10 @@ describe("AppShell", () => {
     expect((main as HTMLElement).scrollTop).toBe(0);
   });
 
-  it("routes the global rescan action to the platform, central, and discover disk scan stores", async () => {
+  it("routes the global rescan action to the platform, central, and repository stores", async () => {
     const mockRescan = vi.fn().mockResolvedValue(undefined);
     const mockLoadCentralSkills = vi.fn().mockResolvedValue(undefined);
-    const mockRefreshDiscoverCounts = vi.fn().mockResolvedValue(undefined);
-    const mockRescanDiscoverFromDisk = vi.fn().mockResolvedValue(undefined);
+    const mockLoadResourceLibrary = vi.fn().mockResolvedValue(undefined);
     triggerRescanInMock = true;
 
     mockUsePlatformStore.mockImplementation((selector?: unknown) => {
@@ -315,10 +317,9 @@ describe("AppShell", () => {
       if (typeof selector === "function") return selector(state);
       return state;
     });
-    mockUseDiscoverStore.mockImplementation((selector?: unknown) => {
+    mockUseResourceLibraryStore.mockImplementation((selector?: unknown) => {
       const state = {
-        refreshCounts: mockRefreshDiscoverCounts,
-        rescanFromDisk: mockRescanDiscoverFromDisk,
+        loadResourceLibrary: mockLoadResourceLibrary,
       };
       if (typeof selector === "function") return selector(state);
       return state;
@@ -340,19 +341,17 @@ describe("AppShell", () => {
 
     expect(mockRescan).toHaveBeenCalledTimes(1);
     expect(mockLoadCentralSkills).toHaveBeenCalledTimes(1);
-    expect(mockRescanDiscoverFromDisk).toHaveBeenCalledTimes(1);
-    expect(mockRefreshDiscoverCounts).not.toHaveBeenCalled();
+    expect(mockLoadResourceLibrary).toHaveBeenCalledTimes(1);
   });
 
-  it("waits for the platform rescan before refreshing central and rerunning discover from disk", async () => {
+  it("waits for the platform rescan before refreshing central and repository state", async () => {
     let resolveRescan!: () => void;
     const rescanPromise = new Promise<void>((resolve) => {
       resolveRescan = () => resolve();
     });
     const mockRescan = vi.fn().mockReturnValue(rescanPromise);
     const mockLoadCentralSkills = vi.fn().mockResolvedValue(undefined);
-    const mockRefreshDiscoverCounts = vi.fn().mockResolvedValue(undefined);
-    const mockRescanDiscoverFromDisk = vi.fn().mockResolvedValue(undefined);
+    const mockLoadResourceLibrary = vi.fn().mockResolvedValue(undefined);
     triggerRescanInMock = true;
 
     mockUsePlatformStore.mockImplementation((selector?: unknown) => {
@@ -370,10 +369,9 @@ describe("AppShell", () => {
       if (typeof selector === "function") return selector(state);
       return state;
     });
-    mockUseDiscoverStore.mockImplementation((selector?: unknown) => {
+    mockUseResourceLibraryStore.mockImplementation((selector?: unknown) => {
       const state = {
-        refreshCounts: mockRefreshDiscoverCounts,
-        rescanFromDisk: mockRescanDiscoverFromDisk,
+        loadResourceLibrary: mockLoadResourceLibrary,
       };
       if (typeof selector === "function") return selector(state);
       return state;
@@ -395,16 +393,13 @@ describe("AppShell", () => {
 
     expect(mockRescan).toHaveBeenCalledTimes(1);
     expect(mockLoadCentralSkills).not.toHaveBeenCalled();
-    expect(mockRescanDiscoverFromDisk).not.toHaveBeenCalled();
-    expect(mockRefreshDiscoverCounts).not.toHaveBeenCalled();
+    expect(mockLoadResourceLibrary).not.toHaveBeenCalled();
 
     resolveRescan();
 
     await waitFor(() => {
       expect(mockLoadCentralSkills).toHaveBeenCalledTimes(1);
-      expect(mockRescanDiscoverFromDisk).toHaveBeenCalledTimes(1);
+      expect(mockLoadResourceLibrary).toHaveBeenCalledTimes(1);
     });
-
-    expect(mockRefreshDiscoverCounts).not.toHaveBeenCalled();
   });
 });

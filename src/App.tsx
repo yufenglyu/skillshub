@@ -6,7 +6,6 @@ import { ResourceLibraryView } from "@/pages/ResourceLibraryView";
 import { SkillDetailPage } from "@/pages/SkillDetailPage";
 import { CollectionsListView } from "@/pages/CollectionsListView";
 import { SettingsView } from "@/pages/SettingsView";
-import { DiscoverView } from "@/pages/DiscoverView";
 
 function App() {
   return (
@@ -24,10 +23,6 @@ function App() {
         <Route path="skill/:skillId" element={<SkillDetailPage />} />
         {/* Skill Bundles */}
         <Route path="collections" element={<CollectionsListView />} />
-        {/* Discover project skills */}
-        <Route path="discover" element={<DiscoverView />} />
-        {/* Discover filtered by project */}
-        <Route path="discover/:projectPath" element={<DiscoverView />} />
         {/* Settings */}
         <Route path="settings" element={<SettingsView />} />
       </Route>

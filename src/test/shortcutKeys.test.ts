@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_SHORTCUTS,
   formatShortcutCombo,
   matchesShortcutEvent,
   normalizeShortcutCombo,
@@ -20,6 +21,10 @@ describe("shortcutKeys", () => {
   it("matches configured shortcuts", () => {
     expect(matchesShortcutEvent(keyEvent("V", { ctrlKey: true, shiftKey: true }), "ctrl+shift+v")).toBe(true);
     expect(matchesShortcutEvent(keyEvent("V", { ctrlKey: true }), "ctrl+shift+v")).toBe(false);
+  });
+
+  it("defines a default sidebar toggle shortcut", () => {
+    expect(DEFAULT_SHORTCUTS.toggleSidebar).toBe("mod+b");
   });
 
   it("formats combos for display", () => {
