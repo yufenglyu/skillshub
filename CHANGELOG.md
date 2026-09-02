@@ -10,10 +10,17 @@ This release unifies the core product terminology and restores the shared packag
 
 - Rename the three core areas in English to **Skill Repository**, **Skill Bundles**, and **Shared Hub**, matching the updated Chinese labels **技能仓库**, **技能合集**, and **共享中心**.
 - Refresh the English and Chinese READMEs and screenshots with the new terminology.
+- Use shorter Chinese bundle creation labels, including **新建合集** in Skill Bundles.
+- Add configurable keyboard shortcuts in Settings, with defaults for the command palette, global rescan, page navigation, and toggling flat/folder skill views.
+- Refresh the Skill Repository and Shared Hub icons and align the matching skill action icons.
 
 ### Fixes
 
 - Restore the shared Windows and Unix release-layout helper scripts required by local packaging and desktop release workflows.
+- Allow Skill Repository folder rows to update source-backed skills by directory.
+- Remove dangling Shared Hub shortcuts such as `github-resource` when the target no longer exists, including mirrored platform links.
+- Make update statistics actionable by filtering status groups and allowing failed items to be rechecked or manually updated.
+- Remove the Settings built-in platform badge so built-in and user-added software platforms are shown uniformly.
 
 ## 0.80.2 - 2026-08-21
 

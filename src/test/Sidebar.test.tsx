@@ -256,7 +256,7 @@ describe("Sidebar", () => {
 
   it("new/import collection buttons are on the list page, not sidebar", () => {
     renderSidebar();
-    expect(screen.queryByRole("button", { name: /新建技能集/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /新建合集/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /导入技能集/i })).not.toBeInTheDocument();
   });
 

@@ -1,6 +1,4 @@
 import {
-  Database,
-  PackagePlus,
   Check,
   Link2,
   FolderOpen,
@@ -28,6 +26,10 @@ import {
   getSkillSourceLineKeys,
   isExceptionalSkillOrigin,
 } from "@/lib/skillSourceDisplay";
+import {
+  InstallTargetsActionIcon,
+  SharedHubActionIcon,
+} from "@/components/skill/SkillActionIcons";
 
 const FEATURED_AGENT_IDS = [
   "openclaw",
@@ -302,7 +304,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
                     aria-label={installToCentralLabel ?? t("discover.installToCentral")}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:cursor-default"
                   >
-                    {isLoading ? <Loader2 className="size-4 animate-spin" /> : <Database className="size-4" />}
+                    {isLoading ? <Loader2 className="size-4 animate-spin" /> : <SharedHubActionIcon installed={false} />}
                   </button>
                 )}
 
@@ -315,7 +317,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
                     aria-label={t("central.installLabel", { name })}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:cursor-default"
                   >
-                    <PackagePlus className="size-4" />
+                    <InstallTargetsActionIcon />
                   </button>
                 )}
 

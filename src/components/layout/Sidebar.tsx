@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Loader2,
-  Database,
   Layers,
   Eye,
   EyeOff,
@@ -15,7 +14,6 @@ import {
   FolderOpen,
   FolderTree,
   Cpu,
-  Library,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
@@ -28,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { isEnabledInstallTargetAgent } from "@/lib/agents";
 import { isProjectAgentId } from "@/lib/projectTargets";
 import { useSidebarWidth } from "@/hooks/useSidebarWidth";
+import { SharedHubIcon, SkillRepositoryIcon } from "@/components/skill/SkillActionIcons";
 
 // ─── Nav Item ────────────────────────────────────────────────────────────────
 
@@ -282,7 +281,7 @@ export function Sidebar() {
           label={t("sidebar.resourceLibrary")}
           isActive={pathname === "/resources" || pathname === "/"}
           onClick={() => navigate("/resources")}
-          icon={<Database className="size-4" />}
+          icon={<SkillRepositoryIcon className="size-4" />}
           expanded={expanded}
           count={resourceSkillsCount}
         />
@@ -319,7 +318,7 @@ export function Sidebar() {
                   : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
               )}
             >
-              <Library className="size-4 shrink-0" />
+              <SharedHubIcon className="size-4 shrink-0" />
               <span className="truncate min-w-0 flex-1 text-left">{t("sidebar.centralSkills")}</span>
               {centralSkillsCount > 0 && (
                 <span
@@ -340,7 +339,7 @@ export function Sidebar() {
             label={t("sidebar.centralSkills")}
             isActive={pathname === "/central"}
             onClick={() => navigate("/central")}
-            icon={<Library className="size-4" />}
+            icon={<SharedHubIcon className="size-4" />}
             expanded={false}
             count={centralSkillsCount}
           />

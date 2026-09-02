@@ -35,6 +35,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
+import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
 import { isInstallTargetAgent } from "@/lib/agents";
 import { normalizePathForInputDisplay } from "@/lib/path";
 import { buildSearchText, normalizeSearchQuery } from "@/lib/search";
@@ -85,6 +86,10 @@ function resourceSkillSourceRepo(skill: SkillWithLinks): string | null {
   return skill.source_repo ?? githubRepoFromSourceLabel(skill.source) ?? null;
 }
 
+function isSourceBackedSkill(skill: SkillWithLinks) {
+  return !!(skill.source_url || (resourceSkillSourceRepo(skill) && skill.source_path));
+}
+
 function sourceUpdateItems(
   skills: SkillWithLinks[],
   report: SkillSourceUpdateReport | null | undefined
@@ -95,6 +100,7 @@ function sourceUpdateItems(
     seen.add(outcome.skillId);
     const skill = byId.get(outcome.skillId);
     return {
+      skillId: outcome.skillId,
       name: skill?.name ?? outcome.name,
       status: outcome.status,
       repository: skill?.source_repo ?? null,
@@ -104,6 +110,7 @@ function sourceUpdateItems(
   for (const skill of skills) {
     if (skill.source === "local-folder" && !seen.has(skill.id)) {
       items.push({
+        skillId: skill.id,
         name: skill.name,
         status: "skipped",
         repository: skill.source_repo ?? null,
@@ -176,6 +183,9 @@ export function ResourceLibraryView() {
   const uninstallSkillFromAgent = useSkillStore((state) => state.uninstallSkillFromAgent);
 
   const [viewMode, setViewMode] = useSkillListViewMode("resource-library");
+  useConfiguredHotkey("toggleSkillViewMode", () => {
+    setViewMode(viewMode === "all" ? "folders" : "all");
+  });
   const {
     visibleColumns: visibleSkillColumns,
     toggleColumn: toggleSkillColumn,
@@ -213,7 +223,7 @@ export function ResourceLibraryView() {
   const [folderActionGroupKey, setFolderActionGroupKey] = useState<string | null>(null);
   const [folderActionMode, setFolderActionMode] = useState<"install" | "uninstall" | null>(null);
   const [pendingFolderAction, setPendingFolderAction] = useState<
-    "central" | "install" | "uninstall" | null
+    "central" | "install" | "uninstall" | "update" | null
   >(null);
   const [pendingFolderActionKey, setPendingFolderActionKey] = useState<string | null>(null);
   const detailButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -400,6 +410,77 @@ export function ResourceLibraryView() {
     }
   }
 
+  function replaceStatusItem(
+    items: AppStatusTaskItem[],
+    target: AppStatusTaskItem,
+    patch: Partial<AppStatusTaskItem>
+  ) {
+    return items.map((item) => {
+      const sameSkill = target.skillId && item.skillId === target.skillId;
+      const sameFallback =
+        !target.skillId &&
+        item.name === target.name &&
+        item.repository === target.repository &&
+        item.status === target.status;
+      return sameSkill || sameFallback ? { ...item, ...patch } : item;
+    });
+  }
+
+  function updateStatusItems(items: AppStatusTaskItem[]) {
+    updateStatusTask({
+      updatedCount: items.filter((item) => item.status === "updated").length,
+      unchangedCount: items.filter((item) => item.status === "unchanged").length,
+      skippedCount: items.filter((item) => item.status === "skipped").length,
+      failedCount: items.filter((item) => item.status === "failed").length,
+      items,
+    });
+  }
+
+  async function handleRetryFailedStatusItem(item: AppStatusTaskItem) {
+    const skill = skills.find((candidate) => candidate.id === item.skillId);
+    if (!skill) {
+      toast.error(t("resource.updateSourcesError", { error: item.name }));
+      return;
+    }
+
+    setUpdatingSkillId(skill.id);
+    const currentItems = useAppStatusStore.getState().task?.items ?? [];
+    updateStatusItems(replaceStatusItem(currentItems, item, {
+      detail: t("status.resourceSourceUpdatingItem", { name: skill.name }),
+    }));
+
+    try {
+      await updateSourceBackedSkill(skill.id);
+      const nextItems = replaceStatusItem(
+        useAppStatusStore.getState().task?.items ?? currentItems,
+        item,
+        { status: "updated", detail: null }
+      );
+      updateStatusItems(nextItems);
+      toast.success(t("central.updateSourceSuccess", { name: skill.name }));
+    } catch (err) {
+      const errorMessage = formatTaskError(err);
+      const nextItems = replaceStatusItem(
+        useAppStatusStore.getState().task?.items ?? currentItems,
+        item,
+        { status: "failed", detail: errorMessage }
+      );
+      updateStatusItems(nextItems);
+      toast.error(t("central.updateSourceError", { name: skill.name, error: String(err) }));
+    } finally {
+      setUpdatingSkillId(null);
+    }
+  }
+
+  function handleManualCheckFailedStatusItem(item: AppStatusTaskItem) {
+    const skill = skills.find((candidate) => candidate.id === item.skillId);
+    if (!skill) {
+      toast.error(t("resource.updateSourcesError", { error: item.name }));
+      return;
+    }
+    void handleUpdateSingleSource(skill);
+  }
+
   async function handleUpdateSources() {
     startStatusTask({
       id: "resource-source-update",
@@ -435,6 +516,8 @@ export function ResourceLibraryView() {
         skippedCount,
         failedCount,
         items,
+        onRetryFailedItem: handleRetryFailedStatusItem,
+        onManualCheckFailedItem: handleManualCheckFailedStatusItem,
       });
       toast.success(t("resource.updateSourcesSuccess", { count: updatedCount }));
     } catch (err) {
@@ -620,6 +703,90 @@ export function ResourceLibraryView() {
     } finally {
       setPendingFolderAction(null);
       setPendingFolderActionKey(null);
+    }
+  }
+
+  async function handleUpdateFolderSources(group: SkillFolderGroup<SkillWithLinks>) {
+    if (pendingFolderAction) return;
+    setPendingFolderAction("update");
+    setPendingFolderActionKey(group.relativePath);
+    startStatusTask({
+      id: `resource-source-update-folder:${group.relativePath}`,
+      label: t("status.resourceFolderSourceUpdate", { name: group.name }),
+      detail: t("status.resourceSourceConnecting"),
+      currentCount: 0,
+      totalCount: group.skills.length,
+    });
+
+    const items: AppStatusTaskItem[] = [];
+    try {
+      for (const [index, skill] of group.skills.entries()) {
+        updateStatusTask({
+          currentCount: index + 1,
+          totalCount: group.skills.length,
+          detail: t("status.resourceSourceUpdatingItem", { name: skill.name }),
+        });
+
+        if (!isSourceBackedSkill(skill)) {
+          items.push({
+            skillId: skill.id,
+            name: skill.name,
+            status: "skipped",
+            repository: skill.source_repo ?? null,
+          });
+          updateStatusItems(items);
+          continue;
+        }
+
+        setUpdatingSkillId(skill.id);
+        try {
+          await updateSourceBackedSkill(skill.id);
+          items.push({
+            skillId: skill.id,
+            name: skill.name,
+            status: "updated",
+            repository: resourceSkillSourceRepo(skill),
+          });
+        } catch (err) {
+          items.push({
+            skillId: skill.id,
+            name: skill.name,
+            status: "failed",
+            repository: resourceSkillSourceRepo(skill),
+            detail: formatTaskError(err),
+          });
+        } finally {
+          setUpdatingSkillId(null);
+          updateStatusItems(items);
+        }
+      }
+
+      await loadResourceLibrary();
+      const updatedCount = items.filter((item) => item.status === "updated").length;
+      completeStatusTask({
+        detail: t("status.resourceSourceUpdated", { count: updatedCount }),
+        updatedCount,
+        unchangedCount: items.filter((item) => item.status === "unchanged").length,
+        skippedCount: items.filter((item) => item.status === "skipped").length,
+        failedCount: items.filter((item) => item.status === "failed").length,
+        items,
+        onRetryFailedItem: handleRetryFailedStatusItem,
+        onManualCheckFailedItem: handleManualCheckFailedStatusItem,
+      });
+      toast.success(t("resource.updateSourcesSuccess", { count: updatedCount }));
+    } catch (err) {
+      const errorMessage = formatTaskError(err);
+      failStatusTask({
+        detail: errorMessage,
+        error: errorMessage,
+        failedCount: 1,
+        items,
+      });
+      toast.error(t("resource.updateSourcesError", { error: String(err) }));
+    } finally {
+      setPendingFolderAction(null);
+      setPendingFolderActionKey(null);
+      setUpdatingSkillId(null);
     }
   }
 
@@ -963,6 +1130,13 @@ export function ResourceLibraryView() {
                         ? () => void handleRemoveFolderFromCentral(group)
                         : undefined,
                       removeFromCentralLabel: t("resource.removeFromCentralAction"),
+                      onUpdate: group.skills.some(isSourceBackedSkill)
+                        ? () => void handleUpdateFolderSources(group)
+                        : undefined,
+                      updateLabel: t("resource.updateAction"),
+                      isUpdating:
+                        pendingFolderAction === "update" &&
+                        pendingFolderActionKey === group.relativePath,
                       isRemovingFromCentral:
                         pendingFolderAction === "central" &&
                         pendingFolderActionKey === group.relativePath,
@@ -1060,7 +1234,7 @@ export function ResourceLibraryView() {
                       deleteFromCentralRequiresDialog:
                         skill.linked_agents.length > 0 || (skill.read_only_agents?.length ?? 0) > 0,
                       onUpdateFromSource:
-                        skill.source_url || (normalizedSourceRepo && skill.source_path)
+                        isSourceBackedSkill(skill)
                           ? () => void handleUpdateSingleSource(skill)
                           : undefined,
                       updateFromSourceLabel: t("resource.updateAction"),

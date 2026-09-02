@@ -1044,11 +1044,11 @@ describe("SettingsView", () => {
     expect(screen.getByText("QClaw")).toBeTruthy();
   });
 
-  it("shows builtin, detected, and enabled platform counts in section headers", () => {
+  it("shows detected and enabled platform counts in section headers", () => {
     setupMocks({ agents: [mockBuiltinAgent, mockMissingBuiltinAgent, mockCustomAgent] });
     renderSettingsView();
 
-    expect(screen.getByText("内置 2")).toBeTruthy();
+    expect(screen.queryByText("内置 2")).toBeNull();
     expect(screen.getByText("已检测到 1")).toBeTruthy();
     expect(screen.getByText("已启用 3")).toBeTruthy();
   });

@@ -22,6 +22,7 @@ import { SkillBrowserViewHeading } from "@/components/skill/SkillBrowserViewHead
 import { OpenableDirectoryPath } from "@/components/common/OpenableDirectoryPath";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
+import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
 import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
 import { splitSkillsByTopLevel } from "@/lib/skillFolders";
 import {
@@ -97,6 +98,9 @@ export function PlatformView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<ClaudeSourceFilter>("all");
   const [viewMode, setViewMode] = useSkillListViewMode("platform");
+  useConfiguredHotkey("toggleSkillViewMode", () => {
+    setViewMode(viewMode === "all" ? "folders" : "all");
+  });
   const {
     visibleColumns: visibleSkillColumns,
     toggleColumn: toggleSkillColumn,

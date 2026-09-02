@@ -15,11 +15,14 @@ export interface AppStatusTask {
   totalCount?: number | null;
   error?: string | null;
   items?: AppStatusTaskItem[];
+  onRetryFailedItem?: (item: AppStatusTaskItem) => void;
+  onManualCheckFailedItem?: (item: AppStatusTaskItem) => void;
   startedAt?: string | null;
   completedAt?: string | null;
 }
 
 export interface AppStatusTaskItem {
+  skillId?: string | null;
   name: string;
   status: "updated" | "unchanged" | "skipped" | "failed" | "info";
   repository?: string | null;

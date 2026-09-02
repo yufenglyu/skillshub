@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { AgentWithStatus, CentralSkillBundle, SkillWithLinks } from "@/types";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
+import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
 import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
 import { formatPathForDisplay } from "@/lib/path";
 import { buildSearchText, normalizeSearchQuery } from "@/lib/search";
@@ -223,6 +224,9 @@ export function CentralSkillsView() {
     usePlatformStore((state) => state.refreshCounts) ?? noopRefreshCounts;
 
   const [viewMode, setViewMode] = useSkillListViewMode("central");
+  useConfiguredHotkey("toggleSkillViewMode", () => {
+    setViewMode(viewMode === "all" ? "folders" : "all");
+  });
   const {
     visibleColumns: visibleSkillColumns,
     toggleColumn: toggleSkillColumn,

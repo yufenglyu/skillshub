@@ -23,7 +23,7 @@ import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useDiscoverStore } from "@/stores/discoverStore";
 import { useCollectionStore } from "@/stores/collectionStore";
 import { usePlatformStore } from "@/stores/platformStore";
-import { useHotkey } from "@/hooks/useHotkey";
+import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { formatPathForDisplay } from "@/lib/path";
 import { buildSearchText, normalizeSearchQuery, scoreSearchMatch } from "@/lib/search";
@@ -306,8 +306,9 @@ export function GlobalSearchDialog({
       .filter((group) => group.items.length > 0);
   }, [groupMeta, items, normalizedQuery, open]);
 
-  // Cmd+K shortcut (also registered here so the dialog self-toggles)
-  useHotkey("mod+k", () => onOpenChange(!open));
+  useConfiguredHotkey("globalSearch", () => onOpenChange(!open), {
+    allowInEditable: true,
+  });
 
   return (
     <CommandDialog

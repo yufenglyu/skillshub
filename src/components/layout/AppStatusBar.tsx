@@ -1,5 +1,5 @@
-import { AlertCircle, CheckCircle2, Circle, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { AlertCircle, CheckCircle2, Circle, Loader2, RotateCw } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useAppStatusStore, type AppStatusTask } from "@/stores/appStatusStore";
 import { cn } from "@/lib/utils";
+
+type UpdateStatsFilter = "updated" | "unchanged" | "skipped" | "failed";
 
 function statusIcon(task: AppStatusTask | null) {
   if (!task) return <Circle className="size-3 fill-current text-muted-foreground" />;
@@ -43,6 +45,7 @@ function itemStatusLabel(
 export function AppStatusBar() {
   const { t } = useTranslation();
   const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [statsFilter, setStatsFilter] = useState<UpdateStatsFilter | null>(null);
   const task = useAppStatusStore((state) => state.task);
   const resourceSkills = useResourceLibraryStore((state) => state.skills?.length ?? 0);
   const centralSkills = useCentralSkillsStore((state) => state.skills?.length ?? 0);
@@ -74,6 +77,25 @@ export function AppStatusBar() {
         name: detail,
       })
     : detail;
+  const statsItems = useMemo(() => task?.items ?? [], [task?.items]);
+  const filteredStatsItems = useMemo(
+    () => (statsFilter ? statsItems.filter((item) => item.status === statsFilter) : statsItems),
+    [statsFilter, statsItems]
+  );
+  const hasFailedItemActions =
+    !!task?.onRetryFailedItem || !!task?.onManualCheckFailedItem;
+
+  function toggleStatsFilter(filter: UpdateStatsFilter) {
+    setStatsFilter((current) => (current === filter ? null : filter));
+  }
+
+  function statsCardClass(filter: UpdateStatsFilter) {
+    return cn(
+      "rounded-lg border p-3 text-left transition-colors",
+      "hover:border-primary/40 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      statsFilter === filter ? "border-primary bg-primary/5" : "border-border"
+    );
+  }
 
   return (
     <>
@@ -154,22 +176,42 @@ export function AppStatusBar() {
             <DialogTitle>{t("status.updateStats")}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-4 gap-2 text-sm">
-            <div className="rounded-lg border border-border p-3">
+            <button
+              type="button"
+              className={statsCardClass("updated")}
+              aria-pressed={statsFilter === "updated"}
+              onClick={() => toggleStatsFilter("updated")}
+            >
               <div className="text-xs text-muted-foreground">{t("status.updatedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-foreground">{task?.updatedCount ?? 0}</div>
-            </div>
-            <div className="rounded-lg border border-border p-3">
+            </button>
+            <button
+              type="button"
+              className={statsCardClass("unchanged")}
+              aria-pressed={statsFilter === "unchanged"}
+              onClick={() => toggleStatsFilter("unchanged")}
+            >
               <div className="text-xs text-muted-foreground">{t("status.unchangedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-foreground">{task?.unchangedCount ?? 0}</div>
-            </div>
-            <div className="rounded-lg border border-border p-3">
+            </button>
+            <button
+              type="button"
+              className={statsCardClass("skipped")}
+              aria-pressed={statsFilter === "skipped"}
+              onClick={() => toggleStatsFilter("skipped")}
+            >
               <div className="text-xs text-muted-foreground">{t("status.skippedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-foreground">{task?.skippedCount ?? 0}</div>
-            </div>
-            <div className="rounded-lg border border-border p-3">
+            </button>
+            <button
+              type="button"
+              className={statsCardClass("failed")}
+              aria-pressed={statsFilter === "failed"}
+              onClick={() => toggleStatsFilter("failed")}
+            >
               <div className="text-xs text-muted-foreground">{t("status.failedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-destructive">{task?.failedCount ?? 0}</div>
-            </div>
+            </button>
           </div>
           <DialogBody className="px-0">
             <table className="w-full border-separate border-spacing-0 text-sm">
@@ -179,10 +221,13 @@ export function AppStatusBar() {
                   <th className="border-b border-border px-3 py-2 font-medium">{t("status.columnName")}</th>
                   <th className="border-b border-border px-3 py-2 font-medium">{t("status.columnRepository")}</th>
                   <th className="w-28 border-b border-border px-3 py-2 font-medium">{t("status.columnStatus")}</th>
+                  {hasFailedItemActions ? (
+                    <th className="w-40 border-b border-border px-3 py-2 font-medium">{t("status.columnActions")}</th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
-                {(task?.items ?? []).map((item, index) => (
+                {filteredStatsItems.map((item, index) => (
                   <tr key={`${item.status}:${item.name}:${item.repository ?? ""}:${index}`} title={item.detail ?? undefined}>
                     <td className="border-b border-border px-3 py-2 tabular-nums text-muted-foreground">{index + 1}</td>
                     <td className="border-b border-border px-3 py-2 font-medium text-foreground">{item.name}</td>
@@ -198,6 +243,40 @@ export function AppStatusBar() {
                     >
                       {itemStatusLabel(t, item.status)}
                     </td>
+                    {hasFailedItemActions ? (
+                      <td className="border-b border-border px-3 py-2">
+                        {item.status === "failed" ? (
+                          <div className="flex flex-wrap items-center gap-1">
+                            {task?.onRetryFailedItem ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 gap-1 px-2 text-xs"
+                                onClick={() => task.onRetryFailedItem?.(item)}
+                              >
+                                <RotateCw className="size-3" />
+                                {t("status.retryFailedItem")}
+                              </Button>
+                            ) : null}
+                            {task?.onManualCheckFailedItem ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  setIsStatsOpen(false);
+                                  task.onManualCheckFailedItem?.(item);
+                                }}
+                              >
+                                {t("status.manualCheckFailedItem")}
+                              </Button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

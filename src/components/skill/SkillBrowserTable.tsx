@@ -1,14 +1,10 @@
 import {
   Check,
-  Database,
   FolderOpen,
   Link2,
   Lock,
   Loader2,
   PackageMinus,
-  PackagePlus,
-  Minus,
-  Plus,
   RefreshCw,
   Trash2,
 } from "lucide-react";
@@ -46,6 +42,10 @@ import {
   buildInstallSummary,
   formatInstallSummaryTooltip,
 } from "@/lib/installSummary";
+import {
+  InstallTargetsActionIcon,
+  SharedHubActionIcon,
+} from "@/components/skill/SkillActionIcons";
 
 export interface FolderTableItem {
   key: string;
@@ -67,6 +67,9 @@ export interface FolderTableItem {
   onRemoveFromCentral?: () => void;
   removeFromCentralLabel?: string;
   isRemovingFromCentral?: boolean;
+  onUpdate?: () => void;
+  updateLabel?: string;
+  isUpdating?: boolean;
   onInstall?: () => void;
   installLabel?: string;
   isInstalling?: boolean;
@@ -227,16 +230,6 @@ function ActionButton({
   );
 }
 
-function DatabaseActionIcon({ installed }: { installed: boolean }) {
-  const Badge = installed ? Minus : Plus;
-  return (
-    <span className="relative inline-flex size-4">
-      <Database className="size-4" />
-      <Badge className="absolute -bottom-1 -right-1 size-2.5 rounded-full bg-card stroke-[3]" />
-    </span>
-  );
-}
-
 function SkillActions({ skill }: { skill: SkillTableItem }) {
   const { t } = useTranslation();
   const busy = !!skill.isLoading;
@@ -250,7 +243,7 @@ function SkillActions({ skill }: { skill: SkillTableItem }) {
         disabled={busy}
         onClick={skill.onInstallToCentral}
       >
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <DatabaseActionIcon installed={false} />}
+        {busy ? <Loader2 className="size-4 animate-spin" /> : <SharedHubActionIcon installed={false} />}
       </ActionButton>
     );
   }
@@ -264,7 +257,7 @@ function SkillActions({ skill }: { skill: SkillTableItem }) {
         idleTitle={skill.removeFromCentralLabel ?? t("resource.removeFromCentralAction")}
         idleAriaLabel={skill.removeFromCentralLabel ?? t("resource.removeFromCentralAction")}
         confirmLabel={t("common.confirmDelete")}
-        icon={<DatabaseActionIcon installed />}
+        icon={<SharedHubActionIcon installed />}
       />
     );
   }
@@ -289,7 +282,7 @@ function SkillActions({ skill }: { skill: SkillTableItem }) {
         disabled={busy}
         onClick={skill.onInstallTo}
       >
-        <PackagePlus className="size-4" />
+        <InstallTargetsActionIcon />
       </ActionButton>
     );
   }
@@ -952,7 +945,7 @@ export function SkillBrowserTable({
                                 {folder.isAddingToCentral ? (
                                   <Loader2 className="size-4 animate-spin" />
                                 ) : (
-                                  <DatabaseActionIcon installed={false} />
+                                  <SharedHubActionIcon installed={false} />
                                 )}
                               </ActionButton>
                             ) : null}
@@ -969,8 +962,21 @@ export function SkillBrowserTable({
                                   t("resource.removeFromCentralAction")
                                 }
                                 confirmLabel={t("common.confirmDelete")}
-                                icon={<DatabaseActionIcon installed />}
+                                icon={<SharedHubActionIcon installed />}
                               />
+                            ) : null}
+                            {folder.onUpdate ? (
+                              <ActionButton
+                                label={folder.updateLabel ?? t("resource.updateAction")}
+                                disabled={folder.isUpdating}
+                                onClick={folder.onUpdate}
+                              >
+                                {folder.isUpdating ? (
+                                  <Loader2 className="size-4 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="size-4" />
+                                )}
+                              </ActionButton>
                             ) : null}
                             {folder.onUninstall ? (
                               <ActionButton
@@ -994,7 +1000,7 @@ export function SkillBrowserTable({
                                 {folder.isInstalling ? (
                                   <Loader2 className="size-4 animate-spin" />
                                 ) : (
-                                  <PackagePlus className="size-4" />
+                                  <InstallTargetsActionIcon />
                                 )}
                               </ActionButton>
                             ) : null}

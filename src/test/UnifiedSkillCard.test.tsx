@@ -199,7 +199,7 @@ describe("UnifiedSkillCard action buttons", () => {
     expect(
       centralButton.compareDocumentPosition(installTargetButton) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-    expect(centralButton.querySelector("svg")?.classList.contains("lucide-database")).toBe(true);
+    expect(centralButton.querySelector("svg")?.classList.contains("lucide-share-2")).toBe(true);
     expect(installTargetButton.querySelector("svg")?.classList.contains("lucide-package-plus")).toBe(
       true
     );

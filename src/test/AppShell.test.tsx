@@ -154,7 +154,9 @@ describe("AppShell", () => {
     expect(screen.getByText("技能仓库 2 · 共享中心 1")).toBeInTheDocument();
   });
 
-  it("shows expandable update statistics in the bottom status bar", () => {
+  it("shows expandable and filterable update statistics in the bottom status bar", () => {
+    const onRetryFailedItem = vi.fn();
+    const onManualCheckFailedItem = vi.fn();
     mockUseAppStatusStore.mockImplementation((selector?: unknown) => {
       const state = {
         task: {
@@ -167,11 +169,13 @@ describe("AppShell", () => {
           skippedCount: 2,
           failedCount: 1,
           items: [
-            { name: "ask-matt", status: "updated", repository: "mattpocock/skills" },
+            { skillId: "skill-updated", name: "ask-matt", status: "updated", repository: "mattpocock/skills" },
             { name: "frontend-design", status: "unchanged", repository: "anthropics/skills" },
             { name: "local-demo", status: "skipped", repository: null },
-            { name: "broken-skill", status: "failed", repository: "example/skills", detail: "下载失败" },
+            { skillId: "skill-failed", name: "broken-skill", status: "failed", repository: "example/skills", detail: "下载失败" },
           ],
+          onRetryFailedItem,
+          onManualCheckFailedItem,
         },
       };
       if (typeof selector === "function") return selector(state);
@@ -206,6 +210,22 @@ describe("AppShell", () => {
     expect(screen.getAllByText("已是最新").length).toBeGreaterThan(1);
     expect(screen.getAllByText("跳过").length).toBeGreaterThan(1);
     expect(screen.getAllByText("更新失败").length).toBeGreaterThan(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /更新失败\s*1/i }));
+
+    expect(screen.queryByText("ask-matt")).not.toBeInTheDocument();
+    expect(screen.getByText("broken-skill")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "操作" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "重新检查" }));
+    expect(onRetryFailedItem).toHaveBeenCalledWith(
+      expect.objectContaining({ skillId: "skill-failed", name: "broken-skill" })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "手动检查更新" }));
+    expect(onManualCheckFailedItem).toHaveBeenCalledWith(
+      expect.objectContaining({ skillId: "skill-failed", name: "broken-skill" })
+    );
   });
 
   it("shows a live progress bar while source updates are running", () => {

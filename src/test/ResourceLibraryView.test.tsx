@@ -821,6 +821,44 @@ describe("ResourceLibraryView delete", () => {
     });
   });
 
+  it("updates source-backed skills from a resource folder row", async () => {
+    resourceSkills = [
+      {
+        ...defaultSkills[0],
+        source: "github:owner/repo",
+        source_repo: "owner/repo",
+        source_path: "resource-demo/SKILL.md",
+        source_url: "https://raw.githubusercontent.com/owner/repo/main/resource-demo/SKILL.md",
+      },
+    ];
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    await switchBrowserViewMode("folders");
+    const folderRow = await screen.findByRole("row", { name: /example/i });
+    fireEvent.click(within(folderRow).getByRole("button", { name: /^更新$|^Update$/i }));
+
+    await waitFor(() => {
+      expect(mockUpdateSourceBackedSkill).toHaveBeenCalledWith("resource-demo");
+    });
+    expect(mockStartTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "resource-source-update-folder:example",
+        label: "更新目录 example",
+      })
+    );
+    expect(mockCompleteTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        updatedCount: 1,
+        failedCount: 0,
+      })
+    );
+  });
+
   it("groups folder install targets by software platform and project directory", async () => {
     resourceSkills = defaultSkills.map((skill) => ({ ...skill, linked_agents: [] }));
     render(

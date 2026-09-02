@@ -129,7 +129,7 @@ describe("CollectionPickerDialog", () => {
   it("renders Create new collection button", () => {
     renderDialog();
     expect(
-      screen.getByRole("button", { name: /新建技能集/i })
+      screen.getByRole("button", { name: /新建合集/i })
     ).toBeInTheDocument();
   });
 
@@ -290,7 +290,7 @@ describe("CollectionPickerDialog", () => {
 
   it("opens CollectionEditor when Create new collection is clicked", () => {
     renderDialog();
-    const createBtn = screen.getByRole("button", { name: /新建技能集/i });
+    const createBtn = screen.getByRole("button", { name: /新建合集/i });
     fireEvent.click(createBtn);
     expect(screen.getByTestId("collection-editor")).toBeInTheDocument();
   });
@@ -299,7 +299,7 @@ describe("CollectionPickerDialog", () => {
     renderDialog();
     mockLoadCollections.mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: /新建技能集/i }));
+    fireEvent.click(screen.getByRole("button", { name: /新建合集/i }));
     // Close the editor
     fireEvent.click(screen.getByText("Close editor"));
 

@@ -68,7 +68,7 @@ describe("CollectionEditor", () => {
 
   it("renders create mode when no collection is passed", () => {
     renderEditor({ collection: null });
-    expect(screen.getByText(/新建技能集/i)).toBeInTheDocument();
+    expect(screen.getByText(/新建合集/i)).toBeInTheDocument();
   });
 
   it("renders edit mode when a collection is passed", () => {

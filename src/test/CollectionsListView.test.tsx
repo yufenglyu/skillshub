@@ -362,7 +362,7 @@ describe("CollectionsListView", () => {
     const heading = screen.getByRole("heading", { name: /Frontend · 2/ });
     const toolbar = heading.closest(".flex.items-center.justify-between");
     expect(toolbar).not.toBeNull();
-    expect(screen.getByRole("button", { name: /新建技能集/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /新建合集/i })).toBeInTheDocument();
     expect(within(toolbar as HTMLElement).getByRole("button", { name: /^编辑$/ })).toBeInTheDocument();
     expect(within(toolbar as HTMLElement).getByRole("button", { name: /^删除$/ })).toBeInTheDocument();
     expect(within(toolbar as HTMLElement).getByRole("button", { name: /^安装$/ })).toBeInTheDocument();

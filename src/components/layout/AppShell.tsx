@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { AppStatusBar } from "./AppStatusBar";
 import { GlobalSearchDialog } from "./GlobalSearchDialog";
@@ -7,6 +7,7 @@ import { usePlatformStore } from "@/stores/platformStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useDiscoverStore } from "@/stores/discoverStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
+import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
 
 /**
  * Top-level app shell: sidebar + scrollable main content area.
@@ -16,6 +17,7 @@ export function AppShell() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
   const { pathname } = useLocation();
+  const navigate = useNavigate();
 
   const initialize = usePlatformStore((s) => s.initialize);
   const rescan = usePlatformStore((s) => s.rescan);
@@ -49,6 +51,14 @@ export function AppShell() {
         break;
     }
   }
+
+  useConfiguredHotkey("globalRescan", () => {
+    void handleGlobalRescan();
+  });
+  useConfiguredHotkey("goResources", () => navigate("/resources"));
+  useConfiguredHotkey("goCollections", () => navigate("/collections"));
+  useConfiguredHotkey("goCentral", () => navigate("/central"));
+  useConfiguredHotkey("goSettings", () => navigate("/settings"));
 
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">

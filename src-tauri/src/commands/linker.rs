@@ -564,6 +564,8 @@ pub(crate) async fn reconcile_orphaned_central_skills(pool: &DbPool) -> Result<(
             continue;
         }
 
+        let _ = remove_dangling_central_symlink(&central_dir);
+
         for installation in db::get_skill_installations(pool, &skill.id).await? {
             if installation.agent_id == "central" {
                 continue;
@@ -705,6 +707,23 @@ fn remove_central_skill_link_or_dir(path: &Path) -> Result<(), String> {
             path.display()
         ))
     }
+}
+
+fn remove_dangling_central_symlink(path: &Path) -> Result<(), String> {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return Ok(());
+    };
+    if !metadata.file_type().is_symlink() || std::fs::metadata(path).is_ok() {
+        return Ok(());
+    }
+
+    remove_symlink_path(path).map_err(|error| {
+        format!(
+            "Failed to remove dangling Central Skills symlink '{}': {}",
+            path.display(),
+            error
+        )
+    })
 }
 
 pub(crate) fn validate_platform_install_target(
@@ -3260,6 +3279,78 @@ mod tests {
         assert!(!platform_skill.exists());
         assert!(grouped.join("ask-matt").join("SKILL.md").exists());
         assert!(db::get_central_skills(&pool).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_removes_dangling_central_symlink_and_platform_link() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let agent_dir = tmp.path().join("claude").join("skills");
+        let missing_target = tmp.path().join("deleted-resource").join("github-resource");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        let pool = setup_db(&central_dir, &agent_dir).await;
+        sqlx::query(
+            "UPDATE agents SET is_enabled = 0 WHERE id != 'central' AND id != 'claude-code'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let central_link = central_dir.join("github-resource");
+        create_symlink(&missing_target, &central_link).unwrap();
+        assert!(fs::symlink_metadata(&central_link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(!central_link.join("SKILL.md").exists());
+
+        db::upsert_skill(
+            &pool,
+            &db::Skill {
+                id: "github-resource".to_string(),
+                name: "github-resource".to_string(),
+                description: Some("stale central link".to_string()),
+                file_path: central_link.join("SKILL.md").to_string_lossy().into_owned(),
+                canonical_path: Some(central_link.to_string_lossy().into_owned()),
+                is_central: true,
+                source: Some("resource-library".to_string()),
+                content: None,
+                scanned_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let platform_link = agent_dir.join("github-resource");
+        create_symlink(&central_link, &platform_link).unwrap();
+        db::upsert_skill_installation(
+            &pool,
+            &SkillInstallation {
+                skill_id: "github-resource".to_string(),
+                agent_id: "claude-code".to_string(),
+                installed_path: platform_link.to_string_lossy().into_owned(),
+                link_type: "symlink".to_string(),
+                symlink_target: Some(central_link.to_string_lossy().into_owned()),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        reconcile_orphaned_central_skills(&pool).await.unwrap();
+
+        assert!(fs::symlink_metadata(&central_link).is_err());
+        assert!(fs::symlink_metadata(&platform_link).is_err());
+        assert!(db::get_skill_by_id(&pool, "github-resource")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(db::get_skill_installations(&pool, "github-resource")
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

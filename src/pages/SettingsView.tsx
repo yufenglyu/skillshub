@@ -1,5 +1,5 @@
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save } from "lucide-react";
+import { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save, Keyboard, RotateCcw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
@@ -29,7 +29,15 @@ import { deriveHomeDir, formatPathForDisplay, joinPathForDisplay, normalizePathF
 import { isProjectAgentId, projectDirectoryName } from "@/lib/projectTargets";
 import { webDavErrorDetail } from "@/lib/webdavError";
 import { defaultLocalBackupFilename, formatBackupTimestamp } from "@/lib/backupTime";
+import {
+  DEFAULT_SHORTCUTS,
+  SHORTCUT_DEFINITIONS,
+  formatShortcutCombo,
+  shortcutEventToCombo,
+  type ShortcutActionId,
+} from "@/lib/shortcutKeys";
 import { cn } from "@/lib/utils";
+import { useShortcutStore } from "@/stores/shortcutStore";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
@@ -296,9 +304,6 @@ function SoftwarePlatformRow({
           <div className="truncate text-sm font-medium">
             {agent.display_name}
           </div>
-          <span className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-            {agent.is_builtin ? t("settings.builtinPlatform") : t("settings.customPlatform")}
-          </span>
           <span
             className={cn(
               "shrink-0 rounded border px-1.5 py-0.5 text-[10px] leading-none",
@@ -364,11 +369,9 @@ function SoftwarePlatformRow({
 }
 
 function SectionStatCounts({
-  builtinCount,
   detectedCount,
   enabledCount,
 }: {
-  builtinCount: number;
   detectedCount: number;
   enabledCount: number;
 }) {
@@ -376,10 +379,6 @@ function SectionStatCounts({
 
   return (
     <span className="flex shrink-0 items-center gap-2 text-xs font-normal text-muted-foreground">
-      <span>{t("settings.platformBuiltinCount", { count: builtinCount })}</span>
-      <span aria-hidden="true" className="text-muted-foreground/50">
-        ·
-      </span>
       <span>{t("settings.platformDetectedCount", { count: detectedCount })}</span>
       <span aria-hidden="true" className="text-muted-foreground/50">
         ·
@@ -433,10 +432,8 @@ function SoftwarePlatformsCard({
   const [platformsExpanded, setPlatformsExpanded] = useState(false);
   const [directoriesExpanded, setDirectoriesExpanded] = useState(false);
 
-  const platformBuiltinCount = softwarePlatforms.filter((agent) => agent.is_builtin).length;
   const platformDetectedCount = softwarePlatforms.filter((agent) => agent.is_detected).length;
   const platformEnabledCount = softwarePlatforms.filter((agent) => agent.is_enabled).length;
-  const directoryBuiltinCount = customDirs.filter((dir) => dir.is_builtin).length;
   const directoryDetectedCount = customDirs.length;
   const directoryEnabledCount = customDirs.filter((dir) => dir.is_active).length;
 
@@ -490,7 +487,6 @@ function SoftwarePlatformsCard({
                   <Cpu className="size-4 shrink-0 text-muted-foreground" />
                   <span className="truncate">{t("settings.softwarePlatforms")}</span>
                   <SectionStatCounts
-                    builtinCount={platformBuiltinCount}
                     detectedCount={platformDetectedCount}
                     enabledCount={platformEnabledCount}
                   />
@@ -559,7 +555,6 @@ function SoftwarePlatformsCard({
                 <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
                 <span className="truncate">{t("settings.projectDirectories")}</span>
                 <SectionStatCounts
-                  builtinCount={directoryBuiltinCount}
                   detectedCount={directoryDetectedCount}
                   enabledCount={directoryEnabledCount}
                 />
@@ -600,6 +595,127 @@ function SoftwarePlatformsCard({
               )
             ) : null}
           </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ShortcutRecorder({
+  actionId,
+  combo,
+  onChange,
+  onReset,
+}: {
+  actionId: ShortcutActionId;
+  combo: string;
+  onChange: (combo: string) => void;
+  onReset: () => void;
+}) {
+  const { t } = useTranslation();
+  const [isRecording, setIsRecording] = useState(false);
+  const displayCombo = formatShortcutCombo(combo) || t("settings.shortcutUnset");
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (!isRecording) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.key === "Escape") {
+      setIsRecording(false);
+      return;
+    }
+
+    const nextCombo = shortcutEventToCombo(event.nativeEvent);
+    if (!nextCombo) return;
+    onChange(nextCombo);
+    setIsRecording(false);
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <kbd
+        className="min-w-24 rounded border border-border bg-muted/60 px-2 py-1 text-center text-xs font-medium text-foreground"
+        aria-label={displayCombo}
+      >
+        {displayCombo}
+      </kbd>
+      <Button
+        type="button"
+        variant={isRecording ? "default" : "outline"}
+        size="sm"
+        className="h-8"
+        onClick={() => setIsRecording(true)}
+        onKeyDown={handleKeyDown}
+        aria-label={t("settings.shortcutRecordLabel", {
+          action: t(SHORTCUT_DEFINITIONS.find((definition) => definition.id === actionId)?.labelKey ?? ""),
+        })}
+      >
+        <Keyboard className="size-3.5" />
+        <span>{isRecording ? t("settings.shortcutRecording") : t("settings.shortcutRecord")}</span>
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-8"
+        onClick={onReset}
+        aria-label={t("settings.shortcutResetLabel", {
+          action: t(SHORTCUT_DEFINITIONS.find((definition) => definition.id === actionId)?.labelKey ?? ""),
+        })}
+        disabled={combo === DEFAULT_SHORTCUTS[actionId]}
+      >
+        <RotateCcw className="size-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+function ShortcutsSettingsCard() {
+  const { t } = useTranslation();
+  const shortcuts = useShortcutStore((state) => state.shortcuts);
+  const setShortcut = useShortcutStore((state) => state.setShortcut);
+  const resetShortcut = useShortcutStore((state) => state.resetShortcut);
+  const resetAllShortcuts = useShortcutStore((state) => state.resetAllShortcuts);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <Keyboard className="size-5 shrink-0 text-muted-foreground" />
+            <div className="flex min-w-0 items-center gap-1.5">
+              <CardTitle role="heading" aria-level={2}>{t("settings.shortcutsTitle")}</CardTitle>
+              <HintIcon text={t("settings.shortcutsDesc")} />
+            </div>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={resetAllShortcuts}>
+            <RotateCcw className="size-3.5" />
+            <span>{t("settings.shortcutResetAll")}</span>
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-hidden rounded-lg border border-border">
+          {SHORTCUT_DEFINITIONS.map((definition) => (
+            <div
+              key={definition.id}
+              className="flex flex-col gap-3 border-b border-border/60 px-4 py-3 last:border-0 md:flex-row md:items-center md:justify-between"
+            >
+              <div className="min-w-0">
+                <div className="text-sm font-medium">{t(definition.labelKey)}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  {t(definition.descriptionKey)}
+                </div>
+              </div>
+              <ShortcutRecorder
+                actionId={definition.id}
+                combo={shortcuts[definition.id]}
+                onChange={(combo) => setShortcut(definition.id, combo)}
+                onReset={() => resetShortcut(definition.id)}
+              />
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>
@@ -1436,6 +1552,8 @@ export function SettingsView() {
           onRefreshLocations={handleRefreshPlatformsAndProjects}
           isRefreshingLocations={isRefreshingLocations || isRefreshingSkills}
         />
+
+        <ShortcutsSettingsCard />
 
         {/* Section 2: Backup and migration */}
         <Card>
