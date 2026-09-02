@@ -7,8 +7,6 @@ import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useAppStatusStore } from "@/stores/appStatusStore";
 
-let triggerRescanInMock = false;
-
 vi.mock("@/stores/platformStore", () => ({
   usePlatformStore: vi.fn(),
 }));
@@ -32,16 +30,10 @@ vi.mock("@/components/layout/Sidebar", () => ({
 vi.mock("@/components/layout/GlobalSearchDialog", () => ({
   GlobalSearchDialog: ({
     open,
-    onAction,
   }: {
     open: boolean;
-    onAction: (action: string) => void;
   }) =>
-    triggerRescanInMock ? (
-      <button type="button" onClick={() => onAction("rescan")}>
-        trigger-rescan
-      </button>
-    ) : open ? (
+    open ? (
       <div data-testid="global-search-dialog" />
     ) : null,
 }));
@@ -73,7 +65,6 @@ describe("AppShell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     testNavigate = null;
-    triggerRescanInMock = false;
 
     mockUsePlatformStore.mockImplementation((selector?: unknown) => {
       const state = {
@@ -152,6 +143,28 @@ describe("AppShell", () => {
     );
 
     const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("suppresses the default Chromium print shortcut", () => {
+    render(
+      <MemoryRouter initialEntries={["/a"]}>
+        <Routes>
+          <Route path="/" element={<AppShell />}>
+            <Route path="a" element={<DummyPage label="page-a" />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const event = new KeyboardEvent("keydown", {
+      key: "p",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
     window.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(true);
@@ -296,110 +309,4 @@ describe("AppShell", () => {
     expect((main as HTMLElement).scrollTop).toBe(0);
   });
 
-  it("routes the global rescan action to the platform, central, and repository stores", async () => {
-    const mockRescan = vi.fn().mockResolvedValue(undefined);
-    const mockLoadCentralSkills = vi.fn().mockResolvedValue(undefined);
-    const mockLoadResourceLibrary = vi.fn().mockResolvedValue(undefined);
-    triggerRescanInMock = true;
-
-    mockUsePlatformStore.mockImplementation((selector?: unknown) => {
-      const state = {
-        initialize: vi.fn(),
-        rescan: mockRescan,
-      };
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-    mockUseCentralSkillsStore.mockImplementation((selector?: unknown) => {
-      const state = {
-        loadCentralSkills: mockLoadCentralSkills,
-      };
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-    mockUseResourceLibraryStore.mockImplementation((selector?: unknown) => {
-      const state = {
-        loadResourceLibrary: mockLoadResourceLibrary,
-      };
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
-    render(
-      <MemoryRouter initialEntries={["/a"]}>
-        <Routes>
-          <Route path="/" element={<AppShell />}>
-            <Route path="a" element={<DummyPage label="page-a" />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await act(async () => {
-      screen.getByRole("button", { name: /trigger-rescan/i }).click();
-    });
-
-    expect(mockRescan).toHaveBeenCalledTimes(1);
-    expect(mockLoadCentralSkills).toHaveBeenCalledTimes(1);
-    expect(mockLoadResourceLibrary).toHaveBeenCalledTimes(1);
-  });
-
-  it("waits for the platform rescan before refreshing central and repository state", async () => {
-    let resolveRescan!: () => void;
-    const rescanPromise = new Promise<void>((resolve) => {
-      resolveRescan = () => resolve();
-    });
-    const mockRescan = vi.fn().mockReturnValue(rescanPromise);
-    const mockLoadCentralSkills = vi.fn().mockResolvedValue(undefined);
-    const mockLoadResourceLibrary = vi.fn().mockResolvedValue(undefined);
-    triggerRescanInMock = true;
-
-    mockUsePlatformStore.mockImplementation((selector?: unknown) => {
-      const state = {
-        initialize: vi.fn(),
-        rescan: mockRescan,
-      };
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-    mockUseCentralSkillsStore.mockImplementation((selector?: unknown) => {
-      const state = {
-        loadCentralSkills: mockLoadCentralSkills,
-      };
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-    mockUseResourceLibraryStore.mockImplementation((selector?: unknown) => {
-      const state = {
-        loadResourceLibrary: mockLoadResourceLibrary,
-      };
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
-    render(
-      <MemoryRouter initialEntries={["/a"]}>
-        <Routes>
-          <Route path="/" element={<AppShell />}>
-            <Route path="a" element={<DummyPage label="page-a" />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await act(async () => {
-      screen.getByRole("button", { name: /trigger-rescan/i }).click();
-    });
-
-    expect(mockRescan).toHaveBeenCalledTimes(1);
-    expect(mockLoadCentralSkills).not.toHaveBeenCalled();
-    expect(mockLoadResourceLibrary).not.toHaveBeenCalled();
-
-    resolveRescan();
-
-    await waitFor(() => {
-      expect(mockLoadCentralSkills).toHaveBeenCalledTimes(1);
-      expect(mockLoadResourceLibrary).toHaveBeenCalledTimes(1);
-    });
-  });
 });

@@ -3,11 +3,9 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { AppStatusBar } from "./AppStatusBar";
 import { GlobalSearchDialog } from "./GlobalSearchDialog";
-import { usePlatformStore } from "@/stores/platformStore";
-import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
-import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useSidebarStore } from "@/stores/sidebarStore";
 import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
+import { usePlatformStore } from "@/stores/platformStore";
 
 /**
  * Top-level app shell: sidebar + scrollable main content area.
@@ -20,9 +18,6 @@ export function AppShell() {
   const navigate = useNavigate();
 
   const initialize = usePlatformStore((s) => s.initialize);
-  const rescan = usePlatformStore((s) => s.rescan);
-  const loadCentralSkills = useCentralSkillsStore((s) => s.loadCentralSkills);
-  const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
   const toggleSidebar = useSidebarStore((s) => s.toggleExpanded);
 
   useEffect(() => {
@@ -39,32 +34,26 @@ export function AppShell() {
     function preventDefaultContextMenu(event: MouseEvent) {
       event.preventDefault();
     }
+    function preventDefaultPrintShortcut(event: KeyboardEvent) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "p"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
 
     window.addEventListener("contextmenu", preventDefaultContextMenu);
+    window.addEventListener("keydown", preventDefaultPrintShortcut, true);
     return () => {
       window.removeEventListener("contextmenu", preventDefaultContextMenu);
+      window.removeEventListener("keydown", preventDefaultPrintShortcut, true);
     };
   }, []);
 
-  async function handleGlobalRescan() {
-    await rescan();
-    await Promise.allSettled([
-      loadCentralSkills(),
-      loadResourceLibrary(),
-    ]);
-  }
-
-  function handleAction(action: string) {
-    switch (action) {
-      case "rescan":
-        void handleGlobalRescan();
-        break;
-    }
-  }
-
-  useConfiguredHotkey("globalRescan", () => {
-    void handleGlobalRescan();
-  });
   useConfiguredHotkey("toggleSidebar", toggleSidebar);
   useConfiguredHotkey("goResources", () => navigate("/resources"));
   useConfiguredHotkey("goCollections", () => navigate("/collections"));
@@ -83,7 +72,6 @@ export function AppShell() {
       <GlobalSearchDialog
         open={isSearchOpen}
         onOpenChange={setIsSearchOpen}
-        onAction={handleAction}
       />
     </div>
   );

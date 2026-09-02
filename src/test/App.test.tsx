@@ -91,21 +91,6 @@ vi.mock("../stores/resourceLibraryStore", () => ({
   }),
 }));
 
-vi.mock("../stores/discoverStore", () => ({
-  useDiscoverStore: vi.fn().mockImplementation((selector?: unknown) => {
-    const state = {
-      totalSkillsFound: 0,
-      discoveredProjects: [],
-      loadDiscoveredSkills: vi.fn().mockResolvedValue(undefined),
-      rescanFromDisk: vi.fn().mockResolvedValue(undefined),
-    };
-    if (typeof selector === "function") {
-      return selector(state);
-    }
-    return state;
-  }),
-}));
-
 describe("App", () => {
   it("redirects the root route to the resource library", async () => {
     await act(async () => {

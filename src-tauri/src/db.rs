@@ -398,25 +398,6 @@ pub async fn init_schema(pool: &DbPool) -> Result<(), String> {
     .await
     .map_err(|e| e.to_string())?;
 
-    // discovered_skills table — skills found in project-level directories
-    // during a "discover project skills" scan.
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS discovered_skills (
-            id             TEXT PRIMARY KEY,
-            name           TEXT NOT NULL,
-            description    TEXT,
-            file_path      TEXT NOT NULL,
-            dir_path       TEXT NOT NULL,
-            project_path   TEXT NOT NULL,
-            project_name   TEXT NOT NULL,
-            platform_id    TEXT NOT NULL,
-            discovered_at  TEXT NOT NULL
-        )",
-    )
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
     // skill_registries table — remote skill sources (marketplace)
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS skill_registries (
@@ -1235,10 +1216,6 @@ pub async fn delete_skill(pool: &DbPool, skill_id: &str) -> Result<(), String> {
 }
 
 /// Delete all local database state owned by a Central Skill removal.
-///
-/// This intentionally does not delete `discovered_skills`: those rows describe
-/// project-level sources and `is_already_central` is recomputed from the
-/// filesystem when discovery results are loaded.
 pub async fn delete_central_skill_records(
     pool: &DbPool,
     skill_id: &str,
@@ -1295,9 +1272,6 @@ pub async fn delete_central_skill_records(
 }
 
 /// Delete all local database state owned by a Skill Resource Library removal.
-///
-/// This keeps discovery rows for the same reason as central deletion: discovery
-/// reflects project-level files and recomputes central/resource status later.
 pub async fn delete_skill_owned_records(
     pool: &DbPool,
     skill_id: &str,
@@ -2164,116 +2138,6 @@ pub async fn toggle_scan_directory(
         .await
         .map(|_| ())
         .map_err(|e| e.to_string())
-}
-
-// ─── Discovered Skills ────────────────────────────────────────────────────────
-
-/// A skill discovered in a project-level directory during a full-disk scan.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct DiscoveredSkillRow {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub file_path: String,
-    pub dir_path: String,
-    pub project_path: String,
-    pub project_name: String,
-    pub platform_id: String,
-    pub discovered_at: String,
-}
-
-/// Insert or update a discovered skill record.
-#[allow(clippy::too_many_arguments)]
-pub async fn insert_discovered_skill(
-    pool: &DbPool,
-    id: &str,
-    name: &str,
-    description: Option<&str>,
-    file_path: &str,
-    dir_path: &str,
-    project_path: &str,
-    project_name: &str,
-    platform_id: &str,
-    discovered_at: &str,
-) -> Result<(), String> {
-    sqlx::query(
-        "INSERT INTO discovered_skills
-         (id, name, description, file_path, dir_path, project_path, project_name, platform_id, discovered_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name          = excluded.name,
-           description   = excluded.description,
-           file_path     = excluded.file_path,
-           dir_path      = excluded.dir_path,
-           project_path  = excluded.project_path,
-           project_name  = excluded.project_name,
-           platform_id   = excluded.platform_id,
-           discovered_at = excluded.discovered_at",
-    )
-    .bind(id)
-    .bind(name)
-    .bind(description)
-    .bind(file_path)
-    .bind(dir_path)
-    .bind(project_path)
-    .bind(project_name)
-    .bind(platform_id)
-    .bind(discovered_at)
-    .execute(pool)
-    .await
-    .map(|_| ())
-    .map_err(|e| e.to_string())
-}
-
-/// Retrieve a discovered skill by its qualified ID.
-pub async fn get_discovered_skill_by_id(
-    pool: &DbPool,
-    id: &str,
-) -> Result<Option<DiscoveredSkillRow>, String> {
-    sqlx::query_as::<_, DiscoveredSkillRow>("SELECT * FROM discovered_skills WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Retrieve all discovered skills.
-pub async fn get_all_discovered_skills(pool: &DbPool) -> Result<Vec<DiscoveredSkillRow>, String> {
-    sqlx::query_as::<_, DiscoveredSkillRow>(
-        "SELECT * FROM discovered_skills ORDER BY project_name, platform_id, name",
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.to_string())
-}
-
-/// Delete a discovered skill by ID.
-pub async fn delete_discovered_skill(pool: &DbPool, id: &str) -> Result<(), String> {
-    sqlx::query("DELETE FROM discovered_skills WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await
-        .map(|_| ())
-        .map_err(|e| e.to_string())
-}
-
-/// Clear all discovered skills.
-pub async fn clear_all_discovered_skills(pool: &DbPool) -> Result<(), String> {
-    sqlx::query("DELETE FROM discovered_skills")
-        .execute(pool)
-        .await
-        .map(|_| ())
-        .map_err(|e| e.to_string())
-}
-
-/// Get count of discovered projects (distinct project_path values).
-pub async fn get_discovered_project_count(pool: &DbPool) -> Result<i64, String> {
-    let row = sqlx::query("SELECT COUNT(DISTINCT project_path) AS cnt FROM discovered_skills")
-        .fetch_one(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    row.try_get::<i64, _>("cnt").map_err(|e| e.to_string())
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────

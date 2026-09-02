@@ -11,7 +11,6 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
-  Monitor,
   FolderOpen,
   Lock,
 } from "lucide-react";
@@ -239,11 +238,6 @@ interface SelectedSkillFile {
   relativePath: string;
 }
 
-function deriveDirPathFromFilePath(path: string): string {
-  const match = path.match(/^(.*)[/\\][^/\\]+$/);
-  return match?.[1] ?? path;
-}
-
 function findFileNodeByPath(nodes: SkillDirectoryNode[], path: string): SkillDirectoryNode | null {
   for (const node of nodes) {
     if (node.path === path) {
@@ -340,16 +334,6 @@ function FileTreeNode({
  * to the outer shell. It also does NOT call `useNavigate` / `useParams`; all
  * route/shell concerns are handled outside.
  */
-export interface DiscoverMetadata {
-  name: string;
-  description?: string;
-  platformName: string;
-  projectName: string;
-  filePath: string;
-  dirPath: string;
-  isAlreadyCentral: boolean;
-}
-
 export interface SkillDetailViewProps {
   /** The skill id to load from DB. Required for central skills. */
   skillId?: string;
@@ -357,10 +341,6 @@ export interface SkillDetailViewProps {
   agentId?: string;
   /** Optional stable row identity for duplicate platform rows. */
   rowId?: string;
-  /** Direct file path to load content from. Used for discover non-central skills. */
-  filePath?: string;
-  /** Metadata for discover non-central skills (shown in sidebar). */
-  discoverMetadata?: DiscoverMetadata;
   /** Affects local styling only, never behavior. */
   variant: "page" | "drawer";
   /** ViewHeader leftmost slot; currently null from both shells. */
@@ -379,8 +359,6 @@ export function SkillDetailView({
   skillId,
   agentId,
   rowId,
-  filePath,
-  discoverMetadata,
   variant,
   leading = null,
   onRequestClose: _onRequestClose,
@@ -389,7 +367,6 @@ export function SkillDetailView({
   onInstallationsChange,
 }: SkillDetailViewProps) {
   const { t, i18n } = useTranslation();
-  const isFileMode = !skillId && !!filePath;
 
   // Store data (used in skillId mode)
   const detail = useSkillDetailStore((s) => s.detail);
@@ -416,11 +393,6 @@ export function SkillDetailView({
   const agents = usePlatformStore((s) => s.agents);
   const refreshCounts = usePlatformStore((s) => s.refreshCounts);
 
-  // Local state for filePath mode
-  const [fileContent, setFileContent] = useState<string | null>(null);
-  const [fileIsLoading, setFileIsLoading] = useState(false);
-  const [fileExplanation, setFileExplanation] = useState<string | null>(null);
-  const [fileIsExplaining, setFileIsExplaining] = useState(false);
   const [directoryTree, setDirectoryTree] = useState<SkillDirectoryNode[]>([]);
   const [isDirectoryTreeLoading, setIsDirectoryTreeLoading] = useState(false);
   const [directoryTreeError, setDirectoryTreeError] = useState<string | null>(null);
@@ -440,10 +412,10 @@ export function SkillDetailView({
   }, [detail?.row_id, rowId, skillId]);
 
   // Unified accessors
-  const skillContent = isFileMode ? fileContent : storeContent;
-  const isLoading = isFileMode ? fileIsLoading : storeIsLoading;
-  const explanation = isFileMode ? fileExplanation : storeExplanation;
-  const isExplanationLoading = isFileMode ? fileIsExplaining : storeIsExplanationLoading;
+  const skillContent = storeContent;
+  const isLoading = storeIsLoading;
+  const explanation = storeExplanation;
+  const isExplanationLoading = storeIsExplanationLoading;
 
   // Local UI state
   const [detailSidebarWidth, setDetailSidebarWidth] = useState(DEFAULT_DETAIL_SIDEBAR_WIDTH);
@@ -461,13 +433,8 @@ export function SkillDetailView({
   const addToCollectionButtonRef = useRef<HTMLButtonElement | null>(null);
   const selectedFilePath = selectedFile?.path ?? null;
   const selectedRelativePath = selectedFile?.relativePath ?? null;
-  const currentDirectoryPath = useMemo(() => {
-    if (isFileMode) {
-      return discoverMetadata?.dirPath ?? (filePath ? deriveDirPathFromFilePath(filePath) : null);
-    }
-    return detail?.dir_path ?? null;
-  }, [detail?.dir_path, discoverMetadata?.dirPath, filePath, isFileMode]);
-  const skillFilePath = isFileMode ? filePath ?? null : detail?.file_path ?? null;
+  const currentDirectoryPath = detail?.dir_path ?? null;
+  const skillFilePath = detail?.file_path ?? null;
   const sidebarStyle = {
     "--skill-detail-sidebar-width": `${detailSidebarWidth}px`,
   } as CSSProperties;
@@ -559,31 +526,6 @@ export function SkillDetailView({
       setIsDirectoryTreeLoading(false);
     }
   }, []);
-
-  // ── File mode: load content from path ─────────────────────────────────
-  const fetchFileContent = useCallback(async () => {
-    if (!filePath) return;
-    setFileIsLoading(true);
-    try {
-      const text = await invoke<string>("read_file_by_path", { path: filePath });
-      setFileContent(text);
-    } catch {
-      setFileContent(null);
-    } finally {
-      setFileIsLoading(false);
-    }
-  }, [filePath]);
-
-  useEffect(() => {
-    if (isFileMode) {
-      setFileContent(null);
-      setFileExplanation(null);
-      setSelectedFile(null);
-      setSelectedFileContent(null);
-      setExpandedDirectories(new Set());
-      void fetchFileContent();
-    }
-  }, [isFileMode, fetchFileContent]);
 
   // ── Store mode: load detail by skillId ────────────────────────────────
   useEffect(() => {
@@ -791,15 +733,6 @@ export function SkillDetailView({
   }
 
   function handleGenerateExplanation() {
-    if (isFileMode && skillContent) {
-      setFileIsExplaining(true);
-      setFileExplanation(null);
-      invoke<string>("explain_skill", { content: skillContent })
-        .then(setFileExplanation)
-        .catch((err) => setFileExplanation(`Error: ${String(err)}`))
-        .finally(() => setFileIsExplaining(false));
-      return;
-    }
     if (explanationRequestKey && skillContent) {
       generateExplanation(explanationRequestKey, skillContent, i18n.language);
     }
@@ -830,15 +763,6 @@ export function SkillDetailView({
     });
   }
 
-  const handleOpenDiscoverPath = useCallback(async () => {
-    if (!discoverMetadata) return;
-    try {
-      await invoke("open_in_file_manager", { path: discoverMetadata.dirPath });
-    } catch {
-      // silently ignore
-    }
-  }, [discoverMetadata]);
-
   const previewContent = selectedFilePath && skillFilePath && selectedFilePath !== skillFilePath
     ? selectedFileContent
     : skillContent;
@@ -847,14 +771,10 @@ export function SkillDetailView({
   const { frontmatterRaw, frontmatterData, body: markdownContent } = previewContent && isSelectedMarkdownFile
     ? parseFrontmatter(previewContent)
     : { frontmatterRaw: "", frontmatterData: {}, body: previewContent ?? "" };
-  const isBrowserFallback = !isTauriRuntime() && !isLoading && !detail && !error && !isFileMode;
-  const effectiveName = isFileMode
-    ? (discoverMetadata?.name ?? "")
-    : (detail?.name ?? detailRequest?.skillId ?? "");
-  const effectiveDescription = isFileMode
-    ? discoverMetadata?.description
-    : detail?.description;
-  const hasData = isFileMode ? skillContent !== null : !!detail;
+  const isBrowserFallback = !isTauriRuntime() && !isLoading && !detail && !error;
+  const effectiveName = detail?.name ?? detailRequest?.skillId ?? "";
+  const effectiveDescription = detail?.description;
+  const hasData = !!detail;
   const canEditBasicSource = !!detail
     && !detail.is_read_only
     && !detail.is_central
@@ -900,7 +820,7 @@ export function SkillDetailView({
         {leading}
         <div className="min-w-0 flex-1">
           <h1 id={titleId} className="text-lg font-semibold truncate">
-            {isLoading ? (skillId ?? discoverMetadata?.name ?? "") : effectiveName}
+            {isLoading ? (skillId ?? "") : effectiveName}
           </h1>
           {effectiveDescription && (
             <p className="text-xs text-muted-foreground truncate mt-0.5">
@@ -1016,76 +936,7 @@ export function SkillDetailView({
               style={sidebarStyle}
               className="w-full shrink-0 border-t border-border overflow-y-auto p-5 space-y-6 md:w-[var(--skill-detail-sidebar-width)] md:border-t-0"
             >
-              {isFileMode && discoverMetadata ? (
-                <>
-                  <section aria-label={t("detail.filesRegion")}>
-                    <SectionLabel>{t("detail.files")}</SectionLabel>
-                    {isDirectoryTreeLoading ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="size-4 animate-spin" />
-                        {t("common.loading")}
-                      </div>
-                    ) : directoryTreeError ? (
-                      <p className="text-sm leading-6 text-muted-foreground">
-                        {directoryTreeError}
-                      </p>
-                    ) : directoryTree.length > 0 ? (
-                      <div className="space-y-1">
-                        {directoryTree.map((node) => (
-                          <FileTreeNode
-                            key={node.path}
-                            node={node}
-                            level={0}
-                            selectedPath={selectedPreviewPath}
-                            expandedDirectories={expandedDirectories}
-                            onToggleDirectory={handleToggleDirectory}
-                            onSelectFile={handleSelectFile}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">{t("detail.noFiles")}</p>
-                    )}
-                  </section>
-
-                  {/* Discover metadata */}
-                  <section aria-label={t("detail.metadataRegion")}>
-                    <SectionLabel>{t("detail.metadata")}</SectionLabel>
-                    <div className="space-y-2.5">
-                      <div className="space-y-0.5">
-                        <div className="text-xs font-medium text-muted-foreground/80">
-                          {t("discover.platform")}
-                        </div>
-                        <div className="font-mono text-[13px] text-foreground break-all leading-6 inline-flex items-center gap-1.5">
-                          <Monitor className="size-4" />
-                          <span>{discoverMetadata.platformName}</span>
-                        </div>
-                      </div>
-                      <div className="space-y-0.5">
-                        <div className="text-xs font-medium text-muted-foreground/80">
-                          {t("discover.project")}
-                        </div>
-                        <div className="font-mono text-[13px] text-foreground break-all leading-6 inline-flex items-center gap-1.5">
-                          <FolderOpen className="size-4" />
-                          <span>{discoverMetadata.projectName}</span>
-                        </div>
-                      </div>
-                      <div className="space-y-0.5">
-                        <div className="text-xs font-medium text-muted-foreground/80">
-                          {t("discover.filePath")}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleOpenDiscoverPath}
-                          className="font-mono text-[13px] text-foreground break-all leading-6 hover:text-primary hover:underline cursor-pointer text-left"
-                        >
-                          {discoverMetadata.filePath}
-                        </button>
-                      </div>
-                    </div>
-                  </section>
-                </>
-              ) : detail ? (
+              {detail ? (
                 <>
                   <section aria-label={t("detail.filesRegion")}>
                     <SectionLabel>{t("detail.files")}</SectionLabel>
@@ -1156,7 +1007,7 @@ export function SkillDetailView({
                     </section>
                   )}
 
-                  {!isFileMode && detail && !detail.is_read_only && (
+                  {detail && !detail.is_read_only && (
                     <>
                     <section aria-label={t("detail.notesRegion")}>
                       <SectionLabel>{t("detail.notes")}</SectionLabel>

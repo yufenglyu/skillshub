@@ -331,63 +331,11 @@ export interface ScanDirectory {
   added_at: string;
 }
 
-// ─── Discover Types ───────────────────────────────────────────────────────────
-
 export interface ScanRoot {
   path: string;
   label: string;
   exists: boolean;
   enabled: boolean;
-}
-
-export interface DiscoveredSkill {
-  id: string;
-  name: string;
-  description?: string;
-  file_path: string;
-  dir_path: string;
-  platform_id: string;
-  platform_name: string;
-  project_path: string;
-  project_name: string;
-  is_already_central: boolean;
-}
-
-export interface DiscoveredProject {
-  project_path: string;
-  project_name: string;
-  skills: DiscoveredSkill[];
-}
-
-export interface DiscoverResult {
-  total_projects: number;
-  total_skills: number;
-  projects: DiscoveredProject[];
-}
-
-export interface DiscoverProgressPayload {
-  percent: number;
-  current_path: string;
-  skills_found: number;
-  projects_found: number;
-}
-
-export interface DiscoverFoundPayload {
-  project: DiscoveredProject;
-}
-
-export interface DiscoverCompletePayload {
-  total_projects: number;
-  total_skills: number;
-}
-
-export type ImportTarget =
-  | { type: "central" }
-  | { type: "platform"; agent_id: string };
-
-export interface DiscoverImportResult {
-  skill_id: string;
-  target: string;
 }
 
 // ─── GitHub Import Types ─────────────────────────────────────────────────────

@@ -4,7 +4,6 @@ export type ShortcutActionId =
   | "globalSearch"
   | "toggleSidebar"
   | "toggleSkillViewMode"
-  | "globalRescan"
   | "goResources"
   | "goCollections"
   | "goCentral"
@@ -35,12 +34,6 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     defaultCombo: "mod+shift+v",
     labelKey: "settings.shortcuts.toggleSkillViewMode",
     descriptionKey: "settings.shortcuts.toggleSkillViewModeDesc",
-  },
-  {
-    id: "globalRescan",
-    defaultCombo: "mod+shift+r",
-    labelKey: "settings.shortcuts.globalRescan",
-    descriptionKey: "settings.shortcuts.globalRescanDesc",
   },
   {
     id: "goResources",

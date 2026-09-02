@@ -6,7 +6,7 @@ import {
   DialogPortal,
 } from "@/components/ui/dialog";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { SkillDetailView, type DiscoverMetadata } from "@/components/skill/SkillDetailView";
+import { SkillDetailView } from "@/components/skill/SkillDetailView";
 import { Button } from "@/components/ui/button";
 import { XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,10 +19,6 @@ export interface SkillDetailDrawerProps {
   onOpenChange: (open: boolean) => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
   children?: ReactNode;
-  /** Direct file path for discover non-central skills. */
-  filePath?: string | null;
-  /** Metadata for discover non-central skills. */
-  discoverMetadata?: DiscoverMetadata | null;
 }
 
 export function SkillDetailDrawer({
@@ -33,11 +29,9 @@ export function SkillDetailDrawer({
   onOpenChange,
   returnFocusRef,
   children,
-  filePath,
-  discoverMetadata,
 }: SkillDetailDrawerProps) {
   const titleId = useId();
-  const showContent = open && (skillId !== null || filePath != null || children != null);
+  const showContent = open && (skillId !== null || children != null);
   const lastReturnFocusRef = useRef<RefObject<HTMLElement | null> | null>(null);
 
   useEffect(() => {
@@ -58,7 +52,7 @@ export function SkillDetailDrawer({
   }, [open, returnFocusRef]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
       <DialogPortal keepMounted={false}>
         <DialogOverlay
           data-testid="skill-detail-drawer-overlay"
@@ -94,8 +88,6 @@ export function SkillDetailDrawer({
                     skillId={skillId ?? undefined}
                     agentId={agentId ?? undefined}
                     rowId={rowId ?? undefined}
-                    filePath={filePath ?? undefined}
-                    discoverMetadata={discoverMetadata ?? undefined}
                     variant="drawer"
                     leading={null}
                     onRequestClose={() => onOpenChange(false)}

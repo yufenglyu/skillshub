@@ -133,7 +133,7 @@ export function SkillPickerDialog({
                   disabled={isLoading}
                 >
                   <CheckSquare className="size-3.5" />
-                  <span>{t("discover.selectAll")}</span>
+                  <span>{t("common.selectAllVisible")}</span>
                 </Button>
                 {selectedSkillIds.size > 0 && (
                   <Button
@@ -142,7 +142,7 @@ export function SkillPickerDialog({
                     onClick={handleClearSelection}
                   >
                     <XSquare className="size-3.5" />
-                    <span>{t("discover.deselectAll")}</span>
+                    <span>{t("common.deselectAll")}</span>
                   </Button>
                 )}
               </div>

@@ -112,6 +112,7 @@ function TestHarness({
   skillId?: string | null;
 }) {
   const [open, setOpen] = React.useState(initialOpen);
+  const [sidebarClicks, setSidebarClicks] = React.useState(0);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const renderCount = React.useRef(0);
   renderCount.current += 1;
@@ -121,6 +122,9 @@ function TestHarness({
       <div data-testid="parent-shell" data-render-count={renderCount.current}>
         <button ref={triggerRef} onClick={() => setOpen(true)}>
           Open drawer
+        </button>
+        <button type="button" onClick={() => setSidebarClicks((count) => count + 1)}>
+          Toggle sidebar {sidebarClicks}
         </button>
         <SkillDetailDrawer
           open={open}
@@ -292,6 +296,15 @@ describe("SkillDetailDrawer", () => {
     expect(sidebar.className).toContain("border-t");
     expect(sidebar.className).toContain("md:border-t-0");
     expect(screen.getByRole("separator", { name: /调整详情栏宽度/i }).className).toContain("border-l");
+  });
+
+  it("keeps shell controls clickable while the drawer is open", async () => {
+    render(<TestHarness />);
+
+    await screen.findByTestId("skill-detail-drawer");
+    fireEvent.click(screen.getByRole("button", { name: /toggle sidebar 0/i }));
+
+    expect(screen.getByRole("button", { name: /toggle sidebar 1/i })).toBeInTheDocument();
   });
 
   it("does not unmount the parent container during open/close", async () => {

@@ -101,7 +101,7 @@ export interface UnifiedSkillCardProps {
   /** Click the card itself (platform variant navigates to detail). */
   onClick?: () => void;
 
-  // ── discover variant ──
+  // ── optional multi-select and source badges ──
   checkbox?: { checked: boolean; onChange: () => void; ariaLabel?: string };
   isCentral?: boolean;
   platformBadge?: { id: string; name: string };
@@ -252,7 +252,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
     );
   }
 
-  // ── Default card style (central, discover, resource, collection) ──
+  // ── Default card style (central, resource, collection) ──
   return (
     <div
       className={cn(
@@ -263,13 +263,13 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
       )}
     >
       <div className="flex items-start gap-2.5">
-        {/* Optional checkbox (discover) */}
+        {/* Optional checkbox */}
         {hasCheckbox && (
           <div className="pt-0.5">
             <Checkbox
               checked={checkbox.checked}
               onCheckedChange={checkbox.onChange}
-              aria-label={checkbox.ariaLabel ?? t("discover.selectSkill")}
+              aria-label={checkbox.ariaLabel ?? t("common.selectSkill")}
             />
           </div>
         )}
@@ -295,13 +295,13 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
             {/* Icon action buttons */}
             {hasActions && (
               <div className="flex items-center gap-0.5 shrink-0">
-                {/* Install to Shared Hub (resource/discover) */}
+                {/* Install to Shared Hub */}
                 {onInstallToCentral && !isCentral && (
                   <button
                     onClick={onInstallToCentral}
                     disabled={isLoading}
-                    title={installToCentralLabel ?? t("discover.installToCentral")}
-                    aria-label={installToCentralLabel ?? t("discover.installToCentral")}
+                    title={installToCentralLabel ?? t("skillCard.installToCentral")}
+                    aria-label={installToCentralLabel ?? t("skillCard.installToCentral")}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:cursor-default"
                   >
                     {isLoading ? <Loader2 className="size-4 animate-spin" /> : <SharedHubActionIcon installed={false} />}
@@ -321,13 +321,13 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
                   </button>
                 )}
 
-                {/* Install to Platform (discover) */}
+                {/* Install to Platform */}
                 {onInstallToPlatform && (
                   <button
                     onClick={onInstallToPlatform}
                     disabled={isLoading}
-                    title={t("discover.installToPlatform")}
-                    aria-label={t("discover.installToPlatform")}
+                    title={t("skillCard.installToPlatform")}
+                    aria-label={t("skillCard.installToPlatform")}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50 disabled:cursor-default"
                   >
                     {isLoading ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
@@ -425,11 +425,11 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
             {isCentral && (
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
                 <Globe className="size-3" />
-                {t("discover.alreadyCentral")}
+                {t("skillCard.alreadyCentral")}
               </span>
             )}
 
-            {/* Platform badge (discover) */}
+            {/* Platform badge */}
             {platformBadge && (
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                 <PlatformIcon agentId={platformBadge.id} className="size-3" />
@@ -437,7 +437,7 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
               </span>
             )}
 
-            {/* Project badge (discover) */}
+            {/* Project badge */}
             {projectBadge && (
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                 <Folder className="size-3" />

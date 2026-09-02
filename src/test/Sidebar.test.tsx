@@ -31,13 +31,7 @@ vi.mock("../stores/collectionStore", () => ({
   useCollectionStore: vi.fn(),
 }));
 
-// Mock the discoverStore
-vi.mock("../stores/discoverStore", () => ({
-  useDiscoverStore: vi.fn(),
-}));
-
 import { useCollectionStore } from "../stores/collectionStore";
-import { useDiscoverStore } from "../stores/discoverStore";
 
 const mockAgents: AgentWithStatus[] = [
   {
@@ -107,12 +101,6 @@ const defaultCollectionState = {
   refreshCounts: vi.fn(),
 };
 
-const defaultDiscoverState = {
-  totalSkillsFound: 0,
-  discoveredProjects: [],
-  loadDiscoveredSkills: vi.fn(),
-};
-
 const defaultResourceLibraryState = {
   skills: [],
   agents: [],
@@ -166,10 +154,6 @@ function renderSidebar(
     })
   );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  vi.mocked(useDiscoverStore).mockImplementation((selector: any) =>
-    selector(defaultDiscoverState)
-  );
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   vi.mocked(useThemeStore).mockImplementation((selector: any) =>
     selector({
       mode: "system",
@@ -201,10 +185,6 @@ describe("Sidebar", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(useCentralSkillsStore).mockImplementation((selector: any) =>
       selector(defaultCentralSkillsState)
-    );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.mocked(useDiscoverStore).mockImplementation((selector: any) =>
-      selector(defaultDiscoverState)
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(useThemeStore).mockImplementation((selector: any) =>

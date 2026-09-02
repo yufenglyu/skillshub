@@ -12,8 +12,7 @@ This release unifies the core product terminology and restores the shared packag
 - Refresh the English and Chinese READMEs and screenshots with the new terminology.
 - Reformat both READMEs around a concise product overview, capability groups, screenshots, download, development, stack, and privacy sections.
 - Use shorter Chinese bundle creation labels, including **新建合集** in Skill Bundles.
-- Add configurable keyboard shortcuts in Settings, with defaults for the command palette, global rescan, page navigation, and toggling flat/folder skill views.
-- Add a configurable sidebar expand/collapse shortcut.
+- Add configurable keyboard shortcuts in Settings, with defaults for the command palette, sidebar toggle, page navigation, and toggling flat/folder skill views.
 - Refresh the Skill Repository and Shared Hub icons and align the matching skill action icons.
 
 ### Fixes
@@ -24,7 +23,8 @@ This release unifies the core product terminology and restores the shared packag
 - Make update statistics actionable by filtering status groups and allowing failed items to be rechecked or manually updated.
 - Remove the Settings built-in platform badge so built-in and user-added software platforms are shown uniformly.
 - Open Skill Bundles from the command palette through the active bundles page instead of a removed legacy route.
-- Remove the user-facing Discover project skills command palette entry and stop global rescan from launching that scan.
+- Remove the legacy Discover project skills UI, store, tests, and IPC command registration.
+- Remove the command palette rescan action and its shortcut.
 - Keep the main sidebar visible when a skill detail drawer opens from list views.
 - Suppress Chromium's default application context menu inside the desktop window.
 

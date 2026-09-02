@@ -4,8 +4,6 @@ import { useTranslation } from "react-i18next";
 import {
   Blocks,
   Layers,
-  RefreshCw,
-  Plus,
 } from "lucide-react";
 
 import {
@@ -29,14 +27,13 @@ import { isEnabledInstallTargetAgent } from "@/lib/agents";
 interface GlobalSearchDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAction: (action: string) => void;
 }
 
 type SearchItem = {
   id: string;
   label: string;
   description?: string;
-  groupKey: "central" | "collections" | "platforms" | "actions";
+  groupKey: "central" | "collections" | "platforms";
   groupLabel: string;
   icon: React.ReactNode;
   searchText: string;
@@ -48,7 +45,6 @@ type SearchItem = {
 export function GlobalSearchDialog({
   open,
   onOpenChange,
-  onAction,
 }: GlobalSearchDialogProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -80,11 +76,6 @@ export function GlobalSearchDialog({
       {
         key: "platforms" as const,
         label: t("globalSearch.platforms"),
-        initialLimit: 10,
-      },
-      {
-        key: "actions" as const,
-        label: t("globalSearch.actions"),
         initialLimit: 10,
       },
     ],
@@ -179,38 +170,6 @@ export function GlobalSearchDialog({
       });
     }
 
-    // Actions
-    result.push(
-      {
-        id: "action-rescan",
-        label: t("globalSearch.actionRescan"),
-        groupKey: "actions",
-        groupLabel: t("globalSearch.actions"),
-        icon: <RefreshCw className="size-4 shrink-0 text-primary/70" />,
-        searchText: buildSearchText([t("globalSearch.actionRescan")]),
-        labelText: t("globalSearch.actionRescan").toLowerCase(),
-        descriptionText: "",
-        onSelect: () => {
-          close();
-          onAction("rescan");
-        },
-      },
-      {
-        id: "action-new-collection",
-        label: t("globalSearch.actionNewCollection"),
-        groupKey: "actions",
-        groupLabel: t("globalSearch.actions"),
-        icon: <Plus className="size-4 shrink-0 text-primary/70" />,
-        searchText: buildSearchText([t("globalSearch.actionNewCollection")]),
-        labelText: t("globalSearch.actionNewCollection").toLowerCase(),
-        descriptionText: "",
-        onSelect: () => {
-          close();
-          onAction("new-collection");
-        },
-      }
-    );
-
     return result;
   }, [
     centralSkills,
@@ -219,7 +178,6 @@ export function GlobalSearchDialog({
     navigate,
     close,
     open,
-    onAction,
     t,
   ]);
 
