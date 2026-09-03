@@ -191,6 +191,8 @@ function buildResourceLibraryStoreState(overrides = {}) {
     installSkill: mockInstallResourceSkill,
     togglePlatformLink: vi.fn(),
     updateSourceBackedSkills: vi.fn(),
+    previewRepositorySync: vi.fn(),
+    syncSourceBackedSkills: vi.fn(),
     updateSourceBackedSkill: vi.fn(),
     importSkillsViaNpx: vi.fn(),
     addLocalSkills: vi.fn(),

@@ -13,6 +13,8 @@ import {
   DeleteResourceSkillResult,
   ImportSkillsViaNpxInput,
   ImportSkillsViaNpxResult,
+  RepositorySyncApplyOptions,
+  RepositorySyncPreviewReport,
   ScanDirectory,
   SkillSourceUpdateReport,
   SkillWithLinks,
@@ -58,6 +60,10 @@ interface ResourceLibraryState {
   ) => Promise<BatchInstallResult>;
   togglePlatformLink: (skillId: string, agentId: string) => Promise<void>;
   updateSourceBackedSkills: () => Promise<SkillSourceUpdateReport>;
+  previewRepositorySync: () => Promise<RepositorySyncPreviewReport>;
+  syncSourceBackedSkills: (
+    options: RepositorySyncApplyOptions
+  ) => Promise<SkillSourceUpdateReport>;
   updateSourceBackedSkill: (skillId: string) => Promise<string>;
   importSkillsViaNpx: (input: ImportSkillsViaNpxInput) => Promise<ImportSkillsViaNpxResult>;
   addLocalSkills: (input: AddLocalResourceSkillsInput) => Promise<AddLocalResourceSkillsResult>;
@@ -172,6 +178,37 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
 
     try {
       const report = await invoke<SkillSourceUpdateReport>("update_source_backed_resource_skills");
+      const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
+      set({ skills: skills ?? [], isUpdatingSources: false });
+      return report ?? { items: [] };
+    } catch (err) {
+      set({ error: String(err), isUpdatingSources: false });
+      throw err;
+    }
+  },
+
+  previewRepositorySync: async () => {
+    if (!isTauriRuntime()) {
+      return { repositories: [] };
+    }
+
+    return await invoke<RepositorySyncPreviewReport>(
+      "preview_source_backed_resource_repository_updates"
+    );
+  },
+
+  syncSourceBackedSkills: async (options) => {
+    set({ isUpdatingSources: true, error: null });
+    if (!isTauriRuntime()) {
+      set({ isUpdatingSources: false });
+      return { items: [] };
+    }
+
+    try {
+      const report = await invoke<SkillSourceUpdateReport>(
+        "sync_source_backed_resource_skills",
+        { options }
+      );
       const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
       set({ skills: skills ?? [], isUpdatingSources: false });
       return report ?? { items: [] };

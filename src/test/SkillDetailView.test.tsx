@@ -417,6 +417,29 @@ describe("SkillDetailView", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the resource directory and link path for platform symlink skills", () => {
+    applyStoreMocks({
+      detail: {
+        ...mockDetail,
+        is_central: false,
+        file_path: "D:/SkillsHub/repository/owner/repo/frontend-design/SKILL.md",
+        dir_path: "D:/SkillsHub/repository/owner/repo/frontend-design",
+        canonical_path: "C:/Users/test/.cursor/skills/frontend-design",
+      },
+    });
+    renderView("frontend-design", "page", { skipMockSetup: true });
+
+    const metadataRegion = screen.getByRole("region", { name: /技能基本信息/i });
+    expect(
+      within(metadataRegion).getByText("D:\\SkillsHub\\repository\\owner\\repo\\frontend-design")
+    ).toBeInTheDocument();
+    expect(within(metadataRegion).getByText("链接路径")).toBeInTheDocument();
+    expect(
+      within(metadataRegion).getByText("C:\\Users\\test\\.cursor\\skills\\frontend-design")
+    ).toBeInTheDocument();
+    expect(within(metadataRegion).queryByText("文件路径")).toBeNull();
+  });
+
   it("shows GitHub repository source without exposing the basic info editor", () => {
     applyStoreMocks({
       detail: {

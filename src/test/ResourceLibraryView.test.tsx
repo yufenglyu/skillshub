@@ -10,6 +10,8 @@ const mockRemoveFromCentral = vi.fn();
 const mockUninstallSkillFromAgent = vi.fn();
 const mockTogglePlatformLink = vi.fn();
 const mockUpdateSourceBackedSkills = vi.fn();
+const mockPreviewRepositorySync = vi.fn();
+const mockSyncSourceBackedSkills = vi.fn();
 const mockUpdateSourceBackedSkill = vi.fn();
 const mockImportSkillsViaNpx = vi.fn();
 const mockAddLocalSkills = vi.fn();
@@ -110,6 +112,8 @@ vi.mock("@/stores/resourceLibraryStore", () => ({
       removeFromCentral: mockRemoveFromCentral,
       togglePlatformLink: mockTogglePlatformLink,
       updateSourceBackedSkills: mockUpdateSourceBackedSkills,
+      previewRepositorySync: mockPreviewRepositorySync,
+      syncSourceBackedSkills: mockSyncSourceBackedSkills,
       updateSourceBackedSkill: mockUpdateSourceBackedSkill,
       importSkillsViaNpx: mockImportSkillsViaNpx,
       addLocalSkills: mockAddLocalSkills,
@@ -178,6 +182,11 @@ describe("ResourceLibraryView delete", () => {
     mockAddToCentral.mockReset();
     mockTogglePlatformLink.mockReset();
     mockUpdateSourceBackedSkills.mockReset();
+    mockUpdateSourceBackedSkills.mockResolvedValue({ items: [] });
+    mockPreviewRepositorySync.mockReset();
+    mockPreviewRepositorySync.mockResolvedValue({ repositories: [] });
+    mockSyncSourceBackedSkills.mockReset();
+    mockSyncSourceBackedSkills.mockResolvedValue({ items: [] });
     mockUpdateSourceBackedSkill.mockReset();
     mockImportSkillsViaNpx.mockReset();
     mockAddLocalSkills.mockReset();
@@ -342,12 +351,14 @@ describe("ResourceLibraryView delete", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /更新技能|Update skills/i }));
 
-    expect(mockStartTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "resource-source-update",
-        label: "更新技能",
-      })
-    );
+    await waitFor(() => {
+      expect(mockStartTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "resource-source-update",
+          label: "更新技能",
+        })
+      );
+    });
 
     await waitFor(() => {
       expect(mockUpdateTask).toHaveBeenCalledWith(
@@ -427,6 +438,66 @@ describe("ResourceLibraryView delete", () => {
         })
       );
     });
+  });
+
+  it("shows a repository sync preview before removing remote-deleted skills", async () => {
+    resourceSkills = [
+      {
+        ...defaultSkills[0],
+        source: "skills-cli",
+        source_repo: "owner/repo",
+        source_path: "resource-demo",
+      },
+    ];
+    mockPreviewRepositorySync.mockResolvedValue({
+      repositories: [
+        {
+          repository: "owner/repo",
+          currentRef: "old",
+          remoteRef: "new",
+          added: [{ skillId: "new-skill", name: "new-skill" }],
+          modified: [{ skillId: "resource-demo", name: "resource-demo" }],
+          deleted: [{ skillId: "removed-skill", name: "removed-skill" }],
+          unchanged: [],
+          error: null,
+        },
+      ],
+    });
+    mockSyncSourceBackedSkills.mockResolvedValue({
+      items: [
+        { skillId: "resource-demo", name: "resource-demo", status: "updated" },
+        { skillId: "removed-skill", name: "removed-skill", status: "deleted" },
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <ResourceLibraryView />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /更新技能|Update skills/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /同步预览|Sync preview/i });
+    expect(within(dialog).getByText("owner/repo")).toBeInTheDocument();
+    expect(within(dialog).getByText("新增 1")).toBeInTheDocument();
+    expect(within(dialog).getByText("待同步 1")).toBeInTheDocument();
+    expect(within(dialog).getByText("远程删除/重命名 1")).toBeInTheDocument();
+
+    fireEvent.click(
+      within(dialog).getByText(/移除远程删除或重命名的本地技能/)
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: /应用同步|Apply sync/i }));
+
+    await waitFor(() => {
+      expect(mockSyncSourceBackedSkills).toHaveBeenCalledWith({ removeDeleted: true });
+    });
+    expect(mockCompleteTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        updatedCount: 1,
+        deletedCount: 1,
+      })
+    );
   });
 
   it("reports the failing skill and reason to the app status bar", async () => {

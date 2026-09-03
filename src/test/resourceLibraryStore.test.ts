@@ -66,7 +66,7 @@ describe("resourceLibraryStore platform installs", () => {
 
   it("uses resource-specific source update commands", async () => {
     vi.mocked(invoke)
-      .mockResolvedValueOnce(["resource-skill"])
+      .mockResolvedValueOnce({ items: [] })
       .mockResolvedValueOnce([resourceSkill])
       .mockResolvedValueOnce("resource-skill")
       .mockResolvedValueOnce([resourceSkill]);
@@ -77,6 +77,26 @@ describe("resourceLibraryStore platform installs", () => {
     expect(invoke).toHaveBeenNthCalledWith(1, "update_source_backed_resource_skills");
     expect(invoke).toHaveBeenNthCalledWith(3, "update_source_backed_resource_skill", {
       skillId: "resource-skill",
+    });
+  });
+
+  it("uses repository preview and sync commands for source updates", async () => {
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({ repositories: [] })
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce([resourceSkill]);
+
+    await useResourceLibraryStore.getState().previewRepositorySync();
+    await useResourceLibraryStore
+      .getState()
+      .syncSourceBackedSkills({ removeDeleted: true });
+
+    expect(invoke).toHaveBeenNthCalledWith(
+      1,
+      "preview_source_backed_resource_repository_updates"
+    );
+    expect(invoke).toHaveBeenNthCalledWith(2, "sync_source_backed_resource_skills", {
+      options: { removeDeleted: true },
     });
   });
 

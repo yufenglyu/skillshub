@@ -15,6 +15,7 @@ This release unifies the core product terminology and restores the shared packag
 - Add configurable keyboard shortcuts in Settings, with defaults for the command palette, sidebar toggle, page navigation, and toggling flat/folder skill views.
 - Refresh the Skill Repository and Shared Hub icons and align the matching skill action icons.
 - Streamline the skill detail metadata panel by removing duplicate source fields, scan timestamps, and redundant file paths.
+- Add a repository-level sync preview for Skill Repository updates, showing added, pending-sync, and remotely deleted or renamed skills with an opt-in removal action.
 
 ### Fixes
 
@@ -25,6 +26,7 @@ This release unifies the core product terminology and restores the shared packag
 - Make update statistics actionable by filtering status groups and allowing failed items to be rechecked or manually updated.
 - Remove the Settings built-in platform badge so built-in and user-added software platforms are shown uniformly.
 - Show the real Skill Repository directory for Shared Hub skill details, with the Shared Hub symlink shown separately as the shared link path.
+- Show the real Skill Repository directory for platform and project symlink skill details, with the install location shown separately as the link path.
 - Fix source path inference and update recovery for single-skill GitHub repositories that keep `SKILL.md` at the repository root.
 - Open Skill Bundles from the command palette through the active bundles page instead of a removed legacy route.
 - Remove the legacy Discover project skills UI, store, tests, and IPC command registration.

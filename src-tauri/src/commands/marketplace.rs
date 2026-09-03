@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
-use super::{github_import, skills_cli};
+use super::{github_import, skills, skills_cli};
 use crate::{db, path_utils::source_grouped_skill_dir, AppState};
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -1100,6 +1100,7 @@ pub struct SkillSourceUpdateProgress {
 pub enum SkillSourceUpdateStatus {
     Updated,
     Unchanged,
+    Deleted,
     Failed,
     Skipped,
 }
@@ -1117,6 +1118,38 @@ pub struct SkillSourceUpdateItem {
 #[serde(rename_all = "camelCase")]
 pub struct SkillSourceUpdateReport {
     pub items: Vec<SkillSourceUpdateItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositorySyncPreviewItem {
+    pub skill_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositorySyncPreview {
+    pub repository: String,
+    pub current_ref: Option<String>,
+    pub remote_ref: Option<String>,
+    pub added: Vec<RepositorySyncPreviewItem>,
+    pub modified: Vec<RepositorySyncPreviewItem>,
+    pub deleted: Vec<RepositorySyncPreviewItem>,
+    pub unchanged: Vec<RepositorySyncPreviewItem>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositorySyncPreviewReport {
+    pub repositories: Vec<RepositorySyncPreview>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositorySyncApplyOptions {
+    pub remove_deleted: bool,
 }
 
 fn emit_source_update_progress(
@@ -1144,7 +1177,7 @@ pub async fn update_source_backed_central_skills(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<SkillSourceUpdateReport, String> {
-    update_source_backed_skills_impl(&state.db, true, Some(&app)).await
+    update_source_backed_skills_impl(&state.db, true, Some(&app), false).await
 }
 
 #[tauri::command]
@@ -1152,13 +1185,239 @@ pub async fn update_source_backed_resource_skills(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<SkillSourceUpdateReport, String> {
-    update_source_backed_skills_impl(&state.db, false, Some(&app)).await
+    update_source_backed_skills_impl(&state.db, false, Some(&app), false).await
+}
+
+#[tauri::command]
+pub async fn sync_source_backed_resource_skills(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    options: Option<RepositorySyncApplyOptions>,
+) -> Result<SkillSourceUpdateReport, String> {
+    update_source_backed_skills_impl(
+        &state.db,
+        false,
+        Some(&app),
+        options.unwrap_or_default().remove_deleted,
+    )
+    .await
+}
+
+async fn npx_repo_source_groups(
+    pool: &db::DbPool,
+    is_central: bool,
+) -> Result<HashMap<String, Vec<(db::SkillSource, db::Skill)>>, String> {
+    let sources = db::get_all_skill_sources(pool).await?;
+    let syncs = db::get_all_skill_source_syncs(pool).await?;
+    let syncs_by_skill = syncs
+        .into_iter()
+        .map(|sync| (sync.skill_id.clone(), sync))
+        .collect::<HashMap<_, _>>();
+    let mut groups: HashMap<String, Vec<(db::SkillSource, db::Skill)>> = HashMap::new();
+
+    for source in sources {
+        if source.source_type != "skills-cli" {
+            continue;
+        }
+        let sync_scope = syncs_by_skill
+            .get(&source.skill_id)
+            .map(|sync| sync.sync_scope.as_str())
+            .unwrap_or(skills_cli::NPX_SYNC_SCOPE_SKILL);
+        if sync_scope != skills_cli::NPX_SYNC_SCOPE_REPO {
+            continue;
+        }
+        let Some(skill) = db::get_skill_by_id(pool, &source.skill_id).await? else {
+            continue;
+        };
+        if skill.is_central != is_central {
+            continue;
+        }
+        if let Some(repo) = source
+            .source_repo
+            .as_deref()
+            .or(source.source_url.as_deref())
+            .map(str::trim)
+            .filter(|repo| !repo.is_empty())
+        {
+            groups
+                .entry(repo.to_string())
+                .or_default()
+                .push((source, skill));
+        }
+    }
+
+    Ok(groups)
+}
+
+fn preview_item_from_skill(skill: &db::Skill) -> RepositorySyncPreviewItem {
+    RepositorySyncPreviewItem {
+        skill_id: skill.id.clone(),
+        name: skill.name.clone(),
+    }
+}
+
+fn preview_item_from_candidate(
+    candidate: &github_import::RemoteSkillCandidate,
+) -> RepositorySyncPreviewItem {
+    RepositorySyncPreviewItem {
+        skill_id: candidate.skill_id.clone(),
+        name: candidate.skill_name.clone(),
+    }
+}
+
+async fn preview_npx_repo_group(
+    pool: &db::DbPool,
+    repo: &str,
+    group: &[(db::SkillSource, db::Skill)],
+    auth: Option<&str>,
+) -> RepositorySyncPreview {
+    let mut current_ref = None;
+    for (source, _) in group {
+        if let Ok(Some(sync)) = db::get_skill_source_sync(pool, &source.skill_id).await {
+            if sync
+                .remote_ref
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                current_ref = sync.remote_ref;
+                break;
+            }
+        }
+    }
+
+    let repo_ref =
+        match github_import::resolve_repo_ref(&format!("https://github.com/{repo}"), auth).await {
+            Ok(repo_ref) => repo_ref,
+            Err(error) => {
+                return RepositorySyncPreview {
+                    repository: repo.to_string(),
+                    current_ref,
+                    remote_ref: None,
+                    added: Vec::new(),
+                    modified: Vec::new(),
+                    deleted: Vec::new(),
+                    unchanged: group
+                        .iter()
+                        .map(|(_, skill)| preview_item_from_skill(skill))
+                        .collect(),
+                    error: Some(error),
+                }
+            }
+        };
+
+    let remote_ref = match github_import::fetch_repo_head_ref(&repo_ref, auth).await {
+        Ok(remote_ref) => remote_ref,
+        Err(error) => {
+            return RepositorySyncPreview {
+                repository: repo.to_string(),
+                current_ref,
+                remote_ref: None,
+                added: Vec::new(),
+                modified: Vec::new(),
+                deleted: Vec::new(),
+                unchanged: group
+                    .iter()
+                    .map(|(_, skill)| preview_item_from_skill(skill))
+                    .collect(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let candidates = match github_import::fetch_repo_skill_candidates(&repo_ref, auth).await {
+        Ok(candidates) => candidates,
+        Err(error) => {
+            return RepositorySyncPreview {
+                repository: repo.to_string(),
+                current_ref,
+                remote_ref: Some(remote_ref),
+                added: Vec::new(),
+                modified: Vec::new(),
+                deleted: Vec::new(),
+                unchanged: group
+                    .iter()
+                    .map(|(_, skill)| preview_item_from_skill(skill))
+                    .collect(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let local_ids = group
+        .iter()
+        .map(|(_, skill)| skill.id.clone())
+        .collect::<HashSet<_>>();
+    let remote_ids = candidates
+        .iter()
+        .map(|candidate| candidate.skill_id.clone())
+        .collect::<HashSet<_>>();
+    let remote_by_id = candidates
+        .iter()
+        .map(|candidate| (candidate.skill_id.clone(), candidate))
+        .collect::<HashMap<_, _>>();
+    let remote_changed = current_ref.as_deref() != Some(remote_ref.as_str());
+
+    let mut added = candidates
+        .iter()
+        .filter(|candidate| !local_ids.contains(&candidate.skill_id))
+        .map(preview_item_from_candidate)
+        .collect::<Vec<_>>();
+    let mut modified = Vec::new();
+    let mut deleted = Vec::new();
+    let mut unchanged = Vec::new();
+
+    for (_, skill) in group {
+        if remote_ids.contains(&skill.id) {
+            let item = remote_by_id
+                .get(&skill.id)
+                .map(|candidate| preview_item_from_candidate(candidate))
+                .unwrap_or_else(|| preview_item_from_skill(skill));
+            if remote_changed {
+                modified.push(item);
+            } else {
+                unchanged.push(item);
+            }
+        } else {
+            deleted.push(preview_item_from_skill(skill));
+        }
+    }
+
+    added.sort_by(|left, right| left.skill_id.cmp(&right.skill_id));
+    modified.sort_by(|left, right| left.skill_id.cmp(&right.skill_id));
+    deleted.sort_by(|left, right| left.skill_id.cmp(&right.skill_id));
+    unchanged.sort_by(|left, right| left.skill_id.cmp(&right.skill_id));
+
+    RepositorySyncPreview {
+        repository: repo.to_string(),
+        current_ref,
+        remote_ref: Some(remote_ref),
+        added,
+        modified,
+        deleted,
+        unchanged,
+        error: None,
+    }
+}
+
+#[tauri::command]
+pub async fn preview_source_backed_resource_repository_updates(
+    state: State<'_, AppState>,
+) -> Result<RepositorySyncPreviewReport, String> {
+    let auth = github_import::github_direct_auth_from_settings(&state.db).await?;
+    let groups = npx_repo_source_groups(&state.db, false).await?;
+    let mut repositories = Vec::new();
+    for (repo, group) in groups {
+        repositories.push(preview_npx_repo_group(&state.db, &repo, &group, auth.as_deref()).await);
+    }
+    repositories.sort_by(|left, right| left.repository.cmp(&right.repository));
+    Ok(RepositorySyncPreviewReport { repositories })
 }
 
 async fn update_source_backed_skills_impl(
     pool: &db::DbPool,
     is_central: bool,
     app: Option<&AppHandle>,
+    remove_remote_deleted: bool,
 ) -> Result<SkillSourceUpdateReport, String> {
     let sources = db::get_all_skill_sources(pool).await?;
     let syncs = db::get_all_skill_source_syncs(pool).await?;
@@ -1309,14 +1568,47 @@ async fn update_source_backed_skills_impl(
                         None,
                     ));
                 }
+                Ok(result) if result.deleted_ids.contains(&skill.id) => {
+                    if remove_remote_deleted && !is_central {
+                        match skills::delete_resource_skill_impl(
+                            pool,
+                            &skill.id,
+                            skills::DeleteResourceSkillOptions {
+                                cascade_uninstall: true,
+                            },
+                        )
+                        .await
+                        {
+                            Ok(_) => items.push(source_update_item(
+                                &skill,
+                                SkillSourceUpdateStatus::Deleted,
+                                Some(
+                                    "Removed because the skill no longer exists upstream."
+                                        .to_string(),
+                                ),
+                            )),
+                            Err(error) => items.push(source_update_item(
+                                &skill,
+                                SkillSourceUpdateStatus::Failed,
+                                Some(error),
+                            )),
+                        }
+                    } else {
+                        items.push(source_update_item(
+                            &skill,
+                            SkillSourceUpdateStatus::Skipped,
+                            Some(
+                                "The skill was not returned by the latest repository import."
+                                    .to_string(),
+                            ),
+                        ));
+                    }
+                }
                 Ok(_) => {
                     items.push(source_update_item(
                         &skill,
-                        SkillSourceUpdateStatus::Failed,
-                        Some(
-                            "The skill was not returned by the latest repository import."
-                                .to_string(),
-                        ),
+                        SkillSourceUpdateStatus::Skipped,
+                        None,
                     ));
                 }
                 Err(error) => {
@@ -1324,6 +1616,17 @@ async fn update_source_backed_skills_impl(
                         &skill,
                         SkillSourceUpdateStatus::Failed,
                         Some(error.clone()),
+                    ));
+                }
+            }
+        }
+        if let Ok(result) = &group_result {
+            for added_id in &result.added_ids {
+                if let Some(skill) = db::get_skill_by_id(pool, added_id).await? {
+                    items.push(source_update_item(
+                        &skill,
+                        SkillSourceUpdateStatus::Updated,
+                        Some("Added from the latest repository import.".to_string()),
                     ));
                 }
             }
@@ -1463,6 +1766,8 @@ async fn record_npx_sync_status(
 
 struct NpxRepoGroupUpdate {
     updated_ids: HashSet<String>,
+    added_ids: HashSet<String>,
+    deleted_ids: HashSet<String>,
     unchanged: bool,
 }
 
@@ -1504,6 +1809,8 @@ async fn update_npx_repo_source_group(
         }
         return Ok(NpxRepoGroupUpdate {
             updated_ids: HashSet::new(),
+            added_ids: HashSet::new(),
+            deleted_ids: HashSet::new(),
             unchanged: true,
         });
     }
@@ -1519,6 +1826,18 @@ async fn update_npx_repo_source_group(
         .added_skills
         .iter()
         .map(|skill| skill.id.clone())
+        .collect::<HashSet<_>>();
+    let existing_ids = group
+        .iter()
+        .map(|(source, _)| source.skill_id.clone())
+        .collect::<HashSet<_>>();
+    let added_ids = imported_ids
+        .difference(&existing_ids)
+        .cloned()
+        .collect::<HashSet<_>>();
+    let deleted_ids = existing_ids
+        .difference(&imported_ids)
+        .cloned()
         .collect::<HashSet<_>>();
     for skill in &result.local_import.added_skills {
         record_npx_sync_status(
@@ -1554,6 +1873,8 @@ async fn update_npx_repo_source_group(
     }
     Ok(NpxRepoGroupUpdate {
         updated_ids: imported_ids,
+        added_ids,
+        deleted_ids,
         unchanged: false,
     })
 }

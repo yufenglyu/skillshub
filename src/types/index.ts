@@ -413,7 +413,7 @@ export interface SkillSourceUpdateProgress {
   skillId: string;
 }
 
-export type SkillSourceUpdateStatus = "updated" | "unchanged" | "failed" | "skipped";
+export type SkillSourceUpdateStatus = "updated" | "unchanged" | "deleted" | "failed" | "skipped";
 
 export interface SkillSourceUpdateItem {
   skillId: string;
@@ -424,4 +424,28 @@ export interface SkillSourceUpdateItem {
 
 export interface SkillSourceUpdateReport {
   items: SkillSourceUpdateItem[];
+}
+
+export interface RepositorySyncPreviewItem {
+  skillId: string;
+  name: string;
+}
+
+export interface RepositorySyncPreview {
+  repository: string;
+  currentRef?: string | null;
+  remoteRef?: string | null;
+  added: RepositorySyncPreviewItem[];
+  modified: RepositorySyncPreviewItem[];
+  deleted: RepositorySyncPreviewItem[];
+  unchanged: RepositorySyncPreviewItem[];
+  error?: string | null;
+}
+
+export interface RepositorySyncPreviewReport {
+  repositories: RepositorySyncPreview[];
+}
+
+export interface RepositorySyncApplyOptions {
+  removeDeleted: boolean;
 }

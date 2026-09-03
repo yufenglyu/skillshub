@@ -791,10 +791,14 @@ export function SkillDetailView({
         detail.dir_path,
       ],
       [
-        t("detail.sharedLinkPath", {
-          defaultValue: i18n.language.startsWith("zh") ? "共享链接路径" : "Shared link path",
-        }),
-        detail.is_central ? detail.canonical_path : null,
+        detail.is_central
+          ? t("detail.sharedLinkPath", {
+              defaultValue: i18n.language.startsWith("zh") ? "共享链接路径" : "Shared link path",
+            })
+          : t("detail.linkPath", {
+              defaultValue: i18n.language.startsWith("zh") ? "链接路径" : "Link path",
+            }),
+        detail.canonical_path,
       ],
     ]
       .filter((row): row is [string, string] => Boolean(row[1]))

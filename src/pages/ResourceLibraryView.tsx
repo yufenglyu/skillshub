@@ -22,6 +22,7 @@ import { SkillBrowserTable, type FolderTableItem } from "@/components/skill/Skil
 import { SkillBrowserViewHeading } from "@/components/skill/SkillBrowserViewHeading";
 import { OpenableDirectoryPath } from "@/components/common/OpenableDirectoryPath";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { HelpIcon } from "@/components/ui/help-icon";
 import { SearchInput } from "@/components/ui/search-input";
 import {
@@ -59,6 +60,8 @@ import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useSkillStore } from "@/stores/skillStore";
 import type {
   CentralSkillBundleDeletePreview,
+  RepositorySyncApplyOptions,
+  RepositorySyncPreviewReport,
   SkillSourceUpdateProgress,
   SkillSourceUpdateReport,
   SkillWithLinks,
@@ -169,6 +172,8 @@ export function ResourceLibraryView() {
   const updateSourceBackedSkills = useResourceLibraryStore(
     (state) => state.updateSourceBackedSkills
   );
+  const previewRepositorySync = useResourceLibraryStore((state) => state.previewRepositorySync);
+  const syncSourceBackedSkills = useResourceLibraryStore((state) => state.syncSourceBackedSkills);
   const updateSourceBackedSkill = useResourceLibraryStore(
     (state) => state.updateSourceBackedSkill
   );
@@ -226,6 +231,12 @@ export function ResourceLibraryView() {
     "central" | "install" | "uninstall" | "update" | null
   >(null);
   const [pendingFolderActionKey, setPendingFolderActionKey] = useState<string | null>(null);
+  const [repositorySyncPreview, setRepositorySyncPreview] =
+    useState<RepositorySyncPreviewReport | null>(null);
+  const [isRepositorySyncPreviewOpen, setIsRepositorySyncPreviewOpen] = useState(false);
+  const [isRepositorySyncPreviewLoading, setIsRepositorySyncPreviewLoading] = useState(false);
+  const [removeRemoteDeleted, setRemoveRemoteDeleted] = useState(false);
+  const [pendingRepositorySync, setPendingRepositorySync] = useState(false);
   const detailButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -430,6 +441,7 @@ export function ResourceLibraryView() {
     updateStatusTask({
       updatedCount: items.filter((item) => item.status === "updated").length,
       unchangedCount: items.filter((item) => item.status === "unchanged").length,
+      deletedCount: items.filter((item) => item.status === "deleted").length,
       skippedCount: items.filter((item) => item.status === "skipped").length,
       failedCount: items.filter((item) => item.status === "failed").length,
       items,
@@ -481,7 +493,17 @@ export function ResourceLibraryView() {
     void handleUpdateSingleSource(skill);
   }
 
-  async function handleUpdateSources() {
+  function repositorySyncNeedsConfirmation(report: RepositorySyncPreviewReport) {
+    return report.repositories.some(
+      (repository) =>
+        repository.error ||
+        repository.added.length > 0 ||
+        repository.modified.length > 0 ||
+        repository.deleted.length > 0
+    );
+  }
+
+  async function runUpdateSources(options?: RepositorySyncApplyOptions) {
     startStatusTask({
       id: "resource-source-update",
       label: t("status.resourceSourceUpdate"),
@@ -503,16 +525,21 @@ export function ResourceLibraryView() {
       });
     }
     try {
-      const report = await updateSourceBackedSkills();
+      const report = options
+        ? await syncSourceBackedSkills(options)
+        : await updateSourceBackedSkills();
+      await Promise.all([loadCentralSkills(), refreshSyncedInstallTargets()]);
       const items = sourceUpdateItems(skills, report);
       const updatedCount = items.filter((item) => item.status === "updated").length;
       const unchangedCount = items.filter((item) => item.status === "unchanged").length;
+      const deletedCount = items.filter((item) => item.status === "deleted").length;
       const skippedCount = items.filter((item) => item.status === "skipped").length;
       const failedCount = items.filter((item) => item.status === "failed").length;
       completeStatusTask({
         detail: t("status.resourceSourceUpdated", { count: updatedCount }),
         updatedCount,
         unchangedCount,
+        deletedCount,
         skippedCount,
         failedCount,
         items,
@@ -531,6 +558,43 @@ export function ResourceLibraryView() {
       toast.error(t("resource.updateSourcesError", { error: String(err) }));
     } finally {
       unlisten?.();
+    }
+  }
+
+  async function handleUpdateSources() {
+    if (isRepositorySyncPreviewLoading || pendingRepositorySync) return;
+    setIsRepositorySyncPreviewLoading(true);
+    try {
+      const report = await previewRepositorySync();
+      if (repositorySyncNeedsConfirmation(report)) {
+        setRepositorySyncPreview(report);
+        setRemoveRemoteDeleted(false);
+        setIsRepositorySyncPreviewOpen(true);
+        return;
+      }
+      await runUpdateSources();
+    } catch (err) {
+      const errorMessage = formatTaskError(err);
+      failStatusTask({
+        detail: errorMessage,
+        error: errorMessage,
+        failedCount: 1,
+        items: [{ name: t("status.resourceSourceUpdate"), status: "failed", detail: errorMessage }],
+      });
+      toast.error(t("resource.updateSourcesError", { error: String(err) }));
+    } finally {
+      setIsRepositorySyncPreviewLoading(false);
+    }
+  }
+
+  async function handleConfirmRepositorySync() {
+    if (pendingRepositorySync) return;
+    setPendingRepositorySync(true);
+    setIsRepositorySyncPreviewOpen(false);
+    try {
+      await runUpdateSources({ removeDeleted: removeRemoteDeleted });
+    } finally {
+      setPendingRepositorySync(false);
     }
   }
 
@@ -1007,8 +1071,12 @@ export function ResourceLibraryView() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleUpdateSources} disabled={isUpdatingSources}>
-            {isUpdatingSources ? (
+          <Button
+            variant="outline"
+            onClick={handleUpdateSources}
+            disabled={isUpdatingSources || isRepositorySyncPreviewLoading || pendingRepositorySync}
+          >
+            {isUpdatingSources || isRepositorySyncPreviewLoading || pendingRepositorySync ? (
               <RefreshCw className="size-4 animate-spin" />
             ) : (
               <RefreshCw className="size-4" />
@@ -1284,6 +1352,111 @@ export function ResourceLibraryView() {
             : undefined
         }
       />
+
+      <Dialog
+        open={isRepositorySyncPreviewOpen}
+        onOpenChange={(open) => {
+          if (!open && !pendingRepositorySync) {
+            setIsRepositorySyncPreviewOpen(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{t("resource.repoSyncPreviewTitle")}</DialogTitle>
+            <DialogDescription>{t("resource.repoSyncPreviewDesc")}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-2 overflow-auto pr-1">
+            {(repositorySyncPreview?.repositories ?? [])
+              .filter(
+                (repository) =>
+                  repository.error ||
+                  repository.added.length > 0 ||
+                  repository.modified.length > 0 ||
+                  repository.deleted.length > 0
+              )
+              .map((repository) => {
+                const previewNames = [
+                  ...repository.added,
+                  ...repository.modified,
+                  ...repository.deleted,
+                ]
+                  .slice(0, 6)
+                  .map((item) => item.name)
+                  .join(", ");
+                return (
+                  <section
+                    key={repository.repository}
+                    className="rounded-lg border border-border p-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {repository.repository}
+                        </div>
+                        {previewNames ? (
+                          <div className="mt-1 truncate text-xs text-muted-foreground">
+                            {previewNames}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center gap-1 text-xs">
+                        {repository.added.length > 0 ? (
+                          <span className="rounded-md bg-emerald-500/10 px-2 py-1 text-emerald-700 dark:text-emerald-300">
+                            {t("resource.repoSyncPreviewAdded", { count: repository.added.length })}
+                          </span>
+                        ) : null}
+                        {repository.modified.length > 0 ? (
+                          <span className="rounded-md bg-primary/10 px-2 py-1 text-primary">
+                            {t("resource.repoSyncPreviewModified", { count: repository.modified.length })}
+                          </span>
+                        ) : null}
+                        {repository.deleted.length > 0 ? (
+                          <span className="rounded-md bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-300">
+                            {t("resource.repoSyncPreviewDeleted", { count: repository.deleted.length })}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    {repository.error ? (
+                      <p className="mt-2 text-xs text-destructive">
+                        {t("resource.repoSyncPreviewError", { error: repository.error })}
+                      </p>
+                    ) : null}
+                  </section>
+                );
+              })}
+          </div>
+          <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
+            <Checkbox
+              checked={removeRemoteDeleted}
+              onCheckedChange={(checked) => setRemoveRemoteDeleted(!!checked)}
+              className="mt-0.5"
+            />
+            <span className="text-muted-foreground">{t("resource.repoSyncRemoveDeleted")}</span>
+          </label>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsRepositorySyncPreviewOpen(false)}
+              disabled={pendingRepositorySync}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={() => void handleConfirmRepositorySync()}
+              disabled={pendingRepositorySync}
+            >
+              {pendingRepositorySync ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              {t("resource.repoSyncConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!deleteTargetSkill}

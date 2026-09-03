@@ -9,6 +9,7 @@ export interface AppStatusTask {
   detail?: string | null;
   updatedCount?: number | null;
   unchangedCount?: number | null;
+  deletedCount?: number | null;
   skippedCount?: number | null;
   failedCount?: number | null;
   currentCount?: number | null;
@@ -24,7 +25,7 @@ export interface AppStatusTask {
 export interface AppStatusTaskItem {
   skillId?: string | null;
   name: string;
-  status: "updated" | "unchanged" | "skipped" | "failed" | "info";
+  status: "updated" | "unchanged" | "deleted" | "skipped" | "failed" | "info";
   repository?: string | null;
   detail?: string | null;
 }

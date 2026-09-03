@@ -485,7 +485,23 @@ fn symlink_target_dir(path: &Path) -> Option<PathBuf> {
     Some(absolute_target)
 }
 
-fn skill_detail_file_and_dir_paths(skill: &db::Skill) -> (String, String) {
+fn skill_detail_file_and_dir_paths(
+    skill: &db::Skill,
+    installation: Option<&db::SkillInstallation>,
+) -> (String, String, Option<String>) {
+    if let Some(installation) =
+        installation.filter(|installation| installation.link_type == "symlink")
+    {
+        let install_dir = PathBuf::from(&installation.installed_path);
+        if let Some(target_dir) = symlink_target_dir(&install_dir) {
+            return (
+                target_dir.join("SKILL.md").to_string_lossy().into_owned(),
+                target_dir.to_string_lossy().into_owned(),
+                Some(installation.installed_path.clone()),
+            );
+        }
+    }
+
     let link_dir = skill
         .canonical_path
         .as_deref()
@@ -497,11 +513,16 @@ fn skill_detail_file_and_dir_paths(skill: &db::Skill) -> (String, String) {
             return (
                 target_dir.join("SKILL.md").to_string_lossy().into_owned(),
                 target_dir.to_string_lossy().into_owned(),
+                skill.canonical_path.clone(),
             );
         }
     }
 
-    (skill.file_path.clone(), skill_dir_path(skill))
+    (
+        skill.file_path.clone(),
+        skill_dir_path(skill),
+        skill.canonical_path.clone(),
+    )
 }
 
 fn canonical_delete_dir(skill: &db::Skill, central_root: &Path) -> PathBuf {
@@ -1444,8 +1465,15 @@ async fn get_skill_detail_with_row_impl(
     let skill = skill.ok_or_else(|| format!("Skill '{}' not found", skill_id))?;
 
     let row_id = skill.id.clone();
-    let (file_path, dir_path) = skill_detail_file_and_dir_paths(&skill);
-    let installations = installation_details(db::get_skill_installations(pool, skill_id).await?);
+    let raw_installations = db::get_skill_installations(pool, skill_id).await?;
+    let request_installation = agent_id.and_then(|agent_id| {
+        raw_installations
+            .iter()
+            .find(|installation| installation.agent_id == agent_id)
+    });
+    let (file_path, dir_path, canonical_path) =
+        skill_detail_file_and_dir_paths(&skill, request_installation);
+    let installations = installation_details(raw_installations);
     let collections = db::get_skill_collections(pool, skill_id).await?;
     let read_only_agents = read_only_agent_ids_for_skill(pool, skill_id, skill.is_central).await?;
     let source_metadata = db::get_skill_source(pool, skill_id).await?;
@@ -1463,7 +1491,7 @@ async fn get_skill_detail_with_row_impl(
         description: skill.description,
         file_path,
         dir_path,
-        canonical_path: skill.canonical_path,
+        canonical_path,
         is_central: skill.is_central,
         source: skill.source,
         source_url: source_metadata
@@ -5694,6 +5722,61 @@ mod tests {
             Some(central_link_string.as_str())
         );
         assert!(detail.is_central);
+    }
+
+    #[tokio::test]
+    async fn test_get_skill_detail_for_platform_symlink_uses_resource_directory() {
+        let tmp = TempDir::new().unwrap();
+        let pool = setup_test_db().await;
+        let platform_root = tmp.path().join(".cursor").join("skills");
+        let resource_dir = tmp.path().join("resource-library").join("frontend-design");
+        let platform_link = platform_root.join("frontend-design");
+        fs::create_dir_all(&platform_root).unwrap();
+        fs::create_dir_all(&resource_dir).unwrap();
+        fs::write(resource_dir.join("SKILL.md"), "# Frontend Design\n").unwrap();
+        create_symlink(&resource_dir, &platform_link).unwrap();
+
+        let skill = make_skill_with_path(
+            "frontend-design",
+            "Frontend Design",
+            &resource_dir.join("SKILL.md"),
+            &resource_dir,
+            false,
+        );
+        db::upsert_skill(&pool, &skill).await.unwrap();
+        db::upsert_skill_installation(
+            &pool,
+            &SkillInstallation {
+                skill_id: "frontend-design".to_string(),
+                agent_id: "cursor".to_string(),
+                installed_path: platform_link.to_string_lossy().into_owned(),
+                link_type: "symlink".to_string(),
+                symlink_target: Some(resource_dir.to_string_lossy().into_owned()),
+                created_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let detail = get_skill_detail_with_row_impl(
+            &pool,
+            "frontend-design",
+            Some("cursor"),
+            Some("frontend-design"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(detail.dir_path, resource_dir.to_string_lossy());
+        assert_eq!(
+            detail.file_path,
+            resource_dir.join("SKILL.md").to_string_lossy()
+        );
+        assert_eq!(
+            detail.canonical_path.as_deref(),
+            Some(platform_link.to_string_lossy().as_ref())
+        );
+        assert!(!detail.is_central);
     }
 
     #[tokio::test]

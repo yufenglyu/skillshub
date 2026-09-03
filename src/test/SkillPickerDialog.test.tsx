@@ -40,6 +40,8 @@ function buildResourceStoreState(overrides = {}) {
     installSkill: vi.fn(),
     togglePlatformLink: vi.fn(),
     updateSourceBackedSkills: vi.fn(),
+    previewRepositorySync: vi.fn(),
+    syncSourceBackedSkills: vi.fn(),
     updateSourceBackedSkill: vi.fn(),
     importSkillsViaNpx: vi.fn(),
     addLocalSkills: vi.fn(),

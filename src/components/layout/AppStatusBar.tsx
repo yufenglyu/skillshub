@@ -15,7 +15,7 @@ import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useAppStatusStore, type AppStatusTask } from "@/stores/appStatusStore";
 import { cn } from "@/lib/utils";
 
-type UpdateStatsFilter = "updated" | "unchanged" | "skipped" | "failed";
+type UpdateStatsFilter = "updated" | "unchanged" | "deleted" | "skipped" | "failed";
 
 function statusIcon(task: AppStatusTask | null) {
   if (!task) return <Circle className="size-3 fill-current text-muted-foreground" />;
@@ -37,6 +37,7 @@ function itemStatusLabel(
 ) {
   if (status === "updated") return t("status.itemUpdated");
   if (status === "unchanged") return t("status.itemUnchanged");
+  if (status === "deleted") return t("status.itemDeleted");
   if (status === "skipped") return t("status.itemSkipped");
   if (status === "failed") return t("status.itemFailed");
   return t("status.itemSkipped");
@@ -61,6 +62,7 @@ export function AppStatusBar() {
     task &&
     (typeof task.updatedCount === "number" ||
       typeof task.unchangedCount === "number" ||
+      typeof task.deletedCount === "number" ||
       typeof task.skippedCount === "number" ||
       typeof task.failedCount === "number" ||
       (task.items?.length ?? 0) > 0);
@@ -157,6 +159,9 @@ export function AppStatusBar() {
               {typeof task?.unchangedCount === "number" ? (
                 <span>{t("status.unchangedCount", { count: task.unchangedCount })}</span>
               ) : null}
+              {typeof task?.deletedCount === "number" ? (
+                <span>{t("status.deletedCount", { count: task.deletedCount })}</span>
+              ) : null}
               {typeof task?.skippedCount === "number" ? (
                 <span>{t("status.skippedCount", { count: task.skippedCount })}</span>
               ) : null}
@@ -175,7 +180,7 @@ export function AppStatusBar() {
           <DialogHeader>
             <DialogTitle>{t("status.updateStats")}</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-4 gap-2 text-sm">
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
             <button
               type="button"
               className={statsCardClass("updated")}
@@ -193,6 +198,15 @@ export function AppStatusBar() {
             >
               <div className="text-xs text-muted-foreground">{t("status.unchangedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-foreground">{task?.unchangedCount ?? 0}</div>
+            </button>
+            <button
+              type="button"
+              className={statsCardClass("deleted")}
+              aria-pressed={statsFilter === "deleted"}
+              onClick={() => toggleStatsFilter("deleted")}
+            >
+              <div className="text-xs text-muted-foreground">{t("status.deletedLabel")}</div>
+              <div className="mt-1 text-xl font-semibold text-amber-600">{task?.deletedCount ?? 0}</div>
             </button>
             <button
               type="button"
@@ -237,6 +251,7 @@ export function AppStatusBar() {
                         "border-b border-border px-3 py-2 text-xs",
                         item.status === "failed" && "text-destructive",
                         item.status === "updated" && "text-emerald-600",
+                        item.status === "deleted" && "text-amber-600",
                         item.status === "unchanged" && "text-foreground",
                         item.status === "skipped" && "text-muted-foreground"
                       )}
