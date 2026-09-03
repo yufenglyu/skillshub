@@ -280,7 +280,7 @@ async fn preview_github_repo_import_impl(
 
     if skills.is_empty() {
         return Err(
-            "No importable skills found in this repository. Supported layouts are repo-root skill directories or a top-level skills/ directory."
+            "No importable skills found in this repository. Supported layouts are repo-root skill directories, a skills/ directory, or plugin skills under plugins/*/skills/."
                 .to_string(),
         );
     }
@@ -314,7 +314,7 @@ async fn import_github_repo_skills_impl(
     let candidates = build_repo_skill_candidates_from_snapshot(&repo, &snapshot)?;
     if candidates.is_empty() {
         return Err(
-            "No importable skills found in this repository. Supported layouts are repo-root skill directories or a top-level skills/ directory."
+            "No importable skills found in this repository. Supported layouts are repo-root skill directories, a skills/ directory, or plugin skills under plugins/*/skills/."
                 .to_string(),
         );
     }
@@ -1099,6 +1099,7 @@ pub(crate) async fn stage_repo_skills_into_dir(
             candidate.skill_id.eq_ignore_ascii_case(filter)
                 || candidate.skill_directory_name.eq_ignore_ascii_case(filter)
                 || candidate.source_path.eq_ignore_ascii_case(filter)
+                || candidate.source_manifest_path.eq_ignore_ascii_case(filter)
         });
         if candidates.is_empty() {
             return Err(format!("Skill '{filter}' was not found in {package}."));
@@ -1106,7 +1107,7 @@ pub(crate) async fn stage_repo_skills_into_dir(
     }
     if candidates.is_empty() {
         return Err(format!(
-            "No importable skills found in {package}. Supported layouts are repo-root skill directories or a top-level skills/ directory."
+            "No importable skills found in {package}. Supported layouts are repo-root skill directories, a skills/ directory, or plugin skills under plugins/*/skills/."
         ));
     }
 

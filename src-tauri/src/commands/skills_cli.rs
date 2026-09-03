@@ -500,16 +500,7 @@ pub async fn import_skills_via_npx_impl(
     let remote_ref = fetch_import_remote_ref(pool, &target.package).await;
     let staging_dir = create_skills_cli_staging_dir()?;
     let staged_skills_dir = staging_dir.join(".agents").join("skills");
-    let mut npx_error = None;
-    if let Err(error) = run_skills_add_in_staging(&target, &staging_dir, github_token.as_deref()) {
-        if looks_like_github_connectivity_error(&error) {
-            npx_error = Some(error);
-        } else {
-            let _ = std::fs::remove_dir_all(&staging_dir);
-            return Err(format_npx_import_failure(&error, None));
-        }
-    }
-    if let Err(fallback_error) = github_import::stage_repo_skills_into_dir(
+    if let Err(snapshot_error) = github_import::stage_repo_skills_into_dir(
         pool,
         &target.package,
         target.skill.as_deref(),
@@ -517,15 +508,24 @@ pub async fn import_skills_via_npx_impl(
     )
     .await
     {
-        if let Some(error) = npx_error {
+        if let Err(npx_error) =
+            run_skills_add_in_staging(&target, &staging_dir, github_token.as_deref())
+        {
             let _ = std::fs::remove_dir_all(&staging_dir);
-            return Err(format_npx_import_failure(&error, Some(&fallback_error)));
+            if looks_like_github_connectivity_error(&npx_error) {
+                return Err(format_npx_import_failure(&npx_error, Some(&snapshot_error)));
+            }
+            return Err(format!(
+                "{} GitHub archive import also failed: {}",
+                format_npx_import_failure(&npx_error, None),
+                snapshot_error
+            ));
         }
     }
 
     if !staged_skills_dir.is_dir() {
         let _ = std::fs::remove_dir_all(&staging_dir);
-        return Err("npx skills did not create a .agents/skills staging directory".to_string());
+        return Err("Skill import did not create a .agents/skills staging directory".to_string());
     }
 
     let (owner, repo) = target
