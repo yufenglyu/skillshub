@@ -285,20 +285,13 @@ function SoftwarePlatformRow({
       className={cn(
         "flex min-w-0 items-center gap-2 rounded-md border px-3 py-2",
         showBuiltinDetection && agent.is_detected
-          ? "border-primary/35 bg-primary/5"
+          ? "border-border/60 bg-background"
           : showBuiltinDetection
             ? "border-dashed border-border/70 bg-muted/20 opacity-75"
-            : "border-border/60"
+            : "border-border/60 bg-background"
       )}
     >
-      <Cpu
-        className={cn(
-          "size-3.5 shrink-0",
-          showBuiltinDetection && agent.is_detected
-            ? "text-primary"
-            : "text-muted-foreground"
-        )}
-      />
+      <Cpu className="size-3.5 shrink-0 text-muted-foreground" />
       <div className="flex-1 min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="truncate text-sm font-medium">

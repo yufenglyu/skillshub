@@ -215,6 +215,7 @@ fn relative_skill_path_for_install(skill_id: &str) -> PathBuf {
 fn cleanup_replaced_installation_path(
     installation: &SkillInstallation,
     next_path: &Path,
+    install_root: &Path,
 ) -> Result<(), String> {
     let previous_path = PathBuf::from(&installation.installed_path);
     if previous_path == next_path && installation.link_type != "copy" {
@@ -248,6 +249,17 @@ fn cleanup_replaced_installation_path(
                 e
             )
         })?;
+    } else if metadata.is_dir()
+        && is_safe_managed_installation_dir(installation, &previous_path, install_root)
+    {
+        std::fs::remove_dir_all(&previous_path).map_err(|e| {
+            format!(
+                "Failed to remove previous managed installation '{}': {}",
+                previous_path.display(),
+                e
+            )
+        })?;
+        let _ = prune_empty_parent_dirs(&previous_path, install_root);
     } else {
         return Err(format!(
             "Previous installation path '{}' is not safely removable",
@@ -256,6 +268,23 @@ fn cleanup_replaced_installation_path(
     }
 
     Ok(())
+}
+
+fn is_safe_managed_installation_dir(
+    installation: &SkillInstallation,
+    path: &Path,
+    install_root: &Path,
+) -> bool {
+    let resolved_install_path = resolved_symlink_entry(path);
+    let resolved_root = resolved_path(install_root);
+    if resolved_install_path == resolved_root || !resolved_install_path.starts_with(&resolved_root)
+    {
+        return false;
+    }
+    if path.file_name().and_then(|name| name.to_str()) != Some(installation.skill_id.as_str()) {
+        return false;
+    }
+    path.join("SKILL.md").exists()
 }
 
 // ─── Recursive Directory Copy ─────────────────────────────────────────────────
@@ -911,7 +940,7 @@ async fn install_skill_to_agent_from_source_impl(
     }
 
     if let Some(existing) = existing_installation_for_agent(pool, skill_id, &target.id).await? {
-        cleanup_replaced_installation_path(&existing, &symlink_path)?;
+        cleanup_replaced_installation_path(&existing, &symlink_path, &agent_dir)?;
     }
 
     // 6. Handle any existing entry at the symlink path.
@@ -1206,7 +1235,7 @@ async fn install_skill_to_agent_copy_from_source_impl(
     }
 
     if let Some(existing) = existing_installation_for_agent(pool, skill_id, &target.id).await? {
-        cleanup_replaced_installation_path(&existing, &target_path)?;
+        cleanup_replaced_installation_path(&existing, &target_path, &agent_dir)?;
     }
 
     // 6. Handle any existing entry at the target path.
@@ -3428,6 +3457,70 @@ mod tests {
             "adding a resource skill to Central Skills must synchronize it to detected enabled platforms"
         );
         assert!(fs::symlink_metadata(platform_skill).unwrap().is_symlink());
+    }
+
+    #[tokio::test]
+    async fn test_add_resource_skill_to_central_replaces_legacy_nested_platform_directory() {
+        let tmp = TempDir::new().unwrap();
+        let central_dir = tmp.path().join("central");
+        let resource_dir = tmp.path().join("resource-library");
+        let agent_dir = tmp.path().join("claude").join("skills");
+        fs::create_dir_all(&central_dir).unwrap();
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        let pool = setup_db(&central_dir, &agent_dir).await;
+        db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE agents SET is_enabled = 0 WHERE id != 'central' AND id != 'claude-code'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        create_resource_skill(&pool, &resource_dir, "academy-guide").await;
+
+        let legacy_path = agent_dir
+            .join("anthropics")
+            .join("skills")
+            .join("academy-guide");
+        fs::create_dir_all(&legacy_path).unwrap();
+        fs::write(
+            legacy_path.join("SKILL.md"),
+            "---\nname: academy-guide\ndescription: Legacy install\n---\n",
+        )
+        .unwrap();
+        db::upsert_skill_installation(
+            &pool,
+            &SkillInstallation {
+                skill_id: "academy-guide".to_string(),
+                agent_id: "claude-code".to_string(),
+                installed_path: legacy_path.to_string_lossy().into_owned(),
+                link_type: "symlink".to_string(),
+                symlink_target: Some(
+                    resource_dir
+                        .join("academy-guide")
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                created_at: chrono::Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+
+        add_resource_skill_to_central_impl(&pool, "academy-guide")
+            .await
+            .unwrap();
+
+        let flat_path = agent_dir.join("academy-guide");
+        assert!(!legacy_path.exists());
+        assert!(flat_path.join("SKILL.md").exists());
+        assert!(fs::symlink_metadata(&flat_path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(!agent_dir.join("anthropics").exists());
     }
 
     #[tokio::test]
