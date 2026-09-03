@@ -6,7 +6,7 @@ use tauri::State;
 use super::agents::is_agent_detected;
 use crate::db::{self, DbPool, ScanDirectory, SkillInstallation};
 use crate::path_utils::{
-    prune_empty_parent_dirs, remove_path_if_no_skill_markdown, remove_symlink_path,
+    path_to_string, prune_empty_parent_dirs, remove_path_if_no_skill_markdown, remove_symlink_path,
 };
 use crate::AppState;
 
@@ -218,6 +218,7 @@ fn cleanup_replaced_installation_path(
     install_root: &Path,
 ) -> Result<(), String> {
     let previous_path = PathBuf::from(&installation.installed_path);
+    let previous_path_display = path_to_string(&previous_path);
     if previous_path == next_path && installation.link_type != "copy" {
         return Ok(());
     }
@@ -228,8 +229,7 @@ fn cleanup_replaced_installation_path(
     let metadata = std::fs::symlink_metadata(&previous_path).map_err(|e| {
         format!(
             "Failed to inspect previous installation '{}': {}",
-            previous_path.display(),
-            e
+            previous_path_display, e
         )
     })?;
 
@@ -237,16 +237,14 @@ fn cleanup_replaced_installation_path(
         remove_symlink_path(&previous_path).map_err(|e| {
             format!(
                 "Failed to remove previous symlink installation '{}': {}",
-                previous_path.display(),
-                e
+                previous_path_display, e
             )
         })?;
     } else if metadata.is_dir() && installation.link_type == "copy" {
         std::fs::remove_dir_all(&previous_path).map_err(|e| {
             format!(
                 "Failed to remove previous copied installation '{}': {}",
-                previous_path.display(),
-                e
+                previous_path_display, e
             )
         })?;
     } else if metadata.is_dir()
@@ -255,15 +253,14 @@ fn cleanup_replaced_installation_path(
         std::fs::remove_dir_all(&previous_path).map_err(|e| {
             format!(
                 "Failed to remove previous managed installation '{}': {}",
-                previous_path.display(),
-                e
+                previous_path_display, e
             )
         })?;
         let _ = prune_empty_parent_dirs(&previous_path, install_root);
     } else {
         return Err(format!(
             "Previous installation path '{}' is not safely removable",
-            previous_path.display()
+            previous_path_display
         ));
     }
 
@@ -425,8 +422,8 @@ pub async fn add_resource_skill_to_central_impl(
         create_symlink(&relative_target, &central_dir)?;
     }
 
-    skill.canonical_path = Some(central_dir.to_string_lossy().into_owned());
-    skill.file_path = central_dir.join("SKILL.md").to_string_lossy().into_owned();
+    skill.canonical_path = Some(path_to_string(&central_dir));
+    skill.file_path = path_to_string(&central_dir.join("SKILL.md"));
     skill.is_central = true;
     db::upsert_skill(pool, &skill).await?;
 
@@ -434,7 +431,7 @@ pub async fn add_resource_skill_to_central_impl(
 
     Ok(AddResourceSkillToCentralResult {
         skill_id: skill_id.to_string(),
-        central_path: central_dir.to_string_lossy().into_owned(),
+        central_path: path_to_string(&central_dir),
     })
 }
 
@@ -497,17 +494,17 @@ pub async fn remove_resource_skill_from_central_impl(
 
     remove_central_skill_link_or_dir(&central_dir)?;
 
-    skill.file_path = resource_dir.join("SKILL.md").to_string_lossy().into_owned();
-    skill.canonical_path = Some(resource_dir.to_string_lossy().into_owned());
+    skill.file_path = path_to_string(&resource_dir.join("SKILL.md"));
+    skill.canonical_path = Some(path_to_string(&resource_dir));
     skill.is_central = false;
     skill.scanned_at = chrono::Utc::now().to_rfc3339();
-    db::repair_legacy_centralized_resource_skill(pool, &skill, &central_dir.to_string_lossy())
+    db::repair_legacy_centralized_resource_skill(pool, &skill, &path_to_string(&central_dir))
         .await?;
 
     Ok(RemoveResourceSkillFromCentralResult {
         skill_id: skill_id.to_string(),
-        removed_central_path: central_dir.to_string_lossy().into_owned(),
-        resource_path: resource_dir.to_string_lossy().into_owned(),
+        removed_central_path: path_to_string(&central_dir),
+        resource_path: path_to_string(&resource_dir),
         uninstalled_agents,
     })
 }
@@ -595,14 +592,14 @@ pub(crate) async fn reconcile_orphaned_central_skills(pool: &DbPool) -> Result<(
         match resource_source_dir_for_skill(pool, &skill.id).await {
             Ok(resource_dir) => {
                 let mut restored = skill.clone();
-                restored.file_path = resource_dir.join("SKILL.md").to_string_lossy().into_owned();
-                restored.canonical_path = Some(resource_dir.to_string_lossy().into_owned());
+                restored.file_path = path_to_string(&resource_dir.join("SKILL.md"));
+                restored.canonical_path = Some(path_to_string(&resource_dir));
                 restored.is_central = false;
                 restored.scanned_at = chrono::Utc::now().to_rfc3339();
                 db::repair_legacy_centralized_resource_skill(
                     pool,
                     &restored,
-                    &central_dir.to_string_lossy(),
+                    &path_to_string(&central_dir),
                 )
                 .await?;
             }
@@ -838,11 +835,11 @@ async fn repair_legacy_platform_link_in_central(
         _ => return Ok(None),
     }
 
-    skill.file_path = source_dir.join("SKILL.md").to_string_lossy().into_owned();
-    skill.canonical_path = Some(source_dir.to_string_lossy().into_owned());
+    skill.file_path = path_to_string(&source_dir.join("SKILL.md"));
+    skill.canonical_path = Some(path_to_string(&source_dir));
     skill.is_central = false;
     skill.scanned_at = chrono::Utc::now().to_rfc3339();
-    db::repair_legacy_centralized_resource_skill(pool, &skill, &legacy_path.to_string_lossy())
+    db::repair_legacy_centralized_resource_skill(pool, &skill, &path_to_string(&legacy_path))
         .await?;
 
     Ok(Some(source_dir))
@@ -864,7 +861,7 @@ async fn universal_available_install_result(
 
     let symlink_path = existing_install_path_for_agent(pool, skill_id, agent_id)
         .await?
-        .unwrap_or_else(|| canonical_dir.to_string_lossy().into_owned());
+        .unwrap_or_else(|| path_to_string(canonical_dir));
     Ok(Some(InstallResult { symlink_path }))
 }
 
@@ -976,15 +973,15 @@ async fn install_skill_to_agent_from_source_impl(
     let installation = SkillInstallation {
         skill_id: skill_id.to_string(),
         agent_id: target.id.clone(),
-        installed_path: symlink_path.to_string_lossy().into_owned(),
+        installed_path: path_to_string(&symlink_path),
         link_type: "symlink".to_string(),
-        symlink_target: Some(canonical_dir.to_string_lossy().into_owned()),
+        symlink_target: Some(path_to_string(&canonical_dir)),
         created_at: chrono::Utc::now().to_rfc3339(),
     };
     db::upsert_skill_installation(pool, &installation).await?;
 
     Ok(InstallResult {
-        symlink_path: symlink_path.to_string_lossy().into_owned(),
+        symlink_path: path_to_string(&symlink_path),
     })
 }
 
@@ -1267,7 +1264,7 @@ async fn install_skill_to_agent_copy_from_source_impl(
     let installation = SkillInstallation {
         skill_id: skill_id.to_string(),
         agent_id: target.id.clone(),
-        installed_path: target_path.to_string_lossy().into_owned(),
+        installed_path: path_to_string(&target_path),
         link_type: "copy".to_string(),
         symlink_target: None,
         created_at: chrono::Utc::now().to_rfc3339(),
@@ -1275,7 +1272,7 @@ async fn install_skill_to_agent_copy_from_source_impl(
     db::upsert_skill_installation(pool, &installation).await?;
 
     Ok(InstallResult {
-        symlink_path: target_path.to_string_lossy().into_owned(),
+        symlink_path: path_to_string(&target_path),
     })
 }
 
@@ -1698,10 +1695,7 @@ mod tests {
 
         assert_eq!(
             result.symlink_path,
-            central_dir
-                .join("universal-skill")
-                .to_string_lossy()
-                .into_owned()
+            path_to_string(&central_dir.join("universal-skill"))
         );
         assert!(
             !cursor_dir.join("universal-skill").exists(),

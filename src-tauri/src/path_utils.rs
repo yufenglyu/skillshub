@@ -332,7 +332,15 @@ pub fn expand_home_path(path: &str) -> PathBuf {
 }
 
 pub fn path_to_string(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
+    let display = path.to_string_lossy().into_owned();
+    #[cfg(windows)]
+    {
+        display.replace('/', "\\")
+    }
+    #[cfg(not(windows))]
+    {
+        display
+    }
 }
 
 #[cfg(windows)]
@@ -870,6 +878,20 @@ mod tests {
         #[cfg(not(windows))]
         {
             assert_eq!(native, "C:/Users/alice/.agents/skills");
+        }
+    }
+
+    #[test]
+    fn path_to_string_uses_native_windows_separators() {
+        let native = path_to_string(Path::new(r"C:\Users\alice\.agents/skills/demo"));
+        #[cfg(windows)]
+        {
+            assert_eq!(native, r"C:\Users\alice\.agents\skills\demo");
+            assert!(!native.contains('/'));
+        }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(native, r"C:\Users\alice\.agents/skills/demo");
         }
     }
 
