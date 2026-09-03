@@ -515,7 +515,11 @@ async fn import_github_repo_skills_impl(
                 source_url: Some(op.candidate.download_url.clone()),
                 source_author: Some(repo.owner.clone()),
                 source_repo: Some(format!("{}/{}", repo.owner, repo.repo)),
-                source_path: Some(op.candidate.source_path.clone()),
+                source_path: Some(op.candidate.download_url.clone())
+                    .and_then(|url| {
+                        crate::commands::marketplace::github_source_path_from_raw_url(&url)
+                    })
+                    .or_else(|| Some(op.candidate.source_path.clone())),
                 updated_at: Utc::now().to_rfc3339(),
             },
         )

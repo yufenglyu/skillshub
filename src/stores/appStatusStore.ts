@@ -17,7 +17,6 @@ export interface AppStatusTask {
   error?: string | null;
   items?: AppStatusTaskItem[];
   onRetryFailedItem?: (item: AppStatusTaskItem) => void;
-  onManualCheckFailedItem?: (item: AppStatusTaskItem) => void;
   startedAt?: string | null;
   completedAt?: string | null;
 }

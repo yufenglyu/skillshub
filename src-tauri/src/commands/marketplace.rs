@@ -620,7 +620,7 @@ fn relocated_github_skill_md_url(
     {
         return Some((
             format!("https://raw.githubusercontent.com/{repo}/{branch}/SKILL.md"),
-            ".".to_string(),
+            "SKILL.md".to_string(),
         ));
     }
 
@@ -658,17 +658,21 @@ fn github_source_from_url(url: &str) -> (Option<String>, Option<String>, Option<
     }
     let author = parts[0].to_string();
     let repo = format!("{}/{}", parts[0], parts[1]);
-    let source_path = if parts.len() > 4 {
-        Some(
-            parts[3..]
-                .join("/")
-                .trim_end_matches("/SKILL.md")
-                .to_string(),
-        )
+    let source_path = if parts.len() >= 4 {
+        let path = parts[3..].join("/").trim_matches('/').to_string();
+        if path.is_empty() {
+            None
+        } else {
+            Some(path)
+        }
     } else {
         None
     };
     (Some(author), Some(repo), source_path)
+}
+
+pub(crate) fn github_source_path_from_raw_url(url: &str) -> Option<String> {
+    github_source_from_url(url).2
 }
 
 async fn fetch_update_skill_markdown(
@@ -754,13 +758,14 @@ async fn apply_source_update_content(
         std::fs::write(&skill_md_path, &content)
             .map_err(|e| format!("Failed to write update for {}: {}", skill.id, e))?;
     }
+    let used_source_path = relocated_source_path.or_else(|| github_source_from_url(&used_url).2);
     if source.source_url.as_deref() != Some(used_url.as_str())
-        || relocated_source_path
+        || used_source_path
             .as_deref()
             .is_some_and(|source_path| source.source_path.as_deref() != Some(source_path))
     {
         source.source_url = Some(used_url);
-        if let Some(source_path) = relocated_source_path {
+        if let Some(source_path) = used_source_path {
             source.source_path = Some(source_path);
         }
         source.updated_at = Utc::now().to_rfc3339();
@@ -2860,7 +2865,8 @@ mod tests {
     use super::{
         add_registry_impl, cache_skill_explanation, classify_reqwest_error,
         detect_explanation_api_protocol, format_reqwest_error, get_fallback_endpoint,
-        github_raw_update_urls, install_marketplace_skill_content_impl, is_local_only_skill_source,
+        github_raw_update_urls, github_source_path_from_raw_url,
+        install_marketplace_skill_content_impl, is_local_only_skill_source,
         is_updatable_skill_source_url, load_cached_skill_explanation,
         marketplace_skills_from_candidates, registry_has_cached_skills,
         relocated_github_skill_md_url, search_marketplace_skills_impl, skill_markdown_is_current,
@@ -3457,7 +3463,7 @@ mod tests {
         .bind(&registry.id)
         .bind("brand-guidelines")
         .bind("Brand guidance")
-        .bind("https://raw.githubusercontent.com/example/skills/main/brand-guidelines/SKILL.md")
+        .bind("https://raw.githubusercontent.com/example/skills/main/skills/brand-guidelines/SKILL.md")
         .bind("2026-04-16T12:00:00Z")
         .bind("2026-04-16T12:00:00Z")
         .execute(&pool)
@@ -3504,7 +3510,13 @@ mod tests {
         assert_eq!(source.source_repo.as_deref(), Some("example/skills"));
         assert_eq!(
             source.source_url.as_deref(),
-            Some("https://raw.githubusercontent.com/example/skills/main/brand-guidelines/SKILL.md")
+            Some(
+                "https://raw.githubusercontent.com/example/skills/main/skills/brand-guidelines/SKILL.md"
+            )
+        );
+        assert_eq!(
+            source.source_path.as_deref(),
+            Some("skills/brand-guidelines/SKILL.md")
         );
     }
 
@@ -3528,6 +3540,24 @@ mod tests {
                 "https://raw.githubusercontent.com/example/skills/master/brand-guidelines/SKILL.md",
                 "https://raw.githubusercontent.com/example/skills/master/skills/brand-guidelines/SKILL.md",
             ]
+        );
+    }
+
+    #[test]
+    fn github_source_path_from_raw_url_preserves_skill_manifest_path() {
+        assert_eq!(
+            github_source_path_from_raw_url(
+                "https://raw.githubusercontent.com/addyosmani/agent-skills/main/skills/api-and-interface-design/SKILL.md"
+            )
+            .as_deref(),
+            Some("skills/api-and-interface-design/SKILL.md")
+        );
+        assert_eq!(
+            github_source_path_from_raw_url(
+                "https://raw.githubusercontent.com/op7418/guizang-ppt-skill/main/SKILL.md"
+            )
+            .as_deref(),
+            Some("SKILL.md")
         );
     }
 
@@ -3603,7 +3633,7 @@ mod tests {
             Some((
                 "https://raw.githubusercontent.com/op7418/guizang-ppt-skill/main/SKILL.md"
                     .to_string(),
-                ".".to_string()
+                "SKILL.md".to_string()
             ))
         );
     }

@@ -67,7 +67,6 @@
     "itemSkipped": "跳过",
     "itemFailed": "更新失败",
     "retryFailedItem": "重新检查",
-    "manualCheckFailedItem": "手动检查更新",
     "resourceSourceUpdate": "更新技能",
     "resourceFolderSourceUpdate": "更新目录 {{name}}",
     "resourceSingleSourceUpdate": "更新 {{name}}",

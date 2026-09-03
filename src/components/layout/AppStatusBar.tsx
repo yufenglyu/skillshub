@@ -84,8 +84,7 @@ export function AppStatusBar() {
     () => (statsFilter ? statsItems.filter((item) => item.status === statsFilter) : statsItems),
     [statsFilter, statsItems]
   );
-  const hasFailedItemActions =
-    !!task?.onRetryFailedItem || !!task?.onManualCheckFailedItem;
+  const hasFailedItemActions = !!task?.onRetryFailedItem;
 
   function toggleStatsFilter(filter: UpdateStatsFilter) {
     setStatsFilter((current) => (current === filter ? null : filter));
@@ -272,20 +271,6 @@ export function AppStatusBar() {
                               >
                                 <RotateCw className="size-3" />
                                 {t("status.retryFailedItem")}
-                              </Button>
-                            ) : null}
-                            {task?.onManualCheckFailedItem ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => {
-                                  setIsStatsOpen(false);
-                                  task.onManualCheckFailedItem?.(item);
-                                }}
-                              >
-                                {t("status.manualCheckFailedItem")}
                               </Button>
                             ) : null}
                           </div>

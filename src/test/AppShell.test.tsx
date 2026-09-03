@@ -172,7 +172,6 @@ describe("AppShell", () => {
 
   it("shows expandable and filterable update statistics in the bottom status bar", () => {
     const onRetryFailedItem = vi.fn();
-    const onManualCheckFailedItem = vi.fn();
     mockUseAppStatusStore.mockImplementation((selector?: unknown) => {
       const state = {
         task: {
@@ -191,7 +190,6 @@ describe("AppShell", () => {
             { skillId: "skill-failed", name: "broken-skill", status: "failed", repository: "example/skills", detail: "下载失败" },
           ],
           onRetryFailedItem,
-          onManualCheckFailedItem,
         },
       };
       if (typeof selector === "function") return selector(state);
@@ -235,11 +233,6 @@ describe("AppShell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "重新检查" }));
     expect(onRetryFailedItem).toHaveBeenCalledWith(
-      expect.objectContaining({ skillId: "skill-failed", name: "broken-skill" })
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "手动检查更新" }));
-    expect(onManualCheckFailedItem).toHaveBeenCalledWith(
       expect.objectContaining({ skillId: "skill-failed", name: "broken-skill" })
     );
   });

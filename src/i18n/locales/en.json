@@ -67,7 +67,6 @@
     "itemSkipped": "Skipped",
     "itemFailed": "Failed",
     "retryFailedItem": "Recheck",
-    "manualCheckFailedItem": "Manual update check",
     "resourceSourceUpdate": "Update skills",
     "resourceFolderSourceUpdate": "Update folder {{name}}",
     "resourceSingleSourceUpdate": "Update {{name}}",

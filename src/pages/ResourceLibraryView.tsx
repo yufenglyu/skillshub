@@ -484,15 +484,6 @@ export function ResourceLibraryView() {
     }
   }
 
-  function handleManualCheckFailedStatusItem(item: AppStatusTaskItem) {
-    const skill = skills.find((candidate) => candidate.id === item.skillId);
-    if (!skill) {
-      toast.error(t("resource.updateSourcesError", { error: item.name }));
-      return;
-    }
-    void handleUpdateSingleSource(skill);
-  }
-
   function repositorySyncNeedsConfirmation(report: RepositorySyncPreviewReport) {
     return report.repositories.some(
       (repository) =>
@@ -544,7 +535,6 @@ export function ResourceLibraryView() {
         failedCount,
         items,
         onRetryFailedItem: handleRetryFailedStatusItem,
-        onManualCheckFailedItem: handleManualCheckFailedStatusItem,
       });
       toast.success(t("resource.updateSourcesSuccess", { count: updatedCount }));
     } catch (err) {
@@ -835,7 +825,6 @@ export function ResourceLibraryView() {
         failedCount: items.filter((item) => item.status === "failed").length,
         items,
         onRetryFailedItem: handleRetryFailedStatusItem,
-        onManualCheckFailedItem: handleManualCheckFailedStatusItem,
       });
       toast.success(t("resource.updateSourcesSuccess", { count: updatedCount }));
     } catch (err) {
