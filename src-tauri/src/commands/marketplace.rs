@@ -671,10 +671,6 @@ fn github_source_from_url(url: &str) -> (Option<String>, Option<String>, Option<
     (Some(author), Some(repo), source_path)
 }
 
-pub(crate) fn github_source_path_from_raw_url(url: &str) -> Option<String> {
-    github_source_from_url(url).2
-}
-
 async fn fetch_update_skill_markdown(
     client: &reqwest::Client,
     urls: &[String],
@@ -2865,8 +2861,7 @@ mod tests {
     use super::{
         add_registry_impl, cache_skill_explanation, classify_reqwest_error,
         detect_explanation_api_protocol, format_reqwest_error, get_fallback_endpoint,
-        github_raw_update_urls, github_source_path_from_raw_url,
-        install_marketplace_skill_content_impl, is_local_only_skill_source,
+        github_raw_update_urls, install_marketplace_skill_content_impl, is_local_only_skill_source,
         is_updatable_skill_source_url, load_cached_skill_explanation,
         marketplace_skills_from_candidates, registry_has_cached_skills,
         relocated_github_skill_md_url, search_marketplace_skills_impl, skill_markdown_is_current,
@@ -2893,6 +2888,7 @@ mod tests {
             vec![
                 RemoteSkillCandidate {
                     source_path: "skills/.curated/openai-docs".to_string(),
+                    source_manifest_path: "skills/.curated/openai-docs/SKILL.md".to_string(),
                     skill_id: "openai-docs".to_string(),
                     skill_name: "openai-docs".to_string(),
                     description: Some("Docs skill".to_string()),
@@ -2904,6 +2900,7 @@ mod tests {
                 },
                 RemoteSkillCandidate {
                     source_path: "skills/.system/skill-creator".to_string(),
+                    source_manifest_path: "skills/.system/skill-creator/SKILL.md".to_string(),
                     skill_id: "skill-creator".to_string(),
                     skill_name: "skill-creator".to_string(),
                     description: Some("Create skills".to_string()),
@@ -3540,24 +3537,6 @@ mod tests {
                 "https://raw.githubusercontent.com/example/skills/master/brand-guidelines/SKILL.md",
                 "https://raw.githubusercontent.com/example/skills/master/skills/brand-guidelines/SKILL.md",
             ]
-        );
-    }
-
-    #[test]
-    fn github_source_path_from_raw_url_preserves_skill_manifest_path() {
-        assert_eq!(
-            github_source_path_from_raw_url(
-                "https://raw.githubusercontent.com/addyosmani/agent-skills/main/skills/api-and-interface-design/SKILL.md"
-            )
-            .as_deref(),
-            Some("skills/api-and-interface-design/SKILL.md")
-        );
-        assert_eq!(
-            github_source_path_from_raw_url(
-                "https://raw.githubusercontent.com/op7418/guizang-ppt-skill/main/SKILL.md"
-            )
-            .as_deref(),
-            Some("SKILL.md")
         );
     }
 

@@ -117,6 +117,7 @@ struct SkillFrontmatter {
 #[derive(Debug, Clone)]
 pub(crate) struct RemoteSkillCandidate {
     pub(crate) source_path: String,
+    pub(crate) source_manifest_path: String,
     pub(crate) skill_id: String,
     pub(crate) skill_name: String,
     pub(crate) description: Option<String>,
@@ -515,11 +516,7 @@ async fn import_github_repo_skills_impl(
                 source_url: Some(op.candidate.download_url.clone()),
                 source_author: Some(repo.owner.clone()),
                 source_repo: Some(format!("{}/{}", repo.owner, repo.repo)),
-                source_path: Some(op.candidate.download_url.clone())
-                    .and_then(|url| {
-                        crate::commands::marketplace::github_source_path_from_raw_url(&url)
-                    })
-                    .or_else(|| Some(op.candidate.source_path.clone())),
+                source_path: Some(op.candidate.source_manifest_path.clone()),
                 updated_at: Utc::now().to_rfc3339(),
             },
         )
@@ -830,6 +827,7 @@ fn build_repo_skill_candidates_from_snapshot(
 
         candidates.push(RemoteSkillCandidate {
             source_path: manifest.source_path.clone(),
+            source_manifest_path: manifest.source_manifest_path.clone(),
             skill_id,
             skill_name: frontmatter.name,
             description: frontmatter.description,
@@ -849,6 +847,7 @@ fn build_repo_skill_candidates_from_snapshot(
 #[derive(Debug, Clone)]
 struct SnapshotSkillManifest {
     source_path: String,
+    source_manifest_path: String,
     root_directory: String,
     skill_directory_name: String,
     skill_md_path: String,
@@ -863,6 +862,7 @@ fn classify_skill_manifest_path(path: &str) -> Option<SnapshotSkillManifest> {
     if normalized.eq_ignore_ascii_case("SKILL.md") {
         return Some(SnapshotSkillManifest {
             source_path: ".".to_string(),
+            source_manifest_path: "SKILL.md".to_string(),
             root_directory: "/".to_string(),
             skill_directory_name: String::new(),
             skill_md_path: "SKILL.md".to_string(),
@@ -875,18 +875,25 @@ fn classify_skill_manifest_path(path: &str) -> Option<SnapshotSkillManifest> {
         return None;
     }
 
+    let source_path = source_parts.join("/");
     match source_parts {
         [skill_dir] if *skill_dir != ".github" && *skill_dir != "skills" => {
             Some(SnapshotSkillManifest {
-                source_path: (*skill_dir).to_string(),
+                source_path,
+                source_manifest_path: normalized.to_string(),
                 root_directory: "/".to_string(),
                 skill_directory_name: (*skill_dir).to_string(),
                 skill_md_path: normalized.to_string(),
             })
         }
-        _ if source_parts.first() == Some(&"skills") && source_parts.len() >= 2 => {
+        _ if source_parts
+            .iter()
+            .position(|part| *part == "skills")
+            .is_some_and(|index| index + 1 < source_parts.len()) =>
+        {
             Some(SnapshotSkillManifest {
-                source_path: source_parts.join("/"),
+                source_path,
+                source_manifest_path: normalized.to_string(),
                 root_directory: source_parts[..source_parts.len() - 1].join("/"),
                 skill_directory_name: source_parts.last()?.to_string(),
                 skill_md_path: normalized.to_string(),
@@ -1643,6 +1650,28 @@ mod tests {
         ])
     }
 
+    fn plugin_skill_snapshot() -> GitHubRepoSnapshot {
+        repo_snapshot(&[
+            (
+                "plugins/agent-native-design/skills/agent-native-design/SKILL.md",
+                sample_frontmatter("agent-native-design", "Agent-native CLI design"),
+            ),
+            (
+                "plugins/agent-native-design/skills/agent-native-design/references/cli.md",
+                "# CLI\n".to_string(),
+            ),
+            (
+                "plugins/pi/skills/pi-cli-runtime/SKILL.md",
+                sample_frontmatter("pi-cli-runtime", "Pi runtime"),
+            ),
+            (
+                "plugins/pi/skills/pi-prompting/SKILL.md",
+                sample_frontmatter("pi-prompting", "Pi prompting"),
+            ),
+            ("plugins/pi/plugin.json", "{}\n".to_string()),
+        ])
+    }
+
     fn repository_archive(files: &[(&str, &[u8])]) -> Vec<u8> {
         let encoder = GzEncoder::new(Vec::new(), Compression::default());
         let mut builder = tar::Builder::new(encoder);
@@ -2116,6 +2145,54 @@ mod tests {
             .skills
             .iter()
             .any(|skill| skill.source_path == "skills/.system/skill-creator"));
+    }
+
+    #[tokio::test]
+    async fn preview_plugin_skills_directory_discovers_all_candidates() {
+        let pool = setup_test_db().await;
+        let repo = GitHubRepoRef {
+            owner: "Agents365-ai".to_string(),
+            repo: "365-skills".to_string(),
+            branch: "main".to_string(),
+            normalized_url: "https://github.com/Agents365-ai/365-skills".to_string(),
+        };
+
+        let candidates = build_repo_skill_candidates_from_snapshot(&repo, &plugin_skill_snapshot())
+            .expect("candidates");
+
+        assert_eq!(candidates.len(), 3);
+        let native = candidates
+            .iter()
+            .find(|candidate| candidate.skill_id == "agent-native-design")
+            .expect("agent native");
+        assert_eq!(
+            native.source_path,
+            "plugins/agent-native-design/skills/agent-native-design"
+        );
+        assert_eq!(
+            native.source_manifest_path,
+            "plugins/agent-native-design/skills/agent-native-design/SKILL.md"
+        );
+        assert_eq!(native.root_directory, "plugins/agent-native-design/skills");
+
+        let pi_skills = candidates
+            .iter()
+            .filter(|candidate| candidate.source_path.starts_with("plugins/pi/skills/"))
+            .count();
+        assert_eq!(pi_skills, 2);
+
+        let preview = GitHubRepoPreview {
+            repo,
+            skills: build_preview_skills(&pool, &candidates)
+                .await
+                .expect("preview skills"),
+        };
+
+        assert_eq!(preview.skills.len(), 3);
+        assert!(preview
+            .skills
+            .iter()
+            .any(|skill| skill.source_path == "plugins/pi/skills/pi-cli-runtime"));
     }
 
     #[tokio::test]

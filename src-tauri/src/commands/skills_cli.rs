@@ -1,5 +1,6 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::State;
@@ -92,9 +93,25 @@ pub fn npx_update_request_from_source(
     }
     Some(ImportSkillsViaNpxRequest {
         input: input.to_string(),
-        skill: source.source_path.clone(),
+        skill: source
+            .source_path
+            .as_deref()
+            .map(source_path_to_skill_filter),
         overwrite: true,
     })
+}
+
+fn source_path_to_skill_filter(source_path: &str) -> String {
+    let trimmed = source_path.trim().trim_matches('/');
+    let without_manifest = trimmed.strip_suffix("/SKILL.md").unwrap_or(trimmed);
+    if without_manifest.is_empty() || without_manifest == "." || without_manifest == "SKILL.md" {
+        return trimmed.to_string();
+    }
+    without_manifest
+        .rsplit('/')
+        .find(|segment| !segment.trim().is_empty() && *segment != "skills")
+        .unwrap_or(without_manifest)
+        .to_string()
 }
 
 fn skills_add_args(target: &SkillsCliImportTarget) -> Vec<String> {
@@ -384,6 +401,7 @@ async fn mark_npx_sources(
     target: &SkillsCliImportTarget,
     cli_version: Option<&str>,
     remote_ref: Option<&str>,
+    source_manifest_paths: &HashMap<String, String>,
 ) -> Result<(), String> {
     let now = Utc::now().to_rfc3339();
     let sync_scope = if target.skill.is_some() {
@@ -392,6 +410,11 @@ async fn mark_npx_sources(
         NPX_SYNC_SCOPE_REPO
     };
     for skill in &imported.added_skills {
+        let source_path = source_manifest_paths
+            .get(&skill.id)
+            .cloned()
+            .or_else(|| target.skill.as_deref().map(source_path_to_manifest_path))
+            .unwrap_or_else(|| format!("{}/SKILL.md", skill.id));
         db::upsert_skill_source(
             pool,
             &db::SkillSource {
@@ -400,7 +423,7 @@ async fn mark_npx_sources(
                 source_url: Some(target.original_input.clone()),
                 source_author: cli_version.map(|value| format!("skills@{value}")),
                 source_repo: Some(target.package.clone()),
-                source_path: target.skill.clone().or_else(|| Some(skill.id.clone())),
+                source_path: Some(source_path),
                 updated_at: now.clone(),
             },
         )
@@ -425,6 +448,48 @@ async fn mark_npx_sources(
     Ok(())
 }
 
+async fn source_manifest_paths_for_target(
+    package: &str,
+    skill_filter: Option<&str>,
+    auth_token: Option<&str>,
+) -> HashMap<String, String> {
+    let repo_url = format!("https://github.com/{package}");
+    let Ok(repo) = github_import::resolve_repo_ref(&repo_url, auth_token).await else {
+        return HashMap::new();
+    };
+    let Ok(mut candidates) = github_import::fetch_repo_skill_candidates(&repo, auth_token).await
+    else {
+        return HashMap::new();
+    };
+    if let Some(filter) = skill_filter
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        candidates.retain(|candidate| {
+            candidate.skill_id.eq_ignore_ascii_case(filter)
+                || candidate.skill_directory_name.eq_ignore_ascii_case(filter)
+                || candidate.source_path.eq_ignore_ascii_case(filter)
+                || candidate.source_manifest_path.eq_ignore_ascii_case(filter)
+        });
+    }
+
+    candidates
+        .into_iter()
+        .map(|candidate| (candidate.skill_id, candidate.source_manifest_path))
+        .collect()
+}
+
+fn source_path_to_manifest_path(source_path: &str) -> String {
+    let trimmed = source_path.trim().trim_matches('/');
+    if trimmed.is_empty() || trimmed == "." {
+        "SKILL.md".to_string()
+    } else if trimmed.ends_with("/SKILL.md") || trimmed == "SKILL.md" {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/SKILL.md")
+    }
+}
+
 pub async fn import_skills_via_npx_impl(
     pool: &DbPool,
     input: ImportSkillsViaNpxRequest,
@@ -435,22 +500,26 @@ pub async fn import_skills_via_npx_impl(
     let remote_ref = fetch_import_remote_ref(pool, &target.package).await;
     let staging_dir = create_skills_cli_staging_dir()?;
     let staged_skills_dir = staging_dir.join(".agents").join("skills");
+    let mut npx_error = None;
     if let Err(error) = run_skills_add_in_staging(&target, &staging_dir, github_token.as_deref()) {
         if looks_like_github_connectivity_error(&error) {
-            if let Err(fallback_error) = github_import::stage_repo_skills_into_dir(
-                pool,
-                &target.package,
-                target.skill.as_deref(),
-                &staged_skills_dir,
-            )
-            .await
-            {
-                let _ = std::fs::remove_dir_all(&staging_dir);
-                return Err(format_npx_import_failure(&error, Some(&fallback_error)));
-            }
+            npx_error = Some(error);
         } else {
             let _ = std::fs::remove_dir_all(&staging_dir);
             return Err(format_npx_import_failure(&error, None));
+        }
+    }
+    if let Err(fallback_error) = github_import::stage_repo_skills_into_dir(
+        pool,
+        &target.package,
+        target.skill.as_deref(),
+        &staged_skills_dir,
+    )
+    .await
+    {
+        if let Some(error) = npx_error {
+            let _ = std::fs::remove_dir_all(&staging_dir);
+            return Err(format_npx_import_failure(&error, Some(&fallback_error)));
         }
     }
 
@@ -473,12 +542,19 @@ pub async fn import_skills_via_npx_impl(
         repo,
     )
     .await?;
+    let source_manifest_paths = source_manifest_paths_for_target(
+        &target.package,
+        target.skill.as_deref(),
+        github_token.as_deref(),
+    )
+    .await;
     mark_npx_sources(
         pool,
         &local_import,
         &target,
         cli_version.as_deref(),
         remote_ref.as_deref(),
+        &source_manifest_paths,
     )
     .await?;
     local_import.added_skills = crate::commands::skills::get_resource_library_skills_impl(pool)
@@ -560,7 +636,7 @@ mod tests {
             source_url: Some("https://www.skills.sh/mattpocock/skills/ask-matt".to_string()),
             source_author: Some("skills@1.0.0".to_string()),
             source_repo: Some("mattpocock/skills".to_string()),
-            source_path: Some("ask-matt".to_string()),
+            source_path: Some("ask-matt/SKILL.md".to_string()),
             updated_at: "2026-08-12T00:00:00Z".to_string(),
         };
 
@@ -568,6 +644,25 @@ mod tests {
         assert_eq!(request.input, "mattpocock/skills");
         assert_eq!(request.skill.as_deref(), Some("ask-matt"));
         assert!(request.overwrite);
+    }
+
+    #[test]
+    fn npx_update_request_from_source_uses_skill_name_for_plugin_manifest_path() {
+        let source = db::SkillSource {
+            skill_id: "agent-native-design".to_string(),
+            source_type: "skills-cli".to_string(),
+            source_url: Some("Agents365-ai/365-skills".to_string()),
+            source_author: Some("skills@1.0.0".to_string()),
+            source_repo: Some("Agents365-ai/365-skills".to_string()),
+            source_path: Some(
+                "plugins/agent-native-design/skills/agent-native-design/SKILL.md".to_string(),
+            ),
+            updated_at: "2026-08-12T00:00:00Z".to_string(),
+        };
+
+        let request = npx_update_request_from_source(&source).unwrap();
+        assert_eq!(request.input, "Agents365-ai/365-skills");
+        assert_eq!(request.skill.as_deref(), Some("agent-native-design"));
     }
 
     #[test]
