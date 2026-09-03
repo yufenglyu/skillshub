@@ -294,7 +294,7 @@ export function ResourceLibraryView() {
   }, [skills]);
 
   const visibleSkills =
-    viewMode === "folders" ? activeFolder?.skills ?? folderSplit.rootSkills : skills;
+    viewMode === "folders" ? activeFolder?.skills ?? [] : skills;
   const filteredSkills = useMemo(() => {
     return visibleSkills.filter((skill) => {
       if (selectedTag && !(skill.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag)) {
@@ -1239,7 +1239,7 @@ export function ResourceLibraryView() {
               <EmptyState message={t("resource.noMatch", { query: searchQuery })} />
             ) : filteredSkills.length > 0 ? (
               <section className="space-y-3">
-                {viewMode === "folders" && (
+                {viewMode === "folders" && activeFolder && (
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-2">
                       <Blocks className="size-4 text-primary" />

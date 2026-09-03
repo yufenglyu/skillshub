@@ -218,7 +218,7 @@ export function PlatformView() {
     : null;
   const visibleSkills =
     viewMode === "folders"
-      ? activeFolder?.skills ?? platformFolderSplit.rootSkills
+      ? activeFolder?.skills ?? []
       : sourceFilteredSkills;
   const sourceCounts = useMemo(() => {
     const counts: Record<ClaudeSourceFilter, number> = {

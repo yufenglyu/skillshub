@@ -374,7 +374,7 @@ describe("CentralSkillsView", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows folders and only top-level skills in folders mode", () => {
+  it("shows only folders in folder overview", () => {
     window.localStorage.setItem("skills-manage.skillListViewMode.central", "folders");
     const nestedSkill = mockBundleDetail.skills[0];
     renderCentralSkillsView({
@@ -385,8 +385,8 @@ describe("CentralSkillsView", () => {
     expect(screen.getByRole("columnheader", { name: "路径" })).toBeInTheDocument();
     expect(screen.getByText("Superpowers")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /查看 frontend-design 的详情/i })
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /查看 frontend-design 的详情/i })
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /查看 using-superpowers 的详情/i })
     ).not.toBeInTheDocument();
@@ -487,6 +487,17 @@ describe("CentralSkillsView", () => {
     expect(
       within(folderRow as HTMLElement).getByRole("button", { name: /^删除$|^Delete$/i })
     ).toBeInTheDocument();
+  });
+
+  it("does not render a separate top-level skills table in folder overview", () => {
+    window.localStorage.setItem("skills-manage.skillListViewMode.central", "folders");
+    renderCentralSkillsView({ bundles: mockBundles });
+
+    expect(screen.getByRole("button", { name: "Superpowers" })).toBeInTheDocument();
+    expect(screen.queryByText("顶级 Skills")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /查看 frontend-design 的详情/i })
+    ).not.toBeInTheDocument();
   });
 
   it("opens a folder as an in-page skill table", () => {

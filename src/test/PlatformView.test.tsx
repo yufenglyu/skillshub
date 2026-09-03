@@ -489,7 +489,7 @@ describe("PlatformView", () => {
     expect(screen.queryByText("toolkit")).not.toBeInTheDocument();
   });
 
-  it("shows platform folders and only top-level skills in folders mode", () => {
+  it("shows only platform folders in folder overview", () => {
     window.localStorage.setItem("skills-manage.skillListViewMode.platform", "folders");
     mockUseSkillStore.mockImplementation((selector?: unknown) => {
       const state = buildSkillStoreState({
@@ -503,8 +503,8 @@ describe("PlatformView", () => {
 
     expect(screen.getByText("toolkit")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /查看 root-helper 的详情/i })
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /查看 root-helper 的详情/i })
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /查看 nested-helper 的详情/i })
     ).not.toBeInTheDocument();

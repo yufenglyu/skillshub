@@ -300,7 +300,7 @@ export function CentralSkillsView() {
       viewMode === "folders"
         ? isFolderOpen
           ? (activeFolderGroup?.skills ?? [])
-          : centralFolderSplit.rootSkills
+          : []
         : skills;
 
     return visibleSkills.map((skill) => ({
