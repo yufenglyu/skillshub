@@ -37,7 +37,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "claude-code",
     display_name: "Claude Code",
-    category: "coding",
     global_skills_dir: "~/.claude/skills/",
     is_detected: true,
     is_builtin: true,
@@ -46,7 +45,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "cursor",
     display_name: "Cursor",
-    category: "coding",
     global_skills_dir: "~/.cursor/skills/",
     is_detected: true,
     is_builtin: true,
@@ -55,7 +53,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "central",
     display_name: "Shared Hub",
-    category: "central",
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
     is_builtin: true,
@@ -341,7 +338,6 @@ describe("Sidebar", () => {
         {
           id: "central",
           display_name: "Shared Hub",
-          category: "central",
           global_skills_dir: "~/.agents/skills/",
           is_detected: true,
           is_builtin: true,
@@ -493,7 +489,6 @@ describe("Sidebar", () => {
           {
             id: "project:7",
             display_name: "Demo Project",
-            category: "project",
             global_skills_dir: "D:\\Projects\\Demo\\.agents\\skills",
             project_skills_dir: ".agents/skills",
             is_detected: true,
@@ -520,7 +515,6 @@ describe("Sidebar", () => {
           {
             id: "openclaw",
             display_name: "OpenClaw",
-            category: "lobster",
             global_skills_dir: "~/.openclaw/skills/",
             is_detected: true,
             is_builtin: true,
@@ -529,7 +523,6 @@ describe("Sidebar", () => {
           {
             id: "project:7",
             display_name: "Demo Project",
-            category: "project",
             global_skills_dir: "D:\\Projects\\Demo\\.agents\\skills",
             project_skills_dir: ".agents/skills",
             is_detected: true,
@@ -600,7 +593,6 @@ describe("Sidebar", () => {
           {
             id: "openclaw",
             display_name: "OpenClaw",
-            category: "lobster",
             global_skills_dir: "~/.openclaw/skills/",
             is_detected: true,
             is_builtin: true,
@@ -638,7 +630,6 @@ describe("Sidebar", () => {
           {
             id: "project:empty",
             display_name: "Empty Project",
-            category: "project",
             global_skills_dir: "D:\\Projects\\Empty\\.agents\\skills",
             project_skills_dir: ".agents/skills",
             is_detected: true,

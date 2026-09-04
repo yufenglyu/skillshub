@@ -411,6 +411,7 @@ mod tests {
     use super::*;
     use crate::db;
     use sqlx::SqlitePool;
+    use std::path::Path;
 
     async fn setup_test_db() -> DbPool {
         let pool = SqlitePool::connect(":memory:").await.unwrap();
@@ -468,8 +469,10 @@ mod tests {
         let builtin_count = expected_builtin_count();
         assert_eq!(dirs.len(), builtin_count + 2);
         let paths: Vec<&str> = dirs.iter().map(|d| d.path.as_str()).collect();
-        assert!(paths.contains(&"/tmp/proj-a"));
-        assert!(paths.contains(&"/tmp/proj-b"));
+        let proj_a = path_to_string(Path::new("/tmp/proj-a"));
+        let proj_b = path_to_string(Path::new("/tmp/proj-b"));
+        assert!(paths.contains(&proj_a.as_str()));
+        assert!(paths.contains(&proj_b.as_str()));
     }
 
     // ── add_scan_directory_impl ───────────────────────────────────────────────
@@ -481,7 +484,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(dir.path, "/tmp/my-project");
+        assert_eq!(dir.path, path_to_string(Path::new("/tmp/my-project")));
         assert_eq!(dir.label.as_deref(), Some("My Project"));
         assert!(dir.is_active);
         assert!(
@@ -502,14 +505,15 @@ mod tests {
     #[tokio::test]
     async fn test_update_scan_directory_changes_label() {
         let pool = setup_test_db().await;
-        add_scan_directory_impl(&pool, "/tmp/named", Some("Old"))
+        let existing = add_scan_directory_impl(&pool, "/tmp/named", Some("Old"))
             .await
             .unwrap();
-        let updated = update_scan_directory_impl(&pool, "/tmp/named", "/tmp/named", Some("New"))
-            .await
-            .unwrap();
+        let updated =
+            update_scan_directory_impl(&pool, &existing.path, &existing.path, Some("New"))
+                .await
+                .unwrap();
         assert_eq!(updated.label.as_deref(), Some("New"));
-        assert_eq!(updated.path, "/tmp/named");
+        assert_eq!(updated.path, existing.path);
     }
 
     #[tokio::test]
@@ -550,11 +554,11 @@ mod tests {
     #[tokio::test]
     async fn test_remove_scan_directory_success() {
         let pool = setup_test_db().await;
-        add_scan_directory_impl(&pool, "/tmp/removable", None)
+        let removable = add_scan_directory_impl(&pool, "/tmp/removable", None)
             .await
             .unwrap();
 
-        remove_scan_directory_impl(&pool, "/tmp/removable")
+        remove_scan_directory_impl(&pool, &removable.path)
             .await
             .unwrap();
 
@@ -567,7 +571,7 @@ mod tests {
             "Only the custom directory should be removed"
         );
         assert!(
-            !dirs.iter().any(|d| d.path == "/tmp/removable"),
+            !dirs.iter().any(|d| d.path == removable.path),
             "Removed directory must not appear in the list"
         );
     }
@@ -603,33 +607,33 @@ mod tests {
     #[tokio::test]
     async fn test_set_scan_directory_active_disables() {
         let pool = setup_test_db().await;
-        add_scan_directory_impl(&pool, "/tmp/toggle-me", None)
+        let added = add_scan_directory_impl(&pool, "/tmp/toggle-me", None)
             .await
             .unwrap();
-        set_scan_directory_active_impl(&pool, "/tmp/toggle-me", false)
+        set_scan_directory_active_impl(&pool, &added.path, false)
             .await
             .unwrap();
         let dirs = get_scan_directories_impl(&pool).await.unwrap();
-        let dir = dirs.iter().find(|d| d.path == "/tmp/toggle-me").unwrap();
+        let dir = dirs.iter().find(|d| d.path == added.path).unwrap();
         assert!(!dir.is_active, "Directory should be inactive");
     }
 
     #[tokio::test]
     async fn test_set_scan_directory_active_enables() {
         let pool = setup_test_db().await;
-        add_scan_directory_impl(&pool, "/tmp/re-enable-me", None)
+        let added = add_scan_directory_impl(&pool, "/tmp/re-enable-me", None)
             .await
             .unwrap();
         // First disable
-        set_scan_directory_active_impl(&pool, "/tmp/re-enable-me", false)
+        set_scan_directory_active_impl(&pool, &added.path, false)
             .await
             .unwrap();
         // Then re-enable
-        set_scan_directory_active_impl(&pool, "/tmp/re-enable-me", true)
+        set_scan_directory_active_impl(&pool, &added.path, true)
             .await
             .unwrap();
         let dirs = get_scan_directories_impl(&pool).await.unwrap();
-        let dir = dirs.iter().find(|d| d.path == "/tmp/re-enable-me").unwrap();
+        let dir = dirs.iter().find(|d| d.path == added.path).unwrap();
         assert!(dir.is_active, "Directory should be active again");
     }
 

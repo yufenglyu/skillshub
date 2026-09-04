@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.90.1 - 2026-09-04
+
+This patch completes the cleanup after the 0.90.0 workflow changes and removes several legacy skill-source paths that were still visible in platform views.
+
+### Improvements
+
+- Import and update GitHub-backed skills exclusively from GitHub repository snapshots; the old `npx skills` import path is removed.
+- Detect nested repository layouts such as `plugins/<name>/skills/<skill>/SKILL.md` and preserve the real remote `SKILL.md` path for future updates.
+- Add repository-level update summaries that call out likely remote removals and newly discovered remote skills.
+- Add Skill Repository export for the current skill directory list.
+- Simplify software platform display by using one shared platform icon and removing per-platform icon files and settings.
+- Keep Shared Hub and software platform folder views consistent with the Skill Repository, including directory-level actions.
+
+### Fixes
+
+- Remove the legacy Claude Code source tabs and plugin-cache scanner so platform pages no longer show **All / User Directory / Plugins** source filters.
+- Stop tests from creating real Shared Hub shortcuts during local runs, and clean up stale dangling Shared Hub links.
+- Preserve the repository directory as the canonical skill directory when a skill is added to Shared Hub or installed to a platform/project through symlinks.
+- Fix mixed Windows path separators in installation cleanup and synchronization errors.
+- Remove legacy marketplace and `npx skills` command modules from the desktop backend.
+- Remove obsolete installation-status and platform-icon UI from skill details and Settings.
+
 ## 0.90.0 - 2026-09-01
 
 This release unifies the core product terminology and restores the shared packaging helpers used by the desktop release flow.
@@ -21,8 +43,8 @@ This release unifies the core product terminology and restores the shared packag
 
 - Restore the shared Windows and Unix release-layout helper scripts required by local packaging and desktop release workflows.
 - Allow Skill Repository folder rows to update source-backed skills by directory.
-- Remove dangling Shared Hub shortcuts such as `github-resource` when the target no longer exists, including mirrored platform links.
-- Keep GitHub source grouping inside the Skill Repository only; Shared Hub, platform, and project installs now create the skill directory itself instead of `github-resource` grouping shortcuts.
+- Remove dangling Shared Hub shortcuts when the target no longer exists, including mirrored platform links.
+- Keep GitHub source grouping inside the Skill Repository only; Shared Hub, platform, and project installs now create the skill directory itself instead of repository grouping shortcuts.
 - Make update statistics actionable by filtering status groups and allowing failed items to be rechecked or manually updated.
 - Remove the Settings built-in platform badge so built-in and user-added software platforms are shown uniformly.
 - Show the real Skill Repository directory for Shared Hub skill details, with the Shared Hub symlink shown separately as the shared link path.

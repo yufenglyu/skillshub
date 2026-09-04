@@ -47,7 +47,7 @@
 
 ### 导入和维护技能
 
-- 填写 GitHub `owner/repo` 导入仓库；SkillsHub 会在隔离临时目录中执行 `npx skills add`，再复制到技能仓库。
+- 填写 GitHub `owner/repo` 或仓库 URL 导入仓库；SkillsHub 会读取 GitHub 仓库快照，识别其中的 `SKILL.md` 技能并复制到技能仓库。
 - 添加本机已有的单个技能文件夹或技能包。
 - 对有来源标记的技能检查更新，支持单个技能更新、目录视图按文件夹更新，以及按状态筛选更新统计。
 
@@ -74,7 +74,7 @@
 | **共享中心** | 由仓库符号链接支撑的共享兼容目录 | `~/.agents/skills` |
 | **软件平台** | 各工具自己的技能目录 | 按平台配置 |
 | **项目目录** | 命名的项目级安装目标 | `<项目>/.agents/skills` |
-| **配置目录** | 数据库、仓库、平台清单、图标和设置 | `~/.skillshub` 或便携版 `.skillshub` |
+| **配置目录** | 数据库、仓库、平台清单和设置 | `~/.skillshub` 或便携版 `.skillshub` |
 
 如果某个平台的 skills 路径解析为 `~/.agents/skills`，向该平台安装等价于加入共享中心；其他平台使用自己的独立目录。
 
@@ -84,23 +84,23 @@
 
 ### 技能仓库
 
-![技能仓库](images/01.png)
+![技能仓库](images/zh/01.png)
 
 ### 共享中心
 
-![共享中心](images/02.png)
+![共享中心](images/zh/02.png)
 
 ### 技能合集
 
-![技能合集](images/03.png)
+![技能合集](images/zh/03.png)
 
 ### 设置
 
-![设置](images/04.png)
+![设置](images/zh/04.png)
 
 ### 软件平台与项目目录
 
-![软件平台与项目目录](images/05.png)
+![软件平台与项目目录](images/zh/05.png)
 
 ---
 
@@ -114,7 +114,7 @@
 | macOS | DMG、`skillshub_*_macos_universal.zip`、`.tar.gz` |
 | Linux | deb、rpm、`skillshub-v*_Linux-*.tar.gz` |
 
-安装器或首次启动会创建 `.skillshub`，其中包含平台定义、图标、空技能仓库和 SQLite。便携包会把 `.skillshub` 放在可执行文件同级。
+安装器或首次启动会创建 `.skillshub`，其中包含平台定义、空技能仓库和 SQLite。便携包会把 `.skillshub` 放在可执行文件同级。
 
 ---
 

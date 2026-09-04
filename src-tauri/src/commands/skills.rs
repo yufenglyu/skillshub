@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 use tauri::State;
@@ -423,7 +423,7 @@ fn infer_resource_github_source(
     let relative_skill_path = parts[2..].join("/");
     let root_skill_dir = repo.strip_suffix("-skill").unwrap_or(repo);
     let source_path = if parts.len() == 3 && (parts[2] == repo || parts[2] == root_skill_dir) {
-        ".".to_string()
+        "SKILL.md".to_string()
     } else {
         format!("{relative_skill_path}/SKILL.md")
     };
@@ -1541,7 +1541,7 @@ pub async fn get_skills_by_agent_impl(
         return Ok(installed);
     };
 
-    if agent.category == "central"
+    if agent.id == "central"
         || !Path::new(&agent.global_skills_dir).exists()
         || !paths_resolve_to_same_entry(
             Path::new(&agent.global_skills_dir),
@@ -1832,6 +1832,81 @@ pub async fn get_resource_library_skills_impl(
     }
 
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn export_resource_skill_directory_list(
+    state: State<'_, AppState>,
+    output_path: String,
+) -> Result<usize, String> {
+    let skills = get_resource_library_skills_impl(&state.db).await?;
+    let resource_root = db::get_skill_resource_library_dir(&state.db).await?;
+    let mut rows: BTreeMap<String, Vec<SkillWithLinks>> = BTreeMap::new();
+
+    for skill in skills {
+        let Some(canonical_path) = skill.canonical_path.as_deref() else {
+            continue;
+        };
+        let dir = Path::new(canonical_path);
+        let relative = dir
+            .strip_prefix(&resource_root)
+            .ok()
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| canonical_path.replace('\\', "/"));
+        rows.entry(relative).or_default().push(skill);
+    }
+
+    let exported_count = rows.len();
+    let mut csv =
+        String::from("Directory,Skill Count,Skills,Source Repositories,Source Paths,Local Path\n");
+    for (relative, mut grouped_skills) in rows {
+        grouped_skills.sort_by(|left, right| left.name.cmp(&right.name));
+        let skill_names = grouped_skills
+            .iter()
+            .map(|skill| skill.name.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
+        let source_repos = grouped_skills
+            .iter()
+            .filter_map(|skill| skill.source_repo.as_deref())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join("; ");
+        let source_paths = grouped_skills
+            .iter()
+            .filter_map(|skill| skill.source_path.as_deref())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join("; ");
+        let local_path = grouped_skills
+            .first()
+            .and_then(|skill| skill.canonical_path.as_deref())
+            .unwrap_or("");
+        csv.push_str(&format!(
+            "{},{},{},{},{},{}\n",
+            csv_cell(&relative),
+            grouped_skills.len(),
+            csv_cell(&skill_names),
+            csv_cell(&source_repos),
+            csv_cell(&source_paths),
+            csv_cell(local_path)
+        ));
+    }
+
+    std::fs::write(&output_path, csv)
+        .map_err(|e| format!("Failed to export skill directory list: {}", e))?;
+    Ok(exported_count)
+}
+
+fn csv_cell(value: &str) -> String {
+    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
 
 fn validate_manual_skill_id(skill_id: &str) -> Result<String, String> {
@@ -2253,7 +2328,7 @@ pub async fn add_repo_resource_skills_impl(
         input,
         &[owner.clone(), repo.clone()],
         false,
-        "skills-cli",
+        "github",
         Some(owner.clone()),
         Some(format!("{owner}/{repo}")),
     )
@@ -3095,35 +3170,6 @@ mod tests {
         }
     }
 
-    fn make_observation(
-        row_id: &str,
-        skill_id: &str,
-        name: &str,
-        dir_path: &str,
-        source_kind: &str,
-        read_only: bool,
-    ) -> AgentSkillObservation {
-        AgentSkillObservation {
-            row_id: row_id.to_string(),
-            agent_id: "claude-code".to_string(),
-            skill_id: skill_id.to_string(),
-            name: name.to_string(),
-            description: Some(format!("{source_kind} copy")),
-            file_path: format!("{dir_path}/SKILL.md"),
-            dir_path: dir_path.to_string(),
-            source_kind: source_kind.to_string(),
-            source_root: if source_kind == "user" {
-                "/tmp/.claude/skills".to_string()
-            } else {
-                "/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0".to_string()
-            },
-            link_type: "copy".to_string(),
-            symlink_target: None,
-            is_read_only: read_only,
-            scanned_at: Utc::now().to_rfc3339(),
-        }
-    }
-
     fn make_observation_for_agent(
         agent_id: &str,
         row_id: &str,
@@ -3313,7 +3359,7 @@ mod tests {
             skill.source.as_deref(),
             Some("github:op7418/guizang-ppt-skill")
         );
-        assert_eq!(skill.source_path.as_deref(), Some("."));
+        assert_eq!(skill.source_path.as_deref(), Some("SKILL.md"));
         let source = db::get_skill_source(&pool, "guizang-ppt-skill")
             .await
             .unwrap()
@@ -3322,7 +3368,7 @@ mod tests {
             source.source_repo.as_deref(),
             Some("op7418/guizang-ppt-skill")
         );
-        assert_eq!(source.source_path.as_deref(), Some("."));
+        assert_eq!(source.source_path.as_deref(), Some("SKILL.md"));
     }
 
     #[tokio::test]
@@ -3970,19 +4016,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_central_skills_ignores_claude_plugin_observations() {
+    async fn test_get_central_skills_ignores_compatibility_observations() {
         let pool = setup_test_db().await;
 
         let central_skill = make_skill("shared-skill", "Shared Skill", true);
         db::upsert_skill(&pool, &central_skill).await.unwrap();
         db::upsert_agent_skill_observation(
             &pool,
-            &make_observation(
-                "claude-code::/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill",
+            &make_observation_for_agent(
+                "factory-droid",
+                "factory-droid::/tmp/.agents/skills/shared-skill",
                 "shared-skill",
                 "Shared Skill",
-                "/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill",
-                "plugin",
+                "/tmp/.agents/skills/shared-skill",
+                "compatibility",
+                "/tmp/.agents/skills",
                 true,
             ),
         )
@@ -3993,7 +4041,7 @@ mod tests {
         assert_eq!(skills_with_links.len(), 1);
         assert!(
             skills_with_links[0].linked_agents.is_empty(),
-            "plugin observations must not pollute linked_agents state"
+            "compatibility observations must not pollute linked_agents state"
         );
     }
 
@@ -4100,22 +4148,6 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        sqlx::query(
-            "INSERT INTO skill_registries
-             (id, name, source_type, url, is_builtin, is_enabled, last_sync_status, created_at)
-             VALUES ('test-registry', 'Test Registry', 'github', 'https://example.com/repo', 0, 1, 'success', 'now')",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO marketplace_skills
-             (id, registry_id, name, description, download_url, is_installed, synced_at)
-             VALUES ('test-registry::delete-me', 'test-registry', 'delete-me', NULL, 'https://example.com/SKILL.md', 1, 'now')",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
 
         let result = delete_central_skill_impl(
             &pool,
@@ -4146,16 +4178,9 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        let is_installed: i64 = sqlx::query_scalar(
-            "SELECT is_installed FROM marketplace_skills WHERE id = 'test-registry::delete-me'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
 
         assert_eq!(collection_count, 0);
         assert_eq!(explanation_count, 0);
-        assert_eq!(is_installed, 0);
     }
 
     #[tokio::test]
@@ -5356,7 +5381,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(alpha_source.source_type, "skills-cli");
+        assert_eq!(alpha_source.source_type, "github");
         assert_eq!(alpha_source.source_author.as_deref(), Some("owner"));
         assert_eq!(alpha_source.source_repo.as_deref(), Some("owner/repo"));
     }
@@ -5821,95 +5846,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_skills_by_agent_impl_excludes_external_claude_observations() {
-        let pool = setup_test_db().await;
-
-        db::upsert_agent_skill_observation(
-            &pool,
-            &make_observation(
-                "claude-code::/tmp/.claude/skills/shared-skill",
-                "shared-skill",
-                "Shared Skill",
-                "/tmp/.claude/skills/shared-skill",
-                "user",
-                false,
-            ),
-        )
-        .await
-        .unwrap();
-        db::upsert_agent_skill_observation(
-            &pool,
-            &make_observation(
-                "claude-code::/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill",
-                "shared-skill",
-                "Shared Skill",
-                "/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill",
-                "plugin",
-                true,
-            ),
-        )
-        .await
-        .unwrap();
-
-        let skills = get_skills_by_agent_impl(&pool, "claude-code")
-            .await
-            .unwrap();
-
-        assert!(
-            skills.is_empty(),
-            "Claude observations without managed installation rows must not enter the platform management list"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_claude_observation_identity_remains_separate_from_platform_management_list() {
-        let pool = setup_test_db().await;
-
-        db::upsert_agent_skill_observation(
-            &pool,
-            &make_observation(
-                "claude-code::/tmp/.claude/skills/shared-skill",
-                "shared-skill",
-                "Shared Skill",
-                "/tmp/.claude/skills/shared-skill",
-                "user",
-                false,
-            ),
-        )
-        .await
-        .unwrap();
-        db::upsert_agent_skill_observation(
-            &pool,
-            &make_observation(
-                "claude-code::/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill",
-                "shared-skill",
-                "Shared Skill",
-                "/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill",
-                "plugin",
-                true,
-            ),
-        )
-        .await
-        .unwrap();
-
-        let skills = get_skills_by_agent_impl(&pool, "claude-code")
-            .await
-            .unwrap();
-        let observations = db::get_agent_skill_observations(&pool, "claude-code")
-            .await
-            .unwrap();
-
-        assert!(skills.is_empty());
-        assert_eq!(observations.len(), 2);
-        assert!(observations
-            .iter()
-            .any(|observation| observation.source_kind == "plugin" && observation.is_read_only));
-        assert!(observations
-            .iter()
-            .any(|observation| observation.source_kind == "user" && !observation.is_read_only));
-    }
-
-    #[tokio::test]
     async fn test_get_skills_by_agent_impl_excludes_generic_read_only_observations() {
         let pool = setup_test_db().await;
 
@@ -6006,13 +5942,15 @@ mod tests {
         .unwrap();
         db::upsert_agent_skill_observation(
             &pool,
-            &make_observation(
-                "claude-code::/tmp/.claude/skills/shared-skill",
+            &make_observation_for_agent(
+                "claude-code",
+                "claude-code::/tmp/.agents/skills/shared-skill",
                 "shared-skill",
                 "Shared Skill",
-                "/tmp/.claude/skills/shared-skill",
-                "user",
-                false,
+                "/tmp/.agents/skills/shared-skill",
+                "compatibility",
+                "/tmp/.agents/skills",
+                true,
             ),
         )
         .await
@@ -6032,173 +5970,6 @@ mod tests {
         assert!(detail.source_kind.is_none());
         assert!(!detail.is_read_only);
         assert_eq!(detail.installations.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_get_skill_detail_with_row_impl_claude_plugin_row_uses_selected_observation() {
-        let pool = setup_test_db().await;
-
-        let skill = make_skill("shared-skill", "Shared Skill", false);
-        db::upsert_skill(&pool, &skill).await.unwrap();
-        db::upsert_skill_installation(
-            &pool,
-            &SkillInstallation {
-                skill_id: "shared-skill".to_string(),
-                agent_id: "claude-code".to_string(),
-                installed_path: "/tmp/.claude/skills/shared-skill".to_string(),
-                link_type: "copy".to_string(),
-                symlink_target: None,
-                created_at: Utc::now().to_rfc3339(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let collection = db::create_collection(&pool, "Alpha", None).await.unwrap();
-        db::add_skill_to_collection(&pool, &collection.id, "shared-skill")
-            .await
-            .unwrap();
-
-        db::upsert_agent_skill_observation(
-            &pool,
-            &make_observation(
-                "claude-code::/tmp/.claude/skills/shared-skill",
-                "shared-skill",
-                "Shared Skill",
-                "/tmp/.claude/skills/shared-skill",
-                "user",
-                false,
-            ),
-        )
-        .await
-        .unwrap();
-        db::upsert_agent_skill_observation(
-            &pool,
-            &make_observation(
-                "claude-code::/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill",
-                "shared-skill",
-                "Shared Skill",
-                "/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill",
-                "plugin",
-                true,
-            ),
-        )
-        .await
-        .unwrap();
-
-        let detail = get_skill_detail_with_row_impl(
-            &pool,
-            "shared-skill",
-            Some("claude-code"),
-            Some("claude-code::/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill"),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(
-            detail.row_id,
-            "claude-code::/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill"
-        );
-        assert_eq!(
-            detail.dir_path,
-            "/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill"
-        );
-        assert_eq!(
-            detail.file_path,
-            "/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill/SKILL.md"
-        );
-        assert_eq!(detail.source_kind.as_deref(), Some("plugin"));
-        assert_eq!(
-            detail.source_root.as_deref(),
-            Some("/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0")
-        );
-        assert!(detail.is_read_only);
-        assert_eq!(detail.conflict_count, 2);
-        assert_eq!(
-            detail.conflict_group.as_deref(),
-            Some("claude-code::shared-skill")
-        );
-        assert!(
-            detail.installations.is_empty(),
-            "plugin detail should not expose manageable installations"
-        );
-        assert!(
-            detail.collections.is_empty(),
-            "plugin detail should not expose collection management state"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_get_skill_detail_with_row_impl_claude_user_row_keeps_manageable_state() {
-        let pool = setup_test_db().await;
-
-        let skill = make_skill("shared-skill", "Shared Skill", false);
-        db::upsert_skill(&pool, &skill).await.unwrap();
-        db::upsert_skill_installation(
-            &pool,
-            &SkillInstallation {
-                skill_id: "shared-skill".to_string(),
-                agent_id: "claude-code".to_string(),
-                installed_path: "/tmp/.claude/skills/shared-skill".to_string(),
-                link_type: "copy".to_string(),
-                symlink_target: None,
-                created_at: Utc::now().to_rfc3339(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let collection = db::create_collection(&pool, "Alpha", None).await.unwrap();
-        db::add_skill_to_collection(&pool, &collection.id, "shared-skill")
-            .await
-            .unwrap();
-
-        db::upsert_agent_skill_observation(
-            &pool,
-            &make_observation(
-                "claude-code::/tmp/.claude/skills/shared-skill",
-                "shared-skill",
-                "Shared Skill",
-                "/tmp/.claude/skills/shared-skill",
-                "user",
-                false,
-            ),
-        )
-        .await
-        .unwrap();
-        db::upsert_agent_skill_observation(
-            &pool,
-            &make_observation(
-                "claude-code::/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill",
-                "shared-skill",
-                "Shared Skill",
-                "/tmp/.claude/plugins/cache/publisher/plugin-a/1.0.0/shared-skill",
-                "plugin",
-                true,
-            ),
-        )
-        .await
-        .unwrap();
-
-        let detail = get_skill_detail_with_row_impl(
-            &pool,
-            "shared-skill",
-            Some("claude-code"),
-            Some("claude-code::/tmp/.claude/skills/shared-skill"),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(
-            detail.row_id,
-            "claude-code::/tmp/.claude/skills/shared-skill"
-        );
-        assert_eq!(detail.dir_path, "/tmp/.claude/skills/shared-skill");
-        assert_eq!(detail.source_kind.as_deref(), Some("user"));
-        assert!(!detail.is_read_only);
-        assert_eq!(detail.conflict_count, 2);
-        assert_eq!(detail.installations.len(), 1);
-        assert_eq!(detail.collections.len(), 1);
     }
 
     #[tokio::test]

@@ -7,6 +7,7 @@ import {
   isCollectionInstallTargetAgent,
   isInstallTargetAgent,
 } from "@/lib/agents";
+import { isProjectAgentId } from "@/lib/projectTargets";
 import type { AgentWithStatus } from "@/types";
 
 interface InstallTargetListProps {
@@ -46,10 +47,10 @@ export function InstallTargetList({
     );
     return {
       software: targets
-        .filter((agent) => agent.category !== "project" && agent.id !== CENTRAL_AGENT_ID)
+        .filter((agent) => !isProjectAgentId(agent.id) && agent.id !== CENTRAL_AGENT_ID)
         .sort(byDisplayName),
       projects: targets
-        .filter((agent) => agent.category === "project")
+        .filter((agent) => isProjectAgentId(agent.id))
         .sort(byDisplayName),
       central: includeCentral
         ? targets.filter((agent) => agent.id === CENTRAL_AGENT_ID)

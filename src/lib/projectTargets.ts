@@ -25,10 +25,8 @@ export function scanDirectoryToProjectAgent(dir: ScanDirectory): AgentWithStatus
   return {
     id: projectAgentId(dir.id),
     display_name: projectDirectoryName(dir),
-    category: "project",
     global_skills_dir: projectSkillsDir(dir.path),
     project_skills_dir: PROJECT_SKILLS_SUBDIR,
-    icon_name: "folder",
     is_detected: dir.is_active,
     is_builtin: false,
     is_enabled: dir.is_active,

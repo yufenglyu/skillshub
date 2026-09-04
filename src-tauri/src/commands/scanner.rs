@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::commands::linker;
@@ -64,22 +64,18 @@ impl ScanDirectoryOptions {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AgentSkillSourceKind {
-    User,
-    Plugin,
     Compatibility,
 }
 
 impl AgentSkillSourceKind {
     fn as_str(self) -> &'static str {
         match self {
-            Self::User => "user",
-            Self::Plugin => "plugin",
             Self::Compatibility => "compatibility",
         }
     }
 
     fn is_read_only(self) -> bool {
-        matches!(self, Self::Plugin | Self::Compatibility)
+        true
     }
 }
 
@@ -88,30 +84,6 @@ struct AgentScanRoot {
     path: PathBuf,
     source_root: Option<PathBuf>,
     source_kind: Option<AgentSkillSourceKind>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct ClaudeSettingsFile {
-    #[serde(default, rename = "enabledPlugins")]
-    enabled_plugins: HashMap<String, bool>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct ClaudeInstalledPluginsFile {
-    #[serde(default)]
-    plugins: HashMap<String, Vec<ClaudeInstalledPluginInstall>>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-struct ClaudeInstalledPluginInstall {
-    #[serde(default)]
-    scope: Option<String>,
-    #[serde(rename = "installPath")]
-    install_path: String,
-    #[serde(default, rename = "installedAt")]
-    installed_at: Option<String>,
-    #[serde(default, rename = "lastUpdated")]
-    last_updated: Option<String>,
 }
 
 // ─── Core Functions ───────────────────────────────────────────────────────────
@@ -388,105 +360,6 @@ pub fn scan_skill_root(
     by_id.into_values().map(|(_, _, skill)| skill).collect()
 }
 
-fn read_json_file<T: DeserializeOwned>(path: &Path) -> Option<T> {
-    let content = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&content).ok()
-}
-
-fn claude_runtime_root(global_skills_dir: &Path) -> Option<PathBuf> {
-    global_skills_dir.parent().map(Path::to_path_buf)
-}
-
-fn claude_enabled_plugin_ids(claude_root: &Path) -> Vec<String> {
-    let settings_path = claude_root.join("settings.json");
-    let Some(settings) = read_json_file::<ClaudeSettingsFile>(&settings_path) else {
-        return Vec::new();
-    };
-
-    let mut enabled: Vec<String> = settings
-        .enabled_plugins
-        .into_iter()
-        .filter_map(|(plugin_id, is_enabled)| is_enabled.then_some(plugin_id))
-        .collect();
-    enabled.sort();
-    enabled
-}
-
-fn claude_select_effective_plugin_installs(
-    installs: &[ClaudeInstalledPluginInstall],
-) -> Vec<ClaudeInstalledPluginInstall> {
-    let preferred_scope = installs
-        .iter()
-        .any(|install| install.scope.as_deref() == Some("user"));
-
-    installs
-        .iter()
-        .filter(|install| !preferred_scope || install.scope.as_deref() == Some("user"))
-        .max_by(|a, b| {
-            let a_key = a
-                .last_updated
-                .as_deref()
-                .or(a.installed_at.as_deref())
-                .unwrap_or("");
-            let b_key = b
-                .last_updated
-                .as_deref()
-                .or(b.installed_at.as_deref())
-                .unwrap_or("");
-            a_key
-                .cmp(b_key)
-                .then_with(|| a.install_path.cmp(&b.install_path))
-        })
-        .cloned()
-        .into_iter()
-        .collect()
-}
-
-fn claude_plugin_roots(global_skills_dir: &Path) -> Vec<AgentScanRoot> {
-    let Some(claude_root) = claude_runtime_root(global_skills_dir) else {
-        return Vec::new();
-    };
-
-    let installed_path = claude_root.join("plugins/installed_plugins.json");
-    let installed =
-        read_json_file::<ClaudeInstalledPluginsFile>(&installed_path).unwrap_or_default();
-    let mut seen_scan_paths = HashSet::new();
-    let mut roots = Vec::new();
-
-    for plugin_id in claude_enabled_plugin_ids(&claude_root) {
-        let Some(installs) = installed.plugins.get(&plugin_id) else {
-            continue;
-        };
-
-        for install in claude_select_effective_plugin_installs(installs) {
-            let install_root = PathBuf::from(&install.install_path);
-            let candidate_paths = [
-                install_root.join("skills"),
-                install_root.join(".claude").join("skills"),
-            ];
-
-            for scan_path in candidate_paths {
-                if !scan_path.exists() {
-                    continue;
-                }
-
-                let scan_path_key = scan_path.to_string_lossy().into_owned();
-                if !seen_scan_paths.insert(scan_path_key) {
-                    continue;
-                }
-
-                roots.push(AgentScanRoot {
-                    path: scan_path,
-                    source_root: Some(install_root.clone()),
-                    source_kind: Some(AgentSkillSourceKind::Plugin),
-                });
-            }
-        }
-    }
-
-    roots
-}
-
 fn agents_skills_compatibility_root(primary_root: &Path) -> Option<PathBuf> {
     primary_root
         .parent()
@@ -524,22 +397,11 @@ fn scan_roots_for_agent(agent: &crate::db::Agent) -> Vec<AgentScanRoot> {
             .collect();
     }
 
-    let mut roots = match agent.id.as_str() {
-        "claude-code" => {
-            let mut roots = vec![AgentScanRoot {
-                path: primary_root.clone(),
-                source_root: Some(primary_root.clone()),
-                source_kind: Some(AgentSkillSourceKind::User),
-            }];
-            roots.extend(claude_plugin_roots(&primary_root));
-            roots
-        }
-        _ => vec![AgentScanRoot {
-            path: primary_root.clone(),
-            source_root: None,
-            source_kind: None,
-        }],
-    };
+    let mut roots = vec![AgentScanRoot {
+        path: primary_root.clone(),
+        source_root: None,
+        source_kind: None,
+    }];
 
     if agent.id == "factory-droid" || db::agent_supports_universal_agents_skills(&agent.id) {
         if let Some(compatibility_root) = compatibility_root {
@@ -552,7 +414,7 @@ fn scan_roots_for_agent(agent: &crate::db::Agent) -> Vec<AgentScanRoot> {
     roots
 }
 
-fn claude_observation_row_id(agent_id: &str, dir_path: &str) -> String {
+fn agent_observation_row_id(agent_id: &str, dir_path: &str) -> String {
     format!("{agent_id}::{dir_path}")
 }
 
@@ -590,12 +452,12 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
 
     let central_root = agents
         .iter()
-        .find(|agent| agent.category == "central")
+        .find(|agent| agent.id == "central")
         .map(|agent| PathBuf::from(&agent.global_skills_dir));
 
     // ── Per-agent scans ───────────────────────────────────────────────────────
     for agent in &agents {
-        let is_central = agent.category == "central";
+        let is_central = agent.id == "central";
         let scan_roots = scan_roots_for_agent(agent);
         let tracks_observations = scan_roots.iter().any(|root| root.source_kind.is_some());
         let existing_roots: Vec<AgentScanRoot> = scan_roots
@@ -635,7 +497,7 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
 
                 if let Some(source_kind) = root.source_kind {
                     let observation = AgentSkillObservation {
-                        row_id: claude_observation_row_id(&agent.id, &skill.dir_path),
+                        row_id: agent_observation_row_id(&agent.id, &skill.dir_path),
                         agent_id: agent.id.clone(),
                         skill_id: skill.id.clone(),
                         name: skill.name.clone(),
@@ -792,7 +654,7 @@ pub async fn scan_all_skills_impl(pool: &DbPool) -> Result<ScanResult, String> {
         let central_count = db::get_central_skills(pool).await?.len();
         if central_count > 0 {
             for agent in &agents {
-                if agent.category == "central" || !agent.is_enabled {
+                if agent.id == "central" || !agent.is_enabled {
                     continue;
                 }
 
@@ -860,48 +722,6 @@ mod tests {
 
     fn skill_md_no_description(name: &str) -> String {
         format!("---\nname: {}\n---\n\n# {}\n", name, name)
-    }
-
-    fn write_claude_plugin_runtime(claude_root: &Path, enabled_plugins: &[(&str, &Path)]) {
-        fs::create_dir_all(claude_root.join("plugins")).unwrap();
-
-        let enabled_json = enabled_plugins
-            .iter()
-            .map(|(plugin_id, _)| (plugin_id.to_string(), serde_json::Value::Bool(true)))
-            .collect::<serde_json::Map<_, _>>();
-        fs::write(
-            claude_root.join("settings.json"),
-            serde_json::to_string_pretty(&serde_json::json!({
-                "enabledPlugins": enabled_json,
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-
-        let installed_json = enabled_plugins
-            .iter()
-            .map(|(plugin_id, install_path)| {
-                (
-                    plugin_id.to_string(),
-                    serde_json::json!([{
-                        "scope": "user",
-                        "installPath": install_path.to_string_lossy().to_string(),
-                        "version": "test-version",
-                        "installedAt": "2026-04-23T00:00:00Z",
-                        "lastUpdated": "2026-04-23T00:00:00Z"
-                    }]),
-                )
-            })
-            .collect::<serde_json::Map<_, _>>();
-        fs::write(
-            claude_root.join("plugins/installed_plugins.json"),
-            serde_json::to_string_pretty(&serde_json::json!({
-                "version": 2,
-                "plugins": installed_json,
-            }))
-            .unwrap(),
-        )
-        .unwrap();
     }
 
     // ── parse_skill_md ────────────────────────────────────────────────────────
@@ -1335,10 +1155,9 @@ mod tests {
         let dummy_agent = db::Agent {
             id: "empty-agent".to_string(),
             display_name: "Empty Agent".to_string(),
-            category: "coding".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: "/nonexistent/path/skills".to_string(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -1375,10 +1194,9 @@ mod tests {
         let test_agent = db::Agent {
             id: "prune-agent".to_string(),
             display_name: "Prune Agent".to_string(),
-            category: "coding".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: skills_dir.to_string_lossy().into_owned(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -1487,7 +1305,6 @@ mod tests {
                 category: "central".to_string(),
                 global_skills_dir: central_dir.to_string_lossy().into_owned(),
                 project_skills_dir: None,
-                icon_name: None,
                 is_detected: true,
                 is_builtin: false,
                 is_enabled: true,
@@ -1500,10 +1317,9 @@ mod tests {
             &db::Agent {
                 id: "detected-agent".to_string(),
                 display_name: "Detected Agent".to_string(),
-                category: "coding".to_string(),
+                category: "platform".to_string(),
                 global_skills_dir: platform_dir.to_string_lossy().into_owned(),
                 project_skills_dir: None,
-                icon_name: None,
                 is_detected: false,
                 is_builtin: false,
                 is_enabled: true,
@@ -1562,10 +1378,9 @@ mod tests {
         let codex_agent = db::Agent {
             id: "codex".to_string(),
             display_name: "Codex".to_string(),
-            category: "coding".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: tmp.path().to_string_lossy().into_owned(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -1619,7 +1434,6 @@ mod tests {
                 category: "central".to_string(),
                 global_skills_dir: central_dir.to_string_lossy().into_owned(),
                 project_skills_dir: None,
-                icon_name: None,
                 is_detected: false,
                 is_builtin: false,
                 is_enabled: true,
@@ -1627,10 +1441,9 @@ mod tests {
             db::Agent {
                 id: "codex".to_string(),
                 display_name: "Codex".to_string(),
-                category: "coding".to_string(),
+                category: "platform".to_string(),
                 global_skills_dir: codex_dir.to_string_lossy().into_owned(),
                 project_skills_dir: None,
-                icon_name: None,
                 is_detected: false,
                 is_builtin: false,
                 is_enabled: true,
@@ -1707,7 +1520,6 @@ mod tests {
                 category: "central".to_string(),
                 global_skills_dir: central_dir.to_string_lossy().into_owned(),
                 project_skills_dir: None,
-                icon_name: None,
                 is_detected: false,
                 is_builtin: false,
                 is_enabled: true,
@@ -1715,10 +1527,9 @@ mod tests {
             db::Agent {
                 id: "antigravity".to_string(),
                 display_name: "Antigravity".to_string(),
-                category: "coding".to_string(),
+                category: "platform".to_string(),
                 global_skills_dir: shared_dir.to_string_lossy().into_owned(),
                 project_skills_dir: None,
-                icon_name: None,
                 is_detected: false,
                 is_builtin: false,
                 is_enabled: true,
@@ -1804,7 +1615,6 @@ mod tests {
                 category: "central".to_string(),
                 global_skills_dir: central_dir.to_string_lossy().into_owned(),
                 project_skills_dir: None,
-                icon_name: None,
                 is_detected: false,
                 is_builtin: false,
                 is_enabled: true,
@@ -1812,10 +1622,9 @@ mod tests {
             db::Agent {
                 id: "cursor".to_string(),
                 display_name: "Cursor".to_string(),
-                category: "coding".to_string(),
+                category: "platform".to_string(),
                 global_skills_dir: cursor_dir.to_string_lossy().into_owned(),
                 project_skills_dir: None,
-                icon_name: None,
                 is_detected: false,
                 is_builtin: false,
                 is_enabled: true,
@@ -1886,10 +1695,9 @@ mod tests {
         let test_agent = db::Agent {
             id: "test-agent".to_string(),
             display_name: "Test Agent".to_string(),
-            category: "coding".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: tmp.path().to_string_lossy().into_owned(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -1942,7 +1750,6 @@ mod tests {
             category: "central".to_string(),
             global_skills_dir: tmp.path().to_string_lossy().into_owned(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -2027,10 +1834,9 @@ mod tests {
         let test_agent = db::Agent {
             id: "nested-agent".to_string(),
             display_name: "Nested Agent".to_string(),
-            category: "coding".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: tmp.path().to_string_lossy().into_owned(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -2066,10 +1872,9 @@ mod tests {
         let agent_a = db::Agent {
             id: "agent-a".to_string(),
             display_name: "Agent A".to_string(),
-            category: "coding".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: tmp_a.path().to_string_lossy().into_owned(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -2077,10 +1882,9 @@ mod tests {
         let agent_b = db::Agent {
             id: "agent-b".to_string(),
             display_name: "Agent B".to_string(),
-            category: "coding".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: tmp_b.path().to_string_lossy().into_owned(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -2101,322 +1905,6 @@ mod tests {
         assert_eq!(result.total_skills, 3);
         assert_eq!(result.skills_by_agent.get("agent-a").copied(), Some(0));
         assert_eq!(result.skills_by_agent.get("agent-b").copied(), Some(0));
-    }
-
-    #[tokio::test]
-    async fn test_scan_all_skills_impl_claude_scans_user_and_multiple_plugin_roots() {
-        let tmp = TempDir::new().unwrap();
-        let pool = setup_test_db().await;
-
-        sqlx::query("DELETE FROM agents WHERE id != 'claude-code'")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM scan_directories")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let claude_root = tmp.path().join(".claude");
-        let user_root = claude_root.join("skills");
-        let plugin_a_root = claude_root.join("plugins/cache/publisher-a/plugin-a/1.0.0");
-        let plugin_b_root = claude_root.join("plugins/cache/publisher-b/plugin-b/2.0.0");
-        let plugin_a_skill_root = plugin_a_root.join("skills");
-        let plugin_b_skill_root = plugin_b_root.join(".claude/skills");
-
-        fs::create_dir_all(&user_root).unwrap();
-        fs::create_dir_all(&plugin_a_skill_root).unwrap();
-        fs::create_dir_all(&plugin_b_skill_root).unwrap();
-
-        create_skill_dir(
-            &user_root,
-            "user-skill",
-            &valid_skill_md("User Skill", "From ~/.claude/skills"),
-        );
-        create_skill_dir(
-            &plugin_a_skill_root,
-            "plugin-a-skill",
-            &valid_skill_md("plugin-a:skill", "From plugin A"),
-        );
-        create_skill_dir(
-            &plugin_b_skill_root,
-            "plugin-b-skill",
-            &valid_skill_md("plugin-b:skill", "From plugin B"),
-        );
-        write_claude_plugin_runtime(
-            &claude_root,
-            &[
-                ("plugin-a@publisher-a", &plugin_a_root),
-                ("plugin-b@publisher-b", &plugin_b_root),
-            ],
-        );
-
-        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'claude-code'")
-            .bind(user_root.to_string_lossy().to_string())
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let result = scan_all_skills_impl(&pool).await.unwrap();
-        assert_eq!(result.agents_scanned, 1);
-        assert_eq!(result.skills_by_agent.get("claude-code").copied(), Some(0));
-
-        let skills = db::get_skills_by_agent(&pool, "claude-code").await.unwrap();
-        assert!(
-            skills.is_empty(),
-            "external Claude observations must stay out of the managed platform list"
-        );
-
-        let observations = db::get_agent_skill_observations(&pool, "claude-code")
-            .await
-            .unwrap();
-        assert_eq!(observations.len(), 3);
-
-        let plugin_a_rows: Vec<_> = observations
-            .iter()
-            .filter(|row| row.skill_id == "plugin-a-skill")
-            .collect();
-        assert_eq!(plugin_a_rows.len(), 1);
-        assert_eq!(plugin_a_rows[0].source_kind, "plugin");
-        assert_eq!(
-            normalize_test_path(&plugin_a_rows[0].dir_path),
-            normalize_test_path(plugin_a_skill_root.join("plugin-a-skill").to_string_lossy())
-        );
-        assert_eq!(
-            plugin_a_rows[0].source_root,
-            plugin_a_root.to_string_lossy()
-        );
-
-        let plugin_b_rows: Vec<_> = observations
-            .iter()
-            .filter(|row| row.skill_id == "plugin-b-skill")
-            .collect();
-        assert_eq!(plugin_b_rows.len(), 1);
-        assert_eq!(plugin_b_rows[0].source_kind, "plugin");
-        assert_eq!(
-            normalize_test_path(&plugin_b_rows[0].dir_path),
-            normalize_test_path(plugin_b_skill_root.join("plugin-b-skill").to_string_lossy())
-        );
-        assert_eq!(
-            plugin_b_rows[0].source_root,
-            plugin_b_root.to_string_lossy()
-        );
-
-        let plugin_a_installations = db::get_skill_installations(&pool, "plugin-a-skill")
-            .await
-            .unwrap();
-        assert!(
-            plugin_a_installations.is_empty(),
-            "plugin rows should not create install-state records"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_scan_all_skills_impl_claude_duplicate_rows_stay_distinct_without_install_pollution(
-    ) {
-        let tmp = TempDir::new().unwrap();
-        let pool = setup_test_db().await;
-
-        sqlx::query("DELETE FROM agents WHERE id != 'claude-code'")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM scan_directories")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let claude_root = tmp.path().join(".claude");
-        let user_root = claude_root.join("skills");
-        let plugin_root = claude_root.join("plugins/cache/publisher/shared-plugin/1.0.0");
-        let plugin_skill_root = plugin_root.join("skills");
-        fs::create_dir_all(&user_root).unwrap();
-        fs::create_dir_all(&plugin_skill_root).unwrap();
-
-        create_skill_dir(
-            &user_root,
-            "shared-skill",
-            &valid_skill_md("Shared Skill", "User copy"),
-        );
-        create_skill_dir(
-            &plugin_skill_root,
-            "shared-skill",
-            &valid_skill_md("shared-plugin:shared-skill", "Plugin copy"),
-        );
-        write_claude_plugin_runtime(&claude_root, &[("shared-plugin@publisher", &plugin_root)]);
-
-        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'claude-code'")
-            .bind(user_root.to_string_lossy().to_string())
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        scan_all_skills_impl(&pool).await.unwrap();
-
-        let rows = db::get_agent_skill_observations(&pool, "claude-code")
-            .await
-            .unwrap();
-        let shared_rows: Vec<_> = rows
-            .iter()
-            .filter(|row| row.skill_id == "shared-skill")
-            .collect();
-        assert_eq!(
-            shared_rows.len(),
-            2,
-            "user and plugin copies should remain distinct observation rows"
-        );
-        assert_ne!(shared_rows[0].row_id, shared_rows[1].row_id);
-
-        let installs = db::get_skill_installations(&pool, "shared-skill")
-            .await
-            .unwrap();
-        assert!(
-            installs.is_empty(),
-            "scanner observations should not create managed installs"
-        );
-
-        let stored_skill = db::get_skill_by_id(&pool, "shared-skill")
-            .await
-            .unwrap()
-            .expect("user copy should still back the logical skill row");
-        assert_eq!(
-            normalize_test_path(&stored_skill.file_path),
-            normalize_test_path(user_root.join("shared-skill/SKILL.md").to_string_lossy())
-        );
-    }
-
-    #[tokio::test]
-    async fn test_scan_all_skills_impl_claude_scans_plugins_even_without_user_root() {
-        let tmp = TempDir::new().unwrap();
-        let pool = setup_test_db().await;
-
-        sqlx::query("DELETE FROM agents WHERE id != 'claude-code'")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM scan_directories")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let claude_root = tmp.path().join(".claude");
-        let user_root = claude_root.join("skills");
-        let plugin_a_root = claude_root.join("plugins/cache/publisher-a/plugin-a/1.0.0");
-        let plugin_b_root = claude_root.join("plugins/cache/publisher-b/plugin-b/2.0.0");
-        let plugin_a_skill_root = plugin_a_root.join("skills");
-        let plugin_b_skill_root = plugin_b_root.join(".claude/skills");
-
-        fs::create_dir_all(&plugin_a_skill_root).unwrap();
-        fs::create_dir_all(&plugin_b_skill_root).unwrap();
-
-        create_skill_dir(
-            &plugin_a_skill_root,
-            "plugin-a-skill",
-            &valid_skill_md("plugin-a:skill", "From plugin A"),
-        );
-        create_skill_dir(
-            &plugin_b_skill_root,
-            "plugin-b-skill",
-            &valid_skill_md("plugin-b:skill", "From plugin B"),
-        );
-        write_claude_plugin_runtime(
-            &claude_root,
-            &[
-                ("plugin-a@publisher-a", &plugin_a_root),
-                ("plugin-b@publisher-b", &plugin_b_root),
-            ],
-        );
-
-        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'claude-code'")
-            .bind(user_root.to_string_lossy().to_string())
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let result = scan_all_skills_impl(&pool).await.unwrap();
-        assert_eq!(result.skills_by_agent.get("claude-code").copied(), Some(0));
-
-        let detected = db::get_agent_by_id(&pool, "claude-code")
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(
-            detected.is_detected,
-            "claude-code should remain detected when only plugin roots exist"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_scan_all_skills_impl_non_claude_agents_ignore_claude_plugins() {
-        let tmp = TempDir::new().unwrap();
-        let pool = setup_test_db().await;
-
-        sqlx::query("DELETE FROM agents")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM scan_directories")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let claude_like_root = tmp.path().join(".claude");
-        let user_root = claude_like_root.join("skills");
-        let plugin_a_root = claude_like_root.join("plugins/cache/publisher-a/plugin-a/1.0.0");
-        let plugin_b_root = claude_like_root.join("plugins/cache/publisher-b/plugin-b/2.0.0");
-        let plugin_a_skill_root = plugin_a_root.join("skills");
-        let plugin_b_skill_root = plugin_b_root.join(".claude/skills");
-
-        fs::create_dir_all(&user_root).unwrap();
-        fs::create_dir_all(&plugin_a_skill_root).unwrap();
-        fs::create_dir_all(&plugin_b_skill_root).unwrap();
-
-        create_skill_dir(
-            &user_root,
-            "user-skill",
-            &valid_skill_md("User Skill", "From primary root"),
-        );
-        create_skill_dir(
-            &plugin_a_skill_root,
-            "plugin-a-skill",
-            &valid_skill_md("plugin-a:skill", "From plugin A"),
-        );
-        create_skill_dir(
-            &plugin_b_skill_root,
-            "plugin-b-skill",
-            &valid_skill_md("plugin-b:skill", "From plugin B"),
-        );
-        write_claude_plugin_runtime(
-            &claude_like_root,
-            &[
-                ("plugin-a@publisher-a", &plugin_a_root),
-                ("plugin-b@publisher-b", &plugin_b_root),
-            ],
-        );
-
-        let agent = db::Agent {
-            id: "not-claude".to_string(),
-            display_name: "Not Claude".to_string(),
-            category: "coding".to_string(),
-            global_skills_dir: user_root.to_string_lossy().to_string(),
-            project_skills_dir: None,
-            icon_name: None,
-            is_detected: false,
-            is_builtin: false,
-            is_enabled: true,
-        };
-        db::insert_custom_agent(&pool, &agent).await.unwrap();
-
-        let result = scan_all_skills_impl(&pool).await.unwrap();
-        assert_eq!(result.agents_scanned, 1);
-        assert_eq!(result.skills_by_agent.get("not-claude").copied(), Some(0));
-
-        let skills = db::get_skills_by_agent(&pool, "not-claude").await.unwrap();
-        assert!(skills.is_empty());
-        assert!(db::get_skill_by_id(&pool, "user-skill")
-            .await
-            .unwrap()
-            .is_some());
     }
 
     #[tokio::test]
@@ -2690,195 +2178,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    #[ignore = "manual isolated-home sanity check"]
-    async fn test_scan_all_skills_impl_claude_fixture_home_sanity() {
-        let fixture_home = Path::new("/tmp/skills-manage-test-fixtures/claude-multi-source");
-        if fixture_home.exists() {
-            fs::remove_dir_all(fixture_home).unwrap();
-        }
-        fs::create_dir_all(fixture_home).unwrap();
-
-        let pool = setup_test_db().await;
-
-        sqlx::query("DELETE FROM agents WHERE id != 'claude-code'")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM scan_directories")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let user_root = fixture_home.join(".claude/skills");
-        let plugin_a_root = fixture_home.join(".claude/plugins/cache/publisher-a/plugin-a/1.0.0");
-        let plugin_b_root = fixture_home.join(".claude/plugins/cache/publisher-b/plugin-b/2.0.0");
-        let plugin_a_skill_root = plugin_a_root.join("skills");
-        let plugin_b_skill_root = plugin_b_root.join(".claude/skills");
-
-        fs::create_dir_all(&user_root).unwrap();
-        fs::create_dir_all(&plugin_a_skill_root).unwrap();
-        fs::create_dir_all(&plugin_b_skill_root).unwrap();
-
-        create_skill_dir(
-            &user_root,
-            "fixture-user-skill",
-            &valid_skill_md("Fixture User Skill", "From fixture user root"),
-        );
-        create_skill_dir(
-            &plugin_a_skill_root,
-            "fixture-plugin-a-skill",
-            &valid_skill_md("plugin-a:fixture", "From fixture plugin A"),
-        );
-        create_skill_dir(
-            &plugin_b_skill_root,
-            "fixture-plugin-b-skill",
-            &valid_skill_md("plugin-b:fixture", "From fixture plugin B"),
-        );
-        write_claude_plugin_runtime(
-            &fixture_home.join(".claude"),
-            &[
-                ("plugin-a@publisher-a", &plugin_a_root),
-                ("plugin-b@publisher-b", &plugin_b_root),
-            ],
-        );
-
-        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'claude-code'")
-            .bind(user_root.to_string_lossy().to_string())
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let result = scan_all_skills_impl(&pool).await.unwrap();
-        assert_eq!(result.skills_by_agent.get("claude-code").copied(), Some(3));
-    }
-
-    #[tokio::test]
-    async fn test_scan_all_skills_impl_claude_rescan_drops_stale_plugin_duplicate_only() {
-        let tmp = TempDir::new().unwrap();
-        let pool = setup_test_db().await;
-
-        sqlx::query("DELETE FROM agents WHERE id != 'claude-code'")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM scan_directories")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let claude_root = tmp.path().join(".claude");
-        let user_root = claude_root.join("skills");
-        let plugin_root = claude_root.join("plugins/cache/publisher/shared-plugin/1.0.0");
-        let plugin_skill_root = plugin_root.join("skills");
-        fs::create_dir_all(&user_root).unwrap();
-        fs::create_dir_all(&plugin_skill_root).unwrap();
-
-        let plugin_skill_dir = create_skill_dir(
-            &plugin_skill_root,
-            "shared-skill",
-            &valid_skill_md("shared-plugin:shared-skill", "Plugin copy"),
-        );
-        create_skill_dir(
-            &user_root,
-            "shared-skill",
-            &valid_skill_md("Shared Skill", "User copy"),
-        );
-        write_claude_plugin_runtime(&claude_root, &[("shared-plugin@publisher", &plugin_root)]);
-
-        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'claude-code'")
-            .bind(user_root.to_string_lossy().to_string())
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        scan_all_skills_impl(&pool).await.unwrap();
-        fs::remove_dir_all(&plugin_skill_dir).unwrap();
-        scan_all_skills_impl(&pool).await.unwrap();
-
-        let rows = db::get_agent_skill_observations(&pool, "claude-code")
-            .await
-            .unwrap();
-        assert_eq!(rows.len(), 1, "only the user observation should remain");
-        assert_eq!(rows[0].source_kind, "user");
-
-        let installs = db::get_skill_installations(&pool, "shared-skill")
-            .await
-            .unwrap();
-        assert!(
-            installs.is_empty(),
-            "scanner observations should not create managed installs"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_scan_all_skills_impl_claude_plugin_survives_when_user_duplicate_is_removed() {
-        let tmp = TempDir::new().unwrap();
-        let pool = setup_test_db().await;
-
-        sqlx::query("DELETE FROM agents WHERE id != 'claude-code'")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM scan_directories")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let claude_root = tmp.path().join(".claude");
-        let user_root = claude_root.join("skills");
-        let plugin_root = claude_root.join("plugins/cache/publisher/shared-plugin/1.0.0");
-        let plugin_skill_root = plugin_root.join("skills");
-        fs::create_dir_all(&user_root).unwrap();
-        fs::create_dir_all(&plugin_skill_root).unwrap();
-
-        let user_skill_dir = create_skill_dir(
-            &user_root,
-            "shared-skill",
-            &valid_skill_md("Shared Skill", "User copy"),
-        );
-        create_skill_dir(
-            &plugin_skill_root,
-            "shared-skill",
-            &valid_skill_md("shared-plugin:shared-skill", "Plugin copy"),
-        );
-        write_claude_plugin_runtime(&claude_root, &[("shared-plugin@publisher", &plugin_root)]);
-
-        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'claude-code'")
-            .bind(user_root.to_string_lossy().to_string())
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        scan_all_skills_impl(&pool).await.unwrap();
-        fs::remove_dir_all(&user_skill_dir).unwrap();
-        scan_all_skills_impl(&pool).await.unwrap();
-
-        let rows = db::get_agent_skill_observations(&pool, "claude-code")
-            .await
-            .unwrap();
-        assert_eq!(
-            rows.len(),
-            1,
-            "plugin observation should survive even after the user duplicate disappears"
-        );
-        assert_eq!(rows[0].source_kind, "plugin");
-
-        let installs = db::get_skill_installations(&pool, "shared-skill")
-            .await
-            .unwrap();
-        assert!(
-            installs.is_empty(),
-            "plugin observations must not keep stale Claude install-state rows alive"
-        );
-
-        let skill = db::get_skill_by_id(&pool, "shared-skill").await.unwrap();
-        assert!(
-            skill.is_none(),
-            "plugin observations should not keep a stale manageable skill row alive"
-        );
-    }
-
     // ── Regression: Bug 1 — installed_path must be the skill directory ────────
 
     /// installed_path should point to the skill directory, not to the SKILL.md
@@ -2893,10 +2192,9 @@ mod tests {
         let test_agent = db::Agent {
             id: "path-agent".to_string(),
             display_name: "Path Agent".to_string(),
-            category: "coding".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: tmp.path().to_string_lossy().into_owned(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -2947,10 +2245,9 @@ mod tests {
         let test_agent = db::Agent {
             id: "stale-agent".to_string(),
             display_name: "Stale Agent".to_string(),
-            category: "coding".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: tmp.path().to_string_lossy().into_owned(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -3010,53 +2307,40 @@ mod tests {
 
     // ── Regression: is_central preserved when codex shares the central dir ───
 
-    /// When a central-category agent and a coding-category agent (codex) both
+    /// When the Shared Hub and a platform agent both
     /// point to the same directory, skills from that directory must end up with
     /// `is_central = true` after scanning — regardless of scan order.
     ///
     /// Historically this failed because:
-    ///  1. The scan used `agent.id == "central"` (not `agent.category`) to set
-    ///     `is_central`, so the codex agent always cleared the flag.
+    ///  1. The scan used platform grouping instead of the fixed Shared Hub id,
+    ///     so the codex agent always cleared the flag.
     ///  2. Even after fixing the flag, the `INSERT OR REPLACE` would overwrite
     ///     `is_central = true` with `false` when codex was processed last.
     #[tokio::test]
-    async fn test_is_central_preserved_when_shared_with_coding_agent() {
-        use crate::db;
-
+    async fn test_is_central_preserved_when_shared_with_platform_agent() {
         let tmp = TempDir::new().unwrap();
         let pool = setup_test_db().await;
 
-        // Insert a central-category agent pointing to the shared temp directory.
+        // Point Shared Hub at the shared temp directory.
         // Use "AA Central Test" as the display_name so it sorts BEFORE "ZZ Codex Test"
         // (ORDER BY display_name ASC) ensuring the central scan runs first.
-        let central_agent = db::Agent {
-            id: "aa-central-test".to_string(),
-            display_name: "AA Central Test".to_string(),
-            category: "central".to_string(),
-            global_skills_dir: tmp.path().to_string_lossy().into_owned(),
-            project_skills_dir: None,
-            icon_name: None,
-            is_detected: false,
-            is_builtin: false,
-            is_enabled: true,
-        };
-        // Insert a coding-category agent pointing to the SAME temp directory,
+        sqlx::query(
+            "UPDATE agents SET display_name = 'AA Central Test', global_skills_dir = ? WHERE id = 'central'",
+        )
+        .bind(tmp.path().to_string_lossy().into_owned())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Point a platform agent at the SAME temp directory,
         // sorted AFTER the central agent so it is processed last (worst case).
-        let coding_agent = db::Agent {
-            id: "zz-codex-test".to_string(),
-            display_name: "ZZ Codex Test".to_string(),
-            category: "coding".to_string(),
-            global_skills_dir: tmp.path().to_string_lossy().into_owned(),
-            project_skills_dir: None,
-            icon_name: None,
-            is_detected: false,
-            is_builtin: false,
-            is_enabled: true,
-        };
-        db::insert_custom_agent(&pool, &central_agent)
-            .await
-            .unwrap();
-        db::insert_custom_agent(&pool, &coding_agent).await.unwrap();
+        sqlx::query(
+            "UPDATE agents SET display_name = 'ZZ Codex Test', global_skills_dir = ? WHERE id = 'codex'",
+        )
+        .bind(tmp.path().to_string_lossy().into_owned())
+        .execute(&pool)
+        .await
+        .unwrap();
 
         // Place one skill in the shared directory.
         create_skill_dir(
@@ -3065,11 +2349,11 @@ mod tests {
             &valid_skill_md("Shared Skill", "desc"),
         );
 
-        // Run the full scan. The coding agent is processed AFTER the central agent
+        // Run the full scan. The platform agent is processed AFTER Shared Hub
         // (due to display_name ordering), which is the failure scenario for the bug.
         scan_all_skills_impl(&pool).await.unwrap();
 
-        // The skill must still be marked as central even though the coding agent
+        // The skill must still be marked as central even though the platform agent
         // scanned the same directory afterwards.
         let skill = db::get_skill_by_id(&pool, "shared-skill")
             .await
@@ -3077,8 +2361,8 @@ mod tests {
             .expect("shared-skill must be in the DB");
         assert!(
             skill.is_central,
-            "skill should remain is_central=true even when a coding agent \
-             scans the same directory after the central agent"
+            "skill should remain is_central=true even when a platform agent \
+             scans the same directory after Shared Hub"
         );
     }
 }

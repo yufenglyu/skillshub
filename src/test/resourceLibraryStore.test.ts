@@ -93,7 +93,8 @@ describe("resourceLibraryStore platform installs", () => {
 
     expect(invoke).toHaveBeenNthCalledWith(
       1,
-      "preview_source_backed_resource_repository_updates"
+      "preview_source_backed_resource_repository_updates",
+      { repositories: null }
     );
     expect(invoke).toHaveBeenNthCalledWith(2, "sync_source_backed_resource_skills", {
       options: { removeDeleted: true },

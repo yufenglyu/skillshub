@@ -16,12 +16,8 @@ use crate::AppState;
 pub struct AgentWithStatus {
     pub id: String,
     pub display_name: String,
-    pub category: String,
     pub global_skills_dir: String,
     pub project_skills_dir: Option<String>,
-    pub icon_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub icon_src: Option<String>,
     /// `true` if the agent is considered "installed" on this machine.
     /// Detected by checking whether `global_skills_dir` exists **or** its
     /// parent directory exists (parent existing implies the app is installed
@@ -40,8 +36,6 @@ pub struct CustomAgentConfig {
     pub id: Option<String>,
     /// Human-readable name shown in the UI.
     pub display_name: String,
-    /// Agent category — "coding", "lobster", or "other".
-    pub category: Option<String>,
     /// Absolute path to the agent's global skills directory.
     pub global_skills_dir: String,
 }
@@ -51,8 +45,6 @@ pub struct CustomAgentConfig {
 pub struct UpdateCustomAgentConfig {
     /// Human-readable name shown in the UI.
     pub display_name: String,
-    /// Agent category — "coding", "lobster", or "other".
-    pub category: Option<String>,
     /// Absolute path to the agent's global skills directory.
     pub global_skills_dir: String,
 }
@@ -88,11 +80,8 @@ fn agent_to_with_status(agent: Agent, central_root: Option<&str>) -> AgentWithSt
     AgentWithStatus {
         id: agent.id,
         display_name: agent.display_name,
-        category: agent.category,
         global_skills_dir: agent.global_skills_dir,
         project_skills_dir: agent.project_skills_dir,
-        icon_name: agent.icon_name.clone(),
-        icon_src: crate::platforms::icon_src_for_agent(agent.icon_name.as_deref()),
         is_detected,
         is_builtin: agent.is_builtin,
         is_enabled: agent.is_enabled,
@@ -154,7 +143,7 @@ pub async fn add_custom_agent_impl(
     config: CustomAgentConfig,
 ) -> Result<AgentWithStatus, String> {
     // Derive an ID from the provided value or the display_name.
-    // Use a kebab-case slug (github-copilot) so icon filenames never contain spaces.
+    // Use a kebab-case slug (github-copilot) for stable platform IDs.
     let requested = match config.id.as_deref() {
         Some(s) if !s.trim().is_empty() => slugify_platform_id(s),
         _ => slugify_platform_id(&config.display_name),
@@ -172,16 +161,14 @@ pub async fn add_custom_agent_impl(
         return Err("Agent ID cannot be empty".to_string());
     }
 
-    let category = config.category.unwrap_or_else(|| "other".to_string());
     let global_skills_dir = path_to_string(&expand_home_path(&config.global_skills_dir));
 
     let agent = Agent {
         id: id.clone(),
         display_name: config.display_name,
-        category,
+        category: "platform".to_string(),
         global_skills_dir,
         project_skills_dir: None,
-        icon_name: Some(format!("{}.svg", id)),
         is_detected: false, // will be computed live below
         is_builtin: false,
         is_enabled: true,
@@ -213,14 +200,12 @@ pub async fn update_custom_agent_impl(
         return Err("Agent global skills directory cannot be empty".to_string());
     }
 
-    let category = config.category.unwrap_or_else(|| "other".to_string());
     let global_skills_dir = path_to_string(&expand_home_path(config.global_skills_dir.trim()));
 
     let updated = db::update_custom_agent(
         pool,
         agent_id,
         config.display_name.trim(),
-        &category,
         &global_skills_dir,
     )
     .await?;
@@ -529,7 +514,6 @@ mod tests {
             "cursor",
             UpdateCustomAgentConfig {
                 display_name: "Cursor".to_string(),
-                category: Some("coding".to_string()),
                 global_skills_dir: central.to_str().unwrap().to_string(),
             },
         )
@@ -587,7 +571,6 @@ mod tests {
         let config = CustomAgentConfig {
             id: Some("my-custom".to_string()),
             display_name: "My Custom Agent".to_string(),
-            category: Some("coding".to_string()),
             global_skills_dir: "/tmp/my-custom/skills".to_string(),
         };
 
@@ -612,7 +595,6 @@ mod tests {
         let config = CustomAgentConfig {
             id: None,
             display_name: "Auto Named".to_string(),
-            category: None,
             global_skills_dir: "/tmp/auto/skills".to_string(),
         };
 
@@ -635,7 +617,6 @@ mod tests {
         let config = CustomAgentConfig {
             id: Some("detected-agent".to_string()),
             display_name: "Detected Agent".to_string(),
-            category: None,
             global_skills_dir: skills_dir.to_string_lossy().into_owned(),
         };
 
@@ -653,7 +634,6 @@ mod tests {
         let config = CustomAgentConfig {
             id: Some("unique-id".to_string()),
             display_name: "First".to_string(),
-            category: None,
             global_skills_dir: "/tmp/first/skills".to_string(),
         };
         add_custom_agent_impl(&pool, config).await.unwrap();
@@ -661,7 +641,6 @@ mod tests {
         let config2 = CustomAgentConfig {
             id: Some("unique-id".to_string()),
             display_name: "Second".to_string(),
-            category: None,
             global_skills_dir: "/tmp/second/skills".to_string(),
         };
         let second = add_custom_agent_impl(&pool, config2).await.unwrap();
@@ -670,21 +649,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_custom_agent_default_category() {
+    async fn test_add_custom_agent_uses_internal_platform_marker() {
         let pool = setup_test_db().await;
 
         let config = CustomAgentConfig {
-            id: Some("no-category".to_string()),
-            display_name: "No Category".to_string(),
-            category: None, // omitted
-            global_skills_dir: "/tmp/nc/skills".to_string(),
+            id: Some("plain-platform".to_string()),
+            display_name: "Plain Platform".to_string(),
+            global_skills_dir: "/tmp/plain-platform/skills".to_string(),
         };
 
-        let agent = add_custom_agent_impl(&pool, config).await.unwrap();
-        assert_eq!(
-            agent.category, "other",
-            "default category should be 'other'"
-        );
+        add_custom_agent_impl(&pool, config).await.unwrap();
+        let persisted = db::get_agent_by_id(&pool, "plain-platform")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(persisted.category, "platform");
     }
 
     #[tokio::test]
@@ -694,7 +673,6 @@ mod tests {
         let config = CustomAgentConfig {
             id: Some("tilde-agent".to_string()),
             display_name: "Tilde Agent".to_string(),
-            category: Some("coding".to_string()),
             global_skills_dir: "~/.tilde-agent/skills".to_string(),
         };
 
@@ -712,7 +690,6 @@ mod tests {
         let config = CustomAgentConfig {
             id: Some(id.to_string()),
             display_name: format!("Agent {}", id),
-            category: Some("other".to_string()),
             global_skills_dir: format!("/tmp/{}/skills", id),
         };
         add_custom_agent_impl(pool, config).await.unwrap();
@@ -725,7 +702,6 @@ mod tests {
 
         let config = UpdateCustomAgentConfig {
             display_name: "Updated Name".to_string(),
-            category: Some("coding".to_string()),
             global_skills_dir: "/tmp/updated/skills".to_string(),
         };
 
@@ -733,29 +709,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(updated.display_name, "Updated Name");
-        assert_eq!(updated.category, "coding");
-        assert_eq!(updated.global_skills_dir, "/tmp/updated/skills");
-        assert!(!updated.is_builtin);
-    }
-
-    #[tokio::test]
-    async fn test_update_custom_agent_default_category() {
-        let pool = setup_test_db().await;
-        add_test_custom_agent(&pool, "cat-default").await;
-
-        let config = UpdateCustomAgentConfig {
-            display_name: "Cat Default".to_string(),
-            category: None,
-            global_skills_dir: "/tmp/cat-default/skills".to_string(),
-        };
-
-        let updated = update_custom_agent_impl(&pool, "cat-default", config)
-            .await
-            .unwrap();
         assert_eq!(
-            updated.category, "other",
-            "default category should be 'other'"
+            updated.global_skills_dir,
+            path_to_string(Path::new("/tmp/updated/skills"))
         );
+        assert!(!updated.is_builtin);
     }
 
     #[tokio::test]
@@ -765,7 +723,6 @@ mod tests {
 
         let config = UpdateCustomAgentConfig {
             display_name: "Tilde Update".to_string(),
-            category: Some("coding".to_string()),
             global_skills_dir: "~/.tilde-update/skills".to_string(),
         };
 
@@ -785,7 +742,6 @@ mod tests {
 
         let config = UpdateCustomAgentConfig {
             display_name: "Ghost".to_string(),
-            category: None,
             global_skills_dir: "/tmp/ghost/skills".to_string(),
         };
 
@@ -799,7 +755,6 @@ mod tests {
 
         let config = UpdateCustomAgentConfig {
             display_name: "Edited Claude".to_string(),
-            category: Some("coding".to_string()),
             global_skills_dir: "/tmp/edited-claude/skills".to_string(),
         };
 
@@ -807,7 +762,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(updated.display_name, "Edited Claude");
-        assert_eq!(updated.global_skills_dir, "/tmp/edited-claude/skills");
+        assert_eq!(
+            updated.global_skills_dir,
+            path_to_string(Path::new("/tmp/edited-claude/skills"))
+        );
         assert!(
             updated.is_builtin,
             "Editing a built-in platform should preserve the built-in marker"
@@ -821,7 +779,6 @@ mod tests {
 
         let config = UpdateCustomAgentConfig {
             display_name: "   ".to_string(),
-            category: None,
             global_skills_dir: "/tmp/empty-name/skills".to_string(),
         };
 

@@ -70,7 +70,6 @@ const mockCustomDir: ScanDirectory = {
 const mockCustomAgent: AgentWithStatus = {
   id: "custom-qclaw",
   display_name: "QClaw",
-  category: "other",
   global_skills_dir: "/Users/test/.qclaw/skills/",
   is_detected: false,
   is_builtin: false,
@@ -80,7 +79,6 @@ const mockCustomAgent: AgentWithStatus = {
 const mockBuiltinAgent: AgentWithStatus = {
   id: "claude-code",
   display_name: "Claude Code",
-  category: "coding",
   global_skills_dir: "/Users/test/.claude/skills/",
   is_detected: true,
   is_builtin: true,
@@ -90,7 +88,6 @@ const mockBuiltinAgent: AgentWithStatus = {
 const mockMissingBuiltinAgent: AgentWithStatus = {
   id: "cursor",
   display_name: "Cursor",
-  category: "coding",
   global_skills_dir: "/Users/test/.cursor/skills/",
   is_detected: false,
   is_builtin: true,
@@ -1178,7 +1175,6 @@ describe("SettingsView", () => {
     const projectAgent: AgentWithStatus = {
       id: "project:2",
       display_name: "My Project",
-      category: "project",
       global_skills_dir: `${mockCustomDir.path}/.agents/skills`,
       project_skills_dir: ".agents/skills",
       is_detected: true,

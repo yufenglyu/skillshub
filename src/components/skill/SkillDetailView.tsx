@@ -17,22 +17,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { SkillFrontmatterCard } from "@/components/skill/SkillFrontmatterCard";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { useSkillDetailStore } from "@/stores/skillDetailStore";
-import { usePlatformStore } from "@/stores/platformStore";
 import { CollectionPickerDialog } from "@/components/collection/CollectionPickerDialog";
 import {
-  AgentWithStatus,
-  ClaudeSourceKind,
+  PlatformSourceKind,
   SkillDetailRequest,
   SkillDirectoryNode,
-  SkillInstallation,
 } from "@/types";
 import { cn } from "@/lib/utils";
 import { invoke, isTauriRuntime } from "@/lib/tauri";
-import { isInstallTargetAgent } from "@/lib/agents";
 import { formatPathForDisplay } from "@/lib/path";
 
 // ─── Section Label ─────────────────────────────────────────────────────────────
@@ -72,31 +67,22 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SourceOriginBadge({ originKind }: { originKind: ClaudeSourceKind }) {
+function SourceOriginBadge({ originKind }: { originKind: PlatformSourceKind }) {
   const { t } = useTranslation();
-  const isPlugin = originKind === "plugin";
-  const isCompatibility = originKind === "compatibility";
-  const label = isPlugin
-    ? t("platform.originPlugin")
-    : isCompatibility
-      ? t("platform.originCompatibility")
-      : t("platform.originUser");
-  const hint = isPlugin
-    ? t("platform.originPluginHint")
-    : isCompatibility
-      ? t("platform.originCompatibilityHint")
-      : t("platform.originUserHint");
+  const label =
+    originKind === "shared-central"
+      ? t("platform.originSharedCentral")
+      : t("platform.originCompatibility");
+  const hint =
+    originKind === "shared-central"
+      ? t("platform.originSharedCentralHint")
+      : t("platform.originCompatibilityHint");
 
   return (
     <span
       title={hint}
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1",
-        isPlugin
-          ? "bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300"
-          : isCompatibility
-            ? "bg-violet-500/10 text-violet-700 ring-violet-500/20 dark:text-violet-300"
-          : "bg-sky-500/10 text-sky-700 ring-sky-500/20 dark:text-sky-300"
+        "inline-flex items-center rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-500/20 dark:text-violet-300"
       )}
     >
       {label}
@@ -114,97 +100,6 @@ function ReadOnlySourceBadge() {
         defaultValue: i18n.language.startsWith("zh") ? "只读来源" : "Read-only source",
       })}
     </span>
-  );
-}
-
-// ─── Platform Toggle Icon (compact install/uninstall) ─────────────────────────
-
-interface PlatformToggleIconProps {
-  agent: AgentWithStatus;
-  skillName: string;
-  isInstalled: boolean;
-  isReadOnly: boolean;
-  isLoading: boolean;
-  onToggle: () => void;
-}
-
-function PlatformToggleIcon({
-  agent,
-  skillName,
-  isInstalled,
-  isReadOnly,
-  isLoading,
-  onToggle,
-}: PlatformToggleIconProps) {
-  const { t } = useTranslation();
-  return (
-    <button
-      className={cn(
-        "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors cursor-pointer",
-        isInstalled
-          ? "text-primary hover:bg-primary/10"
-          : "text-muted-foreground/40 hover:bg-muted/60 hover:text-muted-foreground",
-        isReadOnly && "cursor-default hover:bg-transparent",
-        isLoading && "animate-pulse pointer-events-none"
-      )}
-      title={`${agent.display_name}${isInstalled ? ` — ${t("central.linked")}` : ""}`}
-      aria-label={t("central.toggleInstallLabel", { platform: agent.display_name, skill: skillName })}
-      aria-pressed={isInstalled}
-      disabled={isLoading || isReadOnly}
-      onClick={onToggle}
-    >
-      <PlatformIcon
-        agentId={agent.id}
-        className={cn(
-          "size-[18px] shrink-0 transition-all",
-          isInstalled ? "opacity-100 grayscale-0" : "opacity-40 grayscale"
-        )}
-        size={18}
-      />
-    </button>
-  );
-}
-
-interface PlatformToggleGroupProps {
-  label: string;
-  agents: AgentWithStatus[];
-  skillName: string;
-  installationMap: Map<string, SkillInstallation>;
-  readOnlyAgentIds: Set<string>;
-  installingAgentId: string | null;
-  onToggle: (agentId: string) => void;
-}
-
-function PlatformToggleGroup({
-  label,
-  agents,
-  skillName,
-  installationMap,
-  readOnlyAgentIds,
-  installingAgentId,
-  onToggle,
-}: PlatformToggleGroupProps) {
-  if (agents.length === 0) return null;
-
-  return (
-    <div className="flex items-start gap-2">
-      <span className="flex h-7 w-14 shrink-0 items-center text-xs font-medium text-muted-foreground/75">
-        {label}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-        {agents.map((agent) => (
-          <PlatformToggleIcon
-            key={agent.id}
-            agent={agent}
-            skillName={skillName}
-            isInstalled={installationMap.has(agent.id) || readOnlyAgentIds.has(agent.id)}
-            isReadOnly={readOnlyAgentIds.has(agent.id)}
-            isLoading={installingAgentId === agent.id}
-            onToggle={() => onToggle(agent.id)}
-          />
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -351,8 +246,6 @@ export interface SkillDetailViewProps {
   scrollContainerRef?: Ref<HTMLDivElement>;
   /** Optional id applied to the ViewHeader h1 for shell-level aria-labelledby. */
   titleId?: string;
-  /** Optional hook for parent lists that need fresh install/status summaries. */
-  onInstallationsChange?: () => void | Promise<void>;
 }
 
 export function SkillDetailView({
@@ -364,7 +257,6 @@ export function SkillDetailView({
   onRequestClose: _onRequestClose,
   scrollContainerRef,
   titleId,
-  onInstallationsChange,
 }: SkillDetailViewProps) {
   const { t, i18n } = useTranslation();
 
@@ -372,12 +264,8 @@ export function SkillDetailView({
   const detail = useSkillDetailStore((s) => s.detail);
   const storeContent = useSkillDetailStore((s) => s.content);
   const storeIsLoading = useSkillDetailStore((s) => s.isLoading);
-  const installingAgentId = useSkillDetailStore((s) => s.installingAgentId);
   const error = useSkillDetailStore((s) => s.error);
   const loadDetail = useSkillDetailStore((s) => s.loadDetail);
-  const installSkill = useSkillDetailStore((s) => s.installSkill);
-  const uninstallSkill = useSkillDetailStore((s) => s.uninstallSkill);
-  const refreshInstallations = useSkillDetailStore((s) => s.refreshInstallations);
   const storeExplanation = useSkillDetailStore((s) => s.explanation);
   const storeIsExplanationLoading = useSkillDetailStore((s) => s.isExplanationLoading);
   const isExplanationStreaming = useSkillDetailStore((s) => s.isExplanationStreaming);
@@ -388,10 +276,6 @@ export function SkillDetailView({
   const updateMetadata = useSkillDetailStore((s) => s.updateMetadata);
   const updateSourceMetadata = useSkillDetailStore((s) => s.updateSourceMetadata);
   const reset = useSkillDetailStore((s) => s.reset);
-
-  // Platform agents (loaded at app init)
-  const agents = usePlatformStore((s) => s.agents);
-  const refreshCounts = usePlatformStore((s) => s.refreshCounts);
 
   const [directoryTree, setDirectoryTree] = useState<SkillDirectoryNode[]>([]);
   const [isDirectoryTreeLoading, setIsDirectoryTreeLoading] = useState(false);
@@ -607,39 +491,9 @@ export function SkillDetailView({
 
   // ── Derived values ───────────────────────────────────────────────────────
 
-  const targetAgents = agents.filter(isInstallTargetAgent);
-
-  const installationMap = new Map<string, SkillInstallation>(
-    (detail?.installations ?? []).map((inst) => [inst.agent_id, inst])
-  );
-  const readOnlyAgentIds = new Set(detail?.read_only_agents ?? []);
   const skillCollections = detail?.collections ?? [];
 
   // ── Handlers ─────────────────────────────────────────────────────────────
-
-  async function handleToggle(agentId: string) {
-    if (!skillId || detail?.is_read_only) return;
-    if (readOnlyAgentIds.has(agentId)) return;
-    const isInstalled = installationMap.has(agentId);
-    try {
-      if (isInstalled) {
-        await uninstallSkill(skillId, agentId);
-      } else {
-        await installSkill(skillId, agentId);
-      }
-      await Promise.all([
-        refreshCounts(),
-        refreshInstallations(skillId),
-      ]);
-      await onInstallationsChange?.();
-    } catch (err) {
-      toast.error(
-        isInstalled
-          ? t("detail.uninstallError", { error: String(err) })
-          : t("detail.installError", { error: String(err) })
-      );
-    }
-  }
 
   function handleCollectionAdded() {
     if (detailRequest) {
@@ -989,16 +843,8 @@ export function SkillDetailView({
                           <p className="text-sm leading-6 text-muted-foreground">
                             {t("detail.readOnlyDesc", {
                               defaultValue: i18n.language.startsWith("zh")
-                                ? "只读观测副本仅供查看，不能在这里安装、卸载或调整技能集。"
-                                : "Read-only observed copies are display-only here, so install, uninstall, and collection changes are unavailable.",
-                            })}
-                          </p>
-                        ) : detail.source_kind === "user" ? (
-                          <p className="text-sm leading-6 text-muted-foreground">
-                            {t("detail.userManagedDesc", {
-                              defaultValue: i18n.language.startsWith("zh")
-                                ? "此 Claude 用户副本会保留正常的安装状态与技能集管理能力。"
-                                : "This Claude user copy keeps the normal install-state and collection-management controls.",
+                                ? "只读观测副本仅供查看，不能在这里编辑备注、标签或调整技能集。"
+                                : "Read-only observed copies are display-only here, so notes, tags, and collection changes are unavailable.",
                             })}
                           </p>
                         ) : null}
@@ -1234,38 +1080,6 @@ export function SkillDetailView({
                       {storageMetadataRows.map(([label, value]) => (
                         <MetadataRow key={`${label}:${value}`} label={label} value={value} />
                       ))}
-                    </SectionPanel>
-                  </section>
-
-                  {/* Install Status — compact icon grid */}
-                  <section aria-label={t("detail.installStatusRegion")}>
-                    <SectionLabel>{t("detail.installStatus")}</SectionLabel>
-                    <SectionPanel className="space-y-2">
-                      {detail.is_read_only ? (
-                        <p className="text-sm leading-6 text-muted-foreground">
-                          {t("detail.readOnlyInstallBlocked", {
-                            defaultValue: i18n.language.startsWith("zh")
-                              ? "只读观测副本不可安装或卸载。"
-                              : "Install and uninstall are unavailable for read-only observed copies.",
-                          })}
-                        </p>
-                      ) : targetAgents.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">
-                          {t("detail.noPlatforms")}
-                        </p>
-                      ) : (
-                        <>
-                          <PlatformToggleGroup
-                            label={t("sidebar.softwarePlatforms")}
-                            agents={targetAgents}
-                            skillName={detail.name}
-                            installationMap={installationMap}
-                            readOnlyAgentIds={readOnlyAgentIds}
-                            installingAgentId={installingAgentId}
-                            onToggle={handleToggle}
-                          />
-                        </>
-                      )}
                     </SectionPanel>
                   </section>
 

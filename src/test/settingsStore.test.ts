@@ -34,7 +34,6 @@ const mockScanDirectories: ScanDirectory[] = [mockBuiltinDir, mockCustomDir];
 const mockAgent: AgentWithStatus = {
   id: "custom-qclaw",
   display_name: "QClaw",
-  category: "other",
   global_skills_dir: "~/.qclaw/skills/",
   is_detected: false,
   is_builtin: false,

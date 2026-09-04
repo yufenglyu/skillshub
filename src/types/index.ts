@@ -3,11 +3,8 @@
 export interface AgentWithStatus {
   id: string;
   display_name: string;
-  category: string;
   global_skills_dir: string;
   project_skills_dir?: string;
-  icon_name?: string;
-  icon_src?: string;
   is_detected: boolean;
   is_builtin: boolean;
   is_enabled: boolean;
@@ -17,13 +14,11 @@ export interface AgentWithStatus {
 export interface CustomAgentConfig {
   id?: string;
   display_name: string;
-  category?: string;
   global_skills_dir: string;
 }
 
 export interface UpdateCustomAgentConfig {
   display_name: string;
-  category?: string;
   global_skills_dir: string;
 }
 
@@ -65,7 +60,7 @@ export interface ScanResult {
   skills_by_agent: Record<string, number>;
 }
 
-export type ClaudeSourceKind = "user" | "plugin" | "compatibility";
+export type PlatformSourceKind = "compatibility" | "shared-central";
 
 export interface ScannedSkill {
   id: string;
@@ -78,7 +73,7 @@ export interface ScannedSkill {
   symlink_target?: string;
   is_central: boolean;
   source?: string | null;
-  source_kind?: ClaudeSourceKind | null;
+  source_kind?: PlatformSourceKind | null;
   source_root?: string | null;
   is_read_only?: boolean;
   conflict_group?: string | null;
@@ -126,7 +121,7 @@ export interface SkillInstallation {
 export interface SkillDetail extends Omit<Skill, "content"> {
   row_id?: string;
   dir_path?: string;
-  source_kind?: ClaudeSourceKind | null;
+  source_kind?: PlatformSourceKind | null;
   source_root?: string | null;
   is_read_only?: boolean;
   conflict_group?: string | null;
@@ -197,18 +192,10 @@ export interface AddLocalResourceSkillsResult {
   skippedSkills: string[];
 }
 
-export interface ImportSkillsViaNpxInput {
+export interface GitHubSnapshotImportInput {
   input: string;
   skill?: string | null;
   overwrite: boolean;
-}
-
-export interface ImportSkillsViaNpxResult {
-  package: string;
-  skill?: string | null;
-  originalInput: string;
-  cliVersion?: string | null;
-  localImport: AddLocalResourceSkillsResult;
 }
 
 export interface SkillWithLinks {
@@ -420,6 +407,7 @@ export interface SkillSourceUpdateItem {
   name: string;
   status: SkillSourceUpdateStatus;
   error?: string | null;
+  remoteDeleted?: boolean;
 }
 
 export interface SkillSourceUpdateReport {
@@ -448,4 +436,5 @@ export interface RepositorySyncPreviewReport {
 
 export interface RepositorySyncApplyOptions {
   removeDeleted: boolean;
+  repositories?: string[] | null;
 }

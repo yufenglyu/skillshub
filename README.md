@@ -47,7 +47,7 @@ Skill Repository ── install ──► software platforms / project directori
 
 ### Import And Maintain Skills
 
-- Import a GitHub repository with `owner/repo`; SkillsHub runs `npx skills add` in an isolated temporary directory before copying results into the repository.
+- Import a GitHub repository with `owner/repo` or a repository URL; SkillsHub reads the GitHub repository snapshot and copies detected `SKILL.md` skills into the repository.
 - Add prepared local skill folders or skill packs.
 - Check source-backed skills for updates, update one skill, update a folder in directory view, or review update statistics by status.
 
@@ -74,7 +74,7 @@ Skill Repository ── install ──► software platforms / project directori
 | **Shared Hub** | Shared compatibility folder backed by repository symlinks | `~/.agents/skills` |
 | **Software platforms** | Tool-specific skill folders | Platform config |
 | **Project directories** | Named project-scoped install targets | `<project>/.agents/skills` |
-| **Config folder** | Database, repository, platform manifest, icons, settings | `~/.skillshub` or portable `.skillshub` |
+| **Config folder** | Database, repository, platform manifest, and settings | `~/.skillshub` or portable `.skillshub` |
 
 If a platform's skills path resolves to `~/.agents/skills`, installing to that platform is equivalent to adding the skill to Shared Hub. Other platforms use their own independent folders.
 
@@ -114,7 +114,7 @@ Download installers and portable archives from [GitHub Releases](https://github.
 | macOS | DMG, `skillshub_*_macos_universal.zip`, `.tar.gz` |
 | Linux | deb, rpm, `skillshub-v*_Linux-*.tar.gz` |
 
-Installers and first launch create `.skillshub` with platform definitions, icons, an empty repository, and SQLite. Portable archives place `.skillshub` next to the executable.
+Installers and first launch create `.skillshub` with platform definitions, an empty repository, and SQLite. Portable archives place `.skillshub` next to the executable.
 
 ---
 

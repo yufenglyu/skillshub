@@ -1571,6 +1571,11 @@ mod tests {
             .await
             .unwrap();
 
+        sqlx::query("UPDATE agents SET is_enabled = 0 WHERE id NOT IN ('central', 'claude-code')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
         pool
     }
 
@@ -3265,7 +3270,7 @@ mod tests {
         let central_dir = tmp.path().join("central");
         let resource_dir = tmp.path().join("resource-library");
         let agent_dir = tmp.path().join("claude").join("skills");
-        let grouped = resource_dir.join("github-resource");
+        let grouped = resource_dir.join("nested-resource-skill");
         fs::create_dir_all(&central_dir).unwrap();
         fs::create_dir_all(&agent_dir).unwrap();
         fs::create_dir_all(&grouped).unwrap();
@@ -3288,8 +3293,8 @@ mod tests {
 
         assert!(central_dir.join("canvas-design").join("SKILL.md").exists());
         assert!(agent_dir.join("canvas-design").join("SKILL.md").exists());
-        assert!(!central_dir.join("github-resource").exists());
-        assert!(!agent_dir.join("github-resource").exists());
+        assert!(!central_dir.join("nested-resource-skill").exists());
+        assert!(!agent_dir.join("nested-resource-skill").exists());
     }
 
     #[tokio::test]
@@ -3342,7 +3347,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let central_dir = tmp.path().join("central");
         let agent_dir = tmp.path().join("claude").join("skills");
-        let missing_target = tmp.path().join("deleted-resource").join("github-resource");
+        let missing_target = tmp
+            .path()
+            .join("deleted-resource")
+            .join("nested-resource-skill");
         fs::create_dir_all(&central_dir).unwrap();
         fs::create_dir_all(&agent_dir).unwrap();
 
@@ -3354,7 +3362,7 @@ mod tests {
         .await
         .unwrap();
 
-        let central_link = central_dir.join("github-resource");
+        let central_link = central_dir.join("nested-resource-skill");
         create_symlink(&missing_target, &central_link).unwrap();
         assert!(fs::symlink_metadata(&central_link)
             .unwrap()
@@ -3365,8 +3373,8 @@ mod tests {
         db::upsert_skill(
             &pool,
             &db::Skill {
-                id: "github-resource".to_string(),
-                name: "github-resource".to_string(),
+                id: "nested-resource-skill".to_string(),
+                name: "nested-resource-skill".to_string(),
                 description: Some("stale central link".to_string()),
                 file_path: central_link.join("SKILL.md").to_string_lossy().into_owned(),
                 canonical_path: Some(central_link.to_string_lossy().into_owned()),
@@ -3379,12 +3387,12 @@ mod tests {
         .await
         .unwrap();
 
-        let platform_link = agent_dir.join("github-resource");
+        let platform_link = agent_dir.join("nested-resource-skill");
         create_symlink(&central_link, &platform_link).unwrap();
         db::upsert_skill_installation(
             &pool,
             &SkillInstallation {
-                skill_id: "github-resource".to_string(),
+                skill_id: "nested-resource-skill".to_string(),
                 agent_id: "claude-code".to_string(),
                 installed_path: platform_link.to_string_lossy().into_owned(),
                 link_type: "symlink".to_string(),
@@ -3399,11 +3407,11 @@ mod tests {
 
         assert!(fs::symlink_metadata(&central_link).is_err());
         assert!(fs::symlink_metadata(&platform_link).is_err());
-        assert!(db::get_skill_by_id(&pool, "github-resource")
+        assert!(db::get_skill_by_id(&pool, "nested-resource-skill")
             .await
             .unwrap()
             .is_none());
-        assert!(db::get_skill_installations(&pool, "github-resource")
+        assert!(db::get_skill_installations(&pool, "nested-resource-skill")
             .await
             .unwrap()
             .is_empty());
@@ -3577,8 +3585,8 @@ mod tests {
         db::set_skill_resource_library_dir(&pool, &resource_dir.to_string_lossy())
             .await
             .unwrap();
-        create_resource_skill(&pool, &resource_dir, "github-resource").await;
-        let mut skill = db::get_skill_by_id(&pool, "github-resource")
+        create_resource_skill(&pool, &resource_dir, "nested-resource-skill").await;
+        let mut skill = db::get_skill_by_id(&pool, "nested-resource-skill")
             .await
             .unwrap()
             .unwrap();
@@ -3587,30 +3595,30 @@ mod tests {
         db::upsert_skill_source(
             &pool,
             &db::SkillSource {
-                skill_id: "github-resource".to_string(),
+                skill_id: "nested-resource-skill".to_string(),
                 source_type: "github".to_string(),
                 source_url: Some(
                     "https://raw.githubusercontent.com/example/skills/main/SKILL.md".to_string(),
                 ),
                 source_author: Some("example".to_string()),
                 source_repo: Some("example/skills".to_string()),
-                source_path: Some("skills/github-resource/SKILL.md".to_string()),
+                source_path: Some("skills/nested-resource-skill/SKILL.md".to_string()),
                 updated_at: chrono::Utc::now().to_rfc3339(),
             },
         )
         .await
         .unwrap();
 
-        add_resource_skill_to_central_impl(&pool, "github-resource")
+        add_resource_skill_to_central_impl(&pool, "nested-resource-skill")
             .await
             .unwrap();
 
-        let promoted = db::get_skill_by_id(&pool, "github-resource")
+        let promoted = db::get_skill_by_id(&pool, "nested-resource-skill")
             .await
             .unwrap()
             .unwrap();
         assert_eq!(promoted.source.as_deref(), Some("github:example/skills"));
-        let source = db::get_skill_source(&pool, "github-resource")
+        let source = db::get_skill_source(&pool, "nested-resource-skill")
             .await
             .unwrap()
             .unwrap();

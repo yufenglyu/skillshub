@@ -8,7 +8,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "cursor",
     display_name: "Cursor",
-    category: "coding",
     global_skills_dir: "~/.cursor/skills",
     is_detected: true,
     is_builtin: true,
@@ -17,7 +16,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "project:1",
     display_name: "temp",
-    category: "project",
     global_skills_dir: "~/Projects/temp/.agents/skills",
     project_skills_dir: ".agents/skills",
     is_detected: true,
@@ -27,7 +25,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "central",
     display_name: "Shared Hub",
-    category: "central",
     global_skills_dir: "~/.agents/skills",
     is_detected: true,
     is_builtin: true,
@@ -85,7 +82,6 @@ describe("InstallDialog", () => {
           {
             id: "hermes",
             display_name: "Hermes",
-            category: "coding",
             global_skills_dir: "~/.agents/skills",
             is_detected: true,
             is_builtin: true,
@@ -113,7 +109,6 @@ describe("InstallDialog", () => {
           {
             id: "hermes",
             display_name: "Hermes",
-            category: "coding",
             global_skills_dir: "~/.agents/skills",
             is_detected: true,
             is_builtin: true,
@@ -150,7 +145,6 @@ describe("InstallDialog", () => {
           {
             id: "project:home",
             display_name: "Home",
-            category: "project",
             global_skills_dir: "~/.agents/skills",
             project_skills_dir: ".agents/skills",
             is_detected: true,
@@ -185,7 +179,6 @@ describe("InstallDialog", () => {
           {
             id: "project:home",
             display_name: "Home",
-            category: "project",
             global_skills_dir: "~/.agents/skills",
             project_skills_dir: ".agents/skills",
             is_detected: true,

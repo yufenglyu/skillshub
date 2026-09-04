@@ -22,6 +22,8 @@
   </provides>
   <releases>
 
+    <release version="0.90.1" date="2026-09-04"/>
+
     <release version="0.90.0" date="2026-09-01"/>
 
     <release version="0.80.2" date="2026-08-21"/>

@@ -7,7 +7,6 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
     id: "claude-code",
     display_name: "Claude Code",
-    category: "coding",
     global_skills_dir: "~/.claude/skills/",
     is_detected: true,
     is_builtin: true,
@@ -17,7 +16,6 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
     id: "cursor",
     display_name: "Cursor",
-    category: "coding",
     global_skills_dir: "~/.cursor/skills/",
     is_detected: true,
     is_builtin: true,
@@ -27,7 +25,6 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
     id: "central",
     display_name: "Shared Hub",
-    category: "central",
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
     is_builtin: true,
@@ -36,10 +33,8 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
     id: "project:1",
     display_name: "Example Project",
-    category: "project",
     global_skills_dir: "~/Projects/example/.agents/skills",
     project_skills_dir: ".agents/skills",
-    icon_name: "folder",
     is_detected: true,
     is_builtin: false,
     is_enabled: true,

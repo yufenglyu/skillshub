@@ -60,25 +60,12 @@ import { useSkillStore } from "../stores/skillStore";
 import { useCentralSkillsStore } from "../stores/centralSkillsStore";
 import * as tauriBridge from "@/lib/tauri";
 
-const userSourceText = /用户目录|User folder/i;
-const pluginSourceText = /Claude 插件|Claude plugin/i;
-const readOnlyText = /只读|Read-only/i;
-const badgeQueryOptions = { selector: "span" } as const;
-const claudeTabName = (label: string, count?: number) =>
-  count == null
-    ? new RegExp(`^${label}(?:\\s*\\(\\d+\\))?$`)
-    : new RegExp(`^${label}\\s*\\(${count}\\)$`);
-const getCardBadgeMatches = (matcher: RegExp) =>
-  screen
-    .queryAllByText(matcher, badgeQueryOptions)
-    .filter((element) => element.closest(".rounded-xl"));
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const mockAgent: AgentWithStatus = {
   id: "claude-code",
   display_name: "Claude Code",
-  category: "coding",
   global_skills_dir: "/Users/test/.claude/skills/",
   is_detected: true,
   is_builtin: true,
@@ -88,7 +75,6 @@ const mockAgent: AgentWithStatus = {
 const mockCursorAgent: AgentWithStatus = {
   id: "cursor",
   display_name: "Cursor",
-  category: "coding",
   global_skills_dir: "/Users/test/.cursor/skills/",
   is_detected: true,
   is_builtin: true,
@@ -191,110 +177,65 @@ const mockCompatibilityCentralSkills: ScannedSkill[] = [
   },
 ];
 
-const mockDuplicateClaudeSkills: ScannedSkill[] = [
+const mockDuplicatePlatformSkills: ScannedSkill[] = [
   {
     id: "shared-skill",
-    row_id: "claude-code::user::shared-skill",
+    row_id: "claude-code::shared-skill",
     name: "shared-skill",
-    description: "User-source copy",
+    description: "Platform copy",
     file_path: "~/.claude/skills/shared-skill/SKILL.md",
     dir_path: "~/.claude/skills/shared-skill",
     link_type: "native",
     is_central: false,
-    source_kind: "user",
-    source_root: "~/.claude/skills",
+    source_kind: null,
+    source_root: null,
     is_read_only: false,
     conflict_count: 2,
   },
   {
     id: "shared-skill",
-    row_id: "claude-code::plugin::shared-skill",
+    row_id: "claude-code::compatibility::shared-skill",
     name: "shared-skill",
-    description: "Plugin copy",
-    file_path: "~/.claude/plugins/cache/publisher/plugin-a/1.0.0/skills/shared-skill/SKILL.md",
-    dir_path: "~/.claude/plugins/cache/publisher/plugin-a/1.0.0/skills/shared-skill",
+    description: "Shared Hub visible copy",
+    file_path: "~/.agents/skills/shared-skill/SKILL.md",
+    dir_path: "~/.agents/skills/shared-skill",
     link_type: "native",
     is_central: false,
-    source_kind: "plugin",
-    source_root: "~/.claude/plugins/cache/publisher/plugin-a/1.0.0",
+    source_kind: "compatibility",
+    source_root: "~/.agents/skills",
     is_read_only: true,
     conflict_count: 2,
   },
 ];
 
-const mockDuplicateClaudeSkillsWithDistinctIds: ScannedSkill[] = [
+const mockDuplicatePlatformSkillsWithDistinctIds: ScannedSkill[] = [
   {
     id: "shared-skill-id",
-    row_id: "claude-code::user::shared-skill-id",
+    row_id: "claude-code::shared-skill-id",
     name: "Shared skill",
-    description: "User-source copy",
+    description: "Platform copy",
     file_path: "~/.claude/skills/shared-skill/SKILL.md",
     dir_path: "~/.claude/skills/shared-skill",
     link_type: "native",
     is_central: false,
-    source_kind: "user",
-    source_root: "~/.claude/skills",
+    source_kind: null,
+    source_root: null,
     is_read_only: false,
     conflict_count: 2,
   },
   {
     id: "shared-skill-id",
-    row_id: "claude-code::plugin::shared-skill-id",
+    row_id: "claude-code::compatibility::shared-skill-id",
     name: "Shared skill",
-    description: "Plugin copy",
-    file_path: "~/.claude/plugins/cache/publisher/plugin-a/1.0.0/skills/shared-skill/SKILL.md",
-    dir_path: "~/.claude/plugins/cache/publisher/plugin-a/1.0.0/skills/shared-skill",
+    description: "Shared Hub visible copy",
+    file_path: "~/.agents/skills/shared-skill/SKILL.md",
+    dir_path: "~/.agents/skills/shared-skill",
     link_type: "native",
     is_central: false,
-    source_kind: "plugin",
-    source_root: "~/.claude/plugins/cache/publisher/plugin-a/1.0.0",
+    source_kind: "compatibility",
+    source_root: "~/.agents/skills",
     is_read_only: true,
     conflict_count: 2,
-  },
-];
-
-const mockClaudePluginSliceDuplicates: ScannedSkill[] = [
-  {
-    id: "shared-skill",
-    row_id: "claude-code::user::shared-skill",
-    name: "shared-skill",
-    description: "User-source copy",
-    file_path: "~/.claude/skills/shared-skill/SKILL.md",
-    dir_path: "~/.claude/skills/shared-skill",
-    link_type: "native",
-    is_central: false,
-    source_kind: "user",
-    source_root: "~/.claude/skills",
-    is_read_only: false,
-    conflict_count: 3,
-  },
-  {
-    id: "shared-skill",
-    row_id: "claude-code::plugin::publisher-a::shared-skill",
-    name: "shared-skill",
-    description: "Plugin A copy",
-    file_path: "~/.claude/plugins/cache/publisher-a/plugin-a/1.0.0/skills/shared-skill/SKILL.md",
-    dir_path: "~/.claude/plugins/cache/publisher-a/plugin-a/1.0.0/skills/shared-skill",
-    link_type: "native",
-    is_central: false,
-    source_kind: "plugin",
-    source_root: "~/.claude/plugins/cache/publisher-a/plugin-a/1.0.0",
-    is_read_only: true,
-    conflict_count: 3,
-  },
-  {
-    id: "shared-skill",
-    row_id: "claude-code::plugin::publisher-b::shared-skill",
-    name: "shared-skill",
-    description: "Plugin B copy",
-    file_path: "~/.claude/plugins/cache/publisher-b/plugin-b/2.0.0/.claude/skills/shared-skill/SKILL.md",
-    dir_path: "~/.claude/plugins/cache/publisher-b/plugin-b/2.0.0/.claude/skills/shared-skill",
-    link_type: "native",
-    is_central: false,
-    source_kind: "plugin",
-    source_root: "~/.claude/plugins/cache/publisher-b/plugin-b/2.0.0",
-    is_read_only: true,
-    conflict_count: 3,
   },
 ];
 
@@ -425,7 +366,6 @@ describe("PlatformView", () => {
     const projectAgent: AgentWithStatus = {
       id: "project:1",
       display_name: "temp",
-      category: "project",
       global_skills_dir: "/Users/test/Projects/temp/.agents/skills",
       project_skills_dir: ".agents/skills",
       is_detected: true,
@@ -624,7 +564,6 @@ describe("PlatformView", () => {
     const antigravityAgent: AgentWithStatus = {
       id: "antigravity",
       display_name: "Antigravity",
-      category: "coding",
       global_skills_dir: "/Users/test/.agents/skills/",
       is_detected: true,
       is_builtin: true,
@@ -839,10 +778,10 @@ describe("PlatformView", () => {
     expect(screen.getByText("drawer-skill:frontend-design")).toBeInTheDocument();
   });
 
-  it("passes Claude row identity into the drawer when duplicate platform rows share a skill id", async () => {
+  it("passes row identity into the drawer when duplicate platform rows share a skill id", async () => {
     mockUseSkillStore.mockImplementation((selector?: unknown) => {
       const state = buildSkillStoreState({
-        skillsByAgent: { "claude-code": mockDuplicateClaudeSkills },
+        skillsByAgent: { "claude-code": mockDuplicatePlatformSkills },
       });
       if (typeof selector === "function") return selector(state);
       return state;
@@ -862,14 +801,14 @@ describe("PlatformView", () => {
     expect(screen.getByText("drawer-skill:shared-skill")).toBeInTheDocument();
     expect(screen.getByText("drawer-agent:claude-code")).toBeInTheDocument();
     expect(
-      screen.getByText("drawer-row:claude-code::plugin::shared-skill")
+      screen.getByText("drawer-row:claude-code::compatibility::shared-skill")
     ).toBeInTheDocument();
   });
 
-  it("shows duplicate Claude rows with explicit source markers and read-only list treatment", () => {
+  it("shows duplicate platform rows with compatibility markers and read-only list treatment", () => {
     mockUseSkillStore.mockImplementation((selector?: unknown) => {
       const state = buildSkillStoreState({
-        skillsByAgent: { "claude-code": mockDuplicateClaudeSkills },
+        skillsByAgent: { "claude-code": mockDuplicatePlatformSkills },
       });
       if (typeof selector === "function") return selector(state);
       return state;
@@ -879,13 +818,10 @@ describe("PlatformView", () => {
 
     expect(screen.getAllByRole("button", { name: /查看 shared-skill 的详情/i })).toHaveLength(2);
 
-    const [pluginBadge] = getCardBadgeMatches(pluginSourceText);
-    const [readOnlyBadge] = getCardBadgeMatches(readOnlyText);
-    expect(getCardBadgeMatches(userSourceText)).toHaveLength(0);
+    const compatibilityBadge = screen.getByText(/共享中心可见|Seen from Shared Hub/i);
 
-    expect(pluginBadge).toBeDefined();
-    expect(readOnlyBadge).toBeDefined();
-    const pluginCard = pluginBadge.closest("tr");
+    expect(compatibilityBadge).toBeDefined();
+    const pluginCard = compatibilityBadge.closest("tr");
     const userCard = screen
       .getAllByRole("button", { name: /查看 shared-skill 的详情/i })
       .map((button) => button.closest("tr"))
@@ -893,7 +829,6 @@ describe("PlatformView", () => {
 
     expect(userCard).not.toBeNull();
     expect(pluginCard).not.toBeNull();
-    expect(readOnlyBadge.closest("tr")).toBe(pluginCard);
 
     if (!userCard || !pluginCard) {
       return;
@@ -983,140 +918,6 @@ describe("PlatformView", () => {
     expect(screen.queryByRole("button", { name: /全选可见|Select visible/ })).not.toBeInTheDocument();
   });
 
-  it("shows Claude-only source tabs with 全部 selected by default", () => {
-    mockUseSkillStore.mockImplementation((selector?: unknown) => {
-      const state = buildSkillStoreState({
-        skillsByAgent: { "claude-code": mockClaudePluginSliceDuplicates },
-      });
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
-    renderPlatformView();
-
-    expect(screen.getByRole("tab", { name: claudeTabName("全部", 3) })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: claudeTabName("用户目录", 1) })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: claudeTabName("插件", 2) })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /查看 shared-skill 的详情/i })).toHaveLength(3);
-  });
-
-  it("filters Claude rows by the active source tab and keeps duplicate rows visible inside the selected slice", async () => {
-    mockUseSkillStore.mockImplementation((selector?: unknown) => {
-      const state = buildSkillStoreState({
-        skillsByAgent: { "claude-code": mockClaudePluginSliceDuplicates },
-      });
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
-    renderPlatformView();
-
-    fireEvent.click(screen.getByRole("tab", { name: claudeTabName("插件", 2) }));
-
-    await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /查看 shared-skill 的详情/i })).toHaveLength(2);
-    });
-
-    expect(getCardBadgeMatches(userSourceText)).toHaveLength(0);
-    expect(getCardBadgeMatches(pluginSourceText)).toHaveLength(2);
-    expect(getCardBadgeMatches(readOnlyText)).toHaveLength(2);
-
-    fireEvent.click(screen.getByRole("tab", { name: claudeTabName("用户目录", 1) }));
-
-    await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /查看 shared-skill 的详情/i })).toHaveLength(1);
-    });
-
-    expect(getCardBadgeMatches(userSourceText)).toHaveLength(0);
-    expect(getCardBadgeMatches(pluginSourceText)).toHaveLength(0);
-    expect(getCardBadgeMatches(readOnlyText)).toHaveLength(0);
-  });
-
-  it("searches only inside the active Claude source tab", async () => {
-    mockUseSkillStore.mockImplementation((selector?: unknown) => {
-      const state = buildSkillStoreState({
-        skillsByAgent: { "claude-code": mockClaudePluginSliceDuplicates },
-      });
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
-    renderPlatformView();
-
-    fireEvent.click(screen.getByRole("tab", { name: claudeTabName("用户目录", 1) }));
-    fireEvent.change(screen.getByPlaceholderText(/搜索技能/), {
-      target: { value: "shared-skill" },
-    });
-
-    await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /查看 shared-skill 的详情/i })).toHaveLength(1);
-    });
-
-    expect(getCardBadgeMatches(userSourceText)).toHaveLength(0);
-    expect(getCardBadgeMatches(pluginSourceText)).toHaveLength(0);
-    expect(getCardBadgeMatches(readOnlyText)).toHaveLength(0);
-  });
-
-  it("searching by duplicated Claude skill id keeps both source rows and badges visible", async () => {
-    mockUseSkillStore.mockImplementation((selector?: unknown) => {
-      const state = buildSkillStoreState({
-        skillsByAgent: { "claude-code": mockDuplicateClaudeSkillsWithDistinctIds },
-      });
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
-    renderPlatformView();
-
-    fireEvent.change(screen.getByPlaceholderText(/搜索技能/), {
-      target: { value: "shared-skill-id" },
-    });
-
-    await waitFor(() => {
-      expect(
-        screen.getAllByRole("button", { name: /查看 Shared skill 的详情/i })
-      ).toHaveLength(2);
-    });
-
-    expect(getCardBadgeMatches(userSourceText)).toHaveLength(0);
-    expect(getCardBadgeMatches(pluginSourceText)).toHaveLength(1);
-    expect(getCardBadgeMatches(readOnlyText)).toHaveLength(1);
-  });
-
-  it("does not render Claude source tabs on non-Claude platform pages", () => {
-    mockUsePlatformStore.mockImplementation((selector?: unknown) => {
-      const state = buildPlatformStoreState({
-        agents: [mockAgent, mockCursorAgent],
-        skillsByAgent: {
-          "claude-code": mockSkills.length,
-          cursor: mockCursorSkills.length,
-        },
-      });
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-    mockUseSkillStore.mockImplementation((selector?: unknown) => {
-      const state = buildSkillStoreState({
-        skillsByAgent: {
-          "claude-code": mockSkills,
-          cursor: mockCursorSkills,
-        },
-        loadingByAgent: {
-          "claude-code": false,
-          cursor: false,
-        },
-      });
-      if (typeof selector === "function") return selector(state);
-      return state;
-    });
-
-    renderPlatformView("cursor");
-
-    expect(screen.queryByRole("tab", { name: claudeTabName("全部") })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: claudeTabName("用户目录") })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: claudeTabName("插件") })).not.toBeInTheDocument();
-  });
-
   it("preserves platform search and scroll state when closing the drawer and restores focus", async () => {
     renderPlatformView();
 
@@ -1146,10 +947,10 @@ describe("PlatformView", () => {
     expect(trigger).toHaveFocus();
   });
 
-  it("restores focus to the originating duplicate Claude row trigger", async () => {
+  it("restores focus to the originating duplicate platform row trigger", async () => {
     mockUseSkillStore.mockImplementation((selector?: unknown) => {
       const state = buildSkillStoreState({
-        skillsByAgent: { "claude-code": mockDuplicateClaudeSkills },
+        skillsByAgent: { "claude-code": mockDuplicatePlatformSkills },
       });
       if (typeof selector === "function") return selector(state);
       return state;
@@ -1175,13 +976,13 @@ describe("PlatformView", () => {
     expect(userTrigger).toHaveFocus();
   });
 
-  it("re-fetches the live Claude list after a scan generation change and removes stale duplicate rows without clearing the search query", async () => {
+  it("re-fetches the live platform list after a scan generation change and removes stale duplicate rows without clearing the search query", async () => {
     let platformState = buildPlatformStoreState({
       scanGeneration: 1,
       skillsByAgent: { "claude-code": 2 },
     });
     let skillState = buildSkillStoreState({
-      skillsByAgent: { "claude-code": mockDuplicateClaudeSkillsWithDistinctIds },
+      skillsByAgent: { "claude-code": mockDuplicatePlatformSkillsWithDistinctIds },
     });
 
     mockUsePlatformStore.mockImplementation((selector?: unknown) => {
@@ -1213,7 +1014,7 @@ describe("PlatformView", () => {
     skillState = buildSkillStoreState({
       skillsByAgent: {
         "claude-code": [
-          mockDuplicateClaudeSkillsWithDistinctIds[1],
+          mockDuplicatePlatformSkillsWithDistinctIds[1],
           {
             id: "other-skill",
             name: "Other skill",
@@ -1222,8 +1023,8 @@ describe("PlatformView", () => {
             dir_path: "~/.claude/skills/other-skill",
             link_type: "native",
             is_central: false,
-            source_kind: "user",
-            source_root: "~/.claude/skills",
+            source_kind: null,
+            source_root: null,
             is_read_only: false,
           },
         ],
@@ -1246,9 +1047,6 @@ describe("PlatformView", () => {
     expect(
       screen.getAllByRole("button", { name: /查看 Shared skill 的详情/i })
     ).toHaveLength(1);
-    expect(getCardBadgeMatches(userSourceText)).toHaveLength(0);
-    expect(getCardBadgeMatches(pluginSourceText)).toHaveLength(1);
-    expect(getCardBadgeMatches(readOnlyText)).toHaveLength(1);
     expect(screen.queryByText("Other skill")).not.toBeInTheDocument();
   });
 

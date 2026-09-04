@@ -98,7 +98,6 @@ pub struct Agent {
     pub category: String,
     pub global_skills_dir: String,
     pub project_skills_dir: Option<String>,
-    pub icon_name: Option<String>,
     pub is_detected: bool,
     pub is_builtin: bool,
     pub is_enabled: bool,
@@ -335,7 +334,6 @@ pub async fn init_schema(pool: &DbPool) -> Result<(), String> {
             category           TEXT NOT NULL,
             global_skills_dir  TEXT NOT NULL,
             project_skills_dir TEXT,
-            icon_name          TEXT,
             is_detected        BOOLEAN NOT NULL DEFAULT 0,
             is_builtin         BOOLEAN NOT NULL DEFAULT 1,
             is_enabled         BOOLEAN NOT NULL DEFAULT 1
@@ -398,48 +396,6 @@ pub async fn init_schema(pool: &DbPool) -> Result<(), String> {
     .await
     .map_err(|e| e.to_string())?;
 
-    // skill_registries table — remote skill sources (marketplace)
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS skill_registries (
-            id          TEXT PRIMARY KEY,
-            name        TEXT NOT NULL,
-            source_type TEXT NOT NULL,
-            url         TEXT NOT NULL,
-            is_builtin  BOOLEAN NOT NULL DEFAULT 0,
-            is_enabled  BOOLEAN NOT NULL DEFAULT 1,
-            last_synced TEXT,
-            last_attempted_sync TEXT,
-            last_sync_status TEXT NOT NULL DEFAULT 'never',
-            last_sync_error TEXT,
-            cache_updated_at TEXT,
-            cache_expires_at TEXT,
-            etag TEXT,
-            last_modified TEXT,
-            created_at  TEXT NOT NULL
-        )",
-    )
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    // marketplace_skills table — cached remote skill metadata
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS marketplace_skills (
-            id           TEXT PRIMARY KEY,
-            registry_id  TEXT NOT NULL,
-            name         TEXT NOT NULL,
-            description  TEXT,
-            download_url TEXT NOT NULL,
-            is_installed BOOLEAN NOT NULL DEFAULT 0,
-            synced_at    TEXT NOT NULL,
-            cache_updated_at TEXT,
-            FOREIGN KEY (registry_id) REFERENCES skill_registries(id)
-        )",
-    )
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
     // skill_explanations table — cached AI-generated skill explanations
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS skill_explanations (
@@ -455,63 +411,6 @@ pub async fn init_schema(pool: &DbPool) -> Result<(), String> {
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
-
-    ensure_column(
-        pool,
-        "skill_registries",
-        "last_attempted_sync",
-        "ALTER TABLE skill_registries ADD COLUMN last_attempted_sync TEXT",
-    )
-    .await?;
-    ensure_column(
-        pool,
-        "skill_registries",
-        "last_sync_status",
-        "ALTER TABLE skill_registries ADD COLUMN last_sync_status TEXT NOT NULL DEFAULT 'never'",
-    )
-    .await?;
-    ensure_column(
-        pool,
-        "skill_registries",
-        "last_sync_error",
-        "ALTER TABLE skill_registries ADD COLUMN last_sync_error TEXT",
-    )
-    .await?;
-    ensure_column(
-        pool,
-        "skill_registries",
-        "cache_updated_at",
-        "ALTER TABLE skill_registries ADD COLUMN cache_updated_at TEXT",
-    )
-    .await?;
-    ensure_column(
-        pool,
-        "skill_registries",
-        "cache_expires_at",
-        "ALTER TABLE skill_registries ADD COLUMN cache_expires_at TEXT",
-    )
-    .await?;
-    ensure_column(
-        pool,
-        "skill_registries",
-        "etag",
-        "ALTER TABLE skill_registries ADD COLUMN etag TEXT",
-    )
-    .await?;
-    ensure_column(
-        pool,
-        "skill_registries",
-        "last_modified",
-        "ALTER TABLE skill_registries ADD COLUMN last_modified TEXT",
-    )
-    .await?;
-    ensure_column(
-        pool,
-        "marketplace_skills",
-        "cache_updated_at",
-        "ALTER TABLE marketplace_skills ADD COLUMN cache_updated_at TEXT",
-    )
-    .await?;
 
     Ok(())
 }
@@ -589,7 +488,7 @@ async fn seed_builtin_agents(pool: &DbPool) -> Result<(), String> {
 async fn merge_db_custom_platforms_into_catalog(pool: &DbPool) -> Result<(), String> {
     let agents = get_all_agents(pool).await?;
     for agent in agents {
-        if agent.is_builtin || agent.category == "project" || agent.id.starts_with("project:") {
+        if agent.is_builtin || agent.id.starts_with("project:") {
             continue;
         }
         crate::platforms::persist_platform_edit(&agent)?;
@@ -608,15 +507,14 @@ async fn seed_builtin_agents_from(
         sqlx::query(
             "INSERT OR IGNORE INTO agents
              (id, display_name, category, global_skills_dir, project_skills_dir,
-              icon_name, is_detected, is_builtin, is_enabled)
-             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
+              is_detected, is_builtin, is_enabled)
+             VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
         )
         .bind(&agent.id)
         .bind(&agent.display_name)
         .bind(&agent.category)
         .bind(&agent.global_skills_dir)
         .bind(&agent.project_skills_dir)
-        .bind(&agent.icon_name)
         .bind(agent.is_builtin)
         .bind(agent.is_enabled)
         .execute(pool)
@@ -627,14 +525,13 @@ async fn seed_builtin_agents_from(
             sqlx::query(
                 "UPDATE agents
                  SET display_name = ?, category = ?, global_skills_dir = ?,
-                     project_skills_dir = ?, icon_name = ?, is_enabled = ?, is_builtin = ?
+                     project_skills_dir = ?, is_enabled = ?, is_builtin = ?
                  WHERE id = ?",
             )
             .bind(&agent.display_name)
             .bind(&agent.category)
             .bind(&agent.global_skills_dir)
             .bind(&agent.project_skills_dir)
-            .bind(&agent.icon_name)
             .bind(agent.is_enabled)
             .bind(agent.is_builtin)
             .bind(&agent.id)
@@ -708,33 +605,6 @@ async fn seed_builtin_scan_directories(pool: &DbPool) -> Result<(), String> {
                 .await
                 .map_err(|e| e.to_string())?;
         }
-    }
-
-    Ok(())
-}
-
-async fn ensure_column(
-    pool: &DbPool,
-    table: &str,
-    column: &str,
-    alter_sql: &str,
-) -> Result<(), String> {
-    let pragma = format!("PRAGMA table_info({table})");
-    let rows = sqlx::query(&pragma)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let has_column = rows.iter().any(|row| {
-        use sqlx::Row;
-        row.get::<String, _>("name") == column
-    });
-
-    if !has_column {
-        sqlx::query(alter_sql)
-            .execute(pool)
-            .await
-            .map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -1219,7 +1089,7 @@ pub async fn delete_skill(pool: &DbPool, skill_id: &str) -> Result<(), String> {
 pub async fn delete_central_skill_records(
     pool: &DbPool,
     skill_id: &str,
-    skill_name: &str,
+    _skill_name: &str,
 ) -> Result<(), String> {
     sqlx::query("DELETE FROM skill_installations WHERE skill_id = ?")
         .bind(skill_id)
@@ -1251,18 +1121,6 @@ pub async fn delete_central_skill_records(
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
-    sqlx::query(
-        "UPDATE marketplace_skills
-         SET is_installed = 0
-         WHERE name = ? OR name = ? OR id = ? OR id LIKE ?",
-    )
-    .bind(skill_name)
-    .bind(skill_id)
-    .bind(skill_id)
-    .bind(format!("%::{}", skill_id))
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
     sqlx::query("DELETE FROM skills WHERE id = ?")
         .bind(skill_id)
         .execute(pool)
@@ -1275,7 +1133,7 @@ pub async fn delete_central_skill_records(
 pub async fn delete_skill_owned_records(
     pool: &DbPool,
     skill_id: &str,
-    skill_name: &str,
+    _skill_name: &str,
 ) -> Result<(), String> {
     sqlx::query("DELETE FROM skill_installations WHERE skill_id = ?")
         .bind(skill_id)
@@ -1307,18 +1165,6 @@ pub async fn delete_skill_owned_records(
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
-    sqlx::query(
-        "UPDATE marketplace_skills
-         SET is_installed = 0
-         WHERE name = ? OR name = ? OR id = ? OR id LIKE ?",
-    )
-    .bind(skill_name)
-    .bind(skill_id)
-    .bind(skill_id)
-    .bind(format!("%::{}", skill_id))
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
     sqlx::query("DELETE FROM skills WHERE id = ?")
         .bind(skill_id)
         .execute(pool)
@@ -1748,15 +1594,14 @@ pub async fn insert_custom_agent(pool: &DbPool, agent: &Agent) -> Result<(), Str
     sqlx::query(
         "INSERT INTO agents
          (id, display_name, category, global_skills_dir, project_skills_dir,
-          icon_name, is_detected, is_builtin, is_enabled)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1)",
+          is_detected, is_builtin, is_enabled)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 1)",
     )
     .bind(&agent.id)
     .bind(&agent.display_name)
     .bind(&agent.category)
     .bind(&agent.global_skills_dir)
     .bind(&agent.project_skills_dir)
-    .bind(&agent.icon_name)
     .bind(agent.is_detected)
     .execute(pool)
     .await
@@ -1788,23 +1633,19 @@ pub async fn update_custom_agent(
     pool: &DbPool,
     agent_id: &str,
     display_name: &str,
-    category: &str,
     global_skills_dir: &str,
 ) -> Result<Agent, String> {
     let _agent = get_agent_by_id(pool, agent_id)
         .await?
         .ok_or_else(|| format!("Agent '{}' not found", agent_id))?;
 
-    sqlx::query(
-        "UPDATE agents SET display_name = ?, category = ?, global_skills_dir = ? WHERE id = ?",
-    )
-    .bind(display_name)
-    .bind(category)
-    .bind(global_skills_dir)
-    .bind(agent_id)
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE agents SET display_name = ?, global_skills_dir = ? WHERE id = ?")
+        .bind(display_name)
+        .bind(global_skills_dir)
+        .bind(agent_id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let updated = get_agent_by_id(pool, agent_id)
         .await?
@@ -2189,7 +2030,6 @@ mod tests {
         prepare_config_dir(dir.path()).await.unwrap();
 
         assert!(dir.path().join("platform/platform.json").exists());
-        assert!(dir.path().join("platform/icons/claude-code.svg").exists());
         assert!(dir.path().join("library/.keep").exists());
         assert!(dir.path().join("db.sqlite").exists());
 
@@ -2253,7 +2093,7 @@ mod tests {
             &pool,
             &SkillSource {
                 skill_id: "ask-matt".to_string(),
-                source_type: "skills-cli".to_string(),
+                source_type: "github".to_string(),
                 source_url: Some("mattpocock/skills".to_string()),
                 source_author: Some("skills@1.0.0".to_string()),
                 source_repo: Some("mattpocock/skills".to_string()),
@@ -2265,7 +2105,7 @@ mod tests {
         .unwrap();
         let sync = SkillSourceSync {
             skill_id: "ask-matt".to_string(),
-            sync_scope: "repo".to_string(),
+            sync_scope: "github-repository".to_string(),
             remote_ref: Some("abc123".to_string()),
             skill_fingerprint: Some("hash-a".to_string()),
             last_checked_at: Some(now.clone()),
@@ -2281,7 +2121,7 @@ mod tests {
             .await
             .unwrap()
             .expect("sync row");
-        assert_eq!(stored.sync_scope, "repo");
+        assert_eq!(stored.sync_scope, "github-repository");
         assert_eq!(stored.remote_ref.as_deref(), Some("abc123"));
         assert!(!stored.remote_deleted);
 
@@ -2373,7 +2213,7 @@ mod tests {
         assert!(ids.contains(&"copilot"));
         assert!(ids.contains(&"warp"));
         assert!(ids.contains(&"aider"));
-        // Lobster platforms
+        // Additional supported platforms
         assert!(ids.contains(&"openclaw"));
         assert!(ids.contains(&"qclaw"));
         assert!(ids.contains(&"easyclaw"));
@@ -2896,7 +2736,7 @@ mod tests {
         assert!(agent.is_some());
         let a = agent.unwrap();
         assert_eq!(a.display_name, "Claude Code");
-        assert_eq!(a.category, "coding");
+        assert_eq!(a.category, "platform");
         assert!(a.is_builtin);
     }
 
@@ -2925,10 +2765,9 @@ mod tests {
         let custom = Agent {
             id: "my-custom-agent".to_string(),
             display_name: "My Custom Agent".to_string(),
-            category: "other".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: "/tmp/custom/skills".to_string(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -2956,10 +2795,9 @@ mod tests {
         let custom = Agent {
             id: "deletable-agent".to_string(),
             display_name: "Deletable".to_string(),
-            category: "other".to_string(),
+            category: "platform".to_string(),
             global_skills_dir: "/tmp/deletable/skills".to_string(),
             project_skills_dir: None,
-            icon_name: None,
             is_detected: false,
             is_builtin: false,
             is_enabled: true,
@@ -3032,10 +2870,10 @@ mod tests {
             .unwrap()
             .expect("WorkBuddy agent should exist");
         assert_eq!(wb.display_name, "WorkBuddy");
+        let workbuddy_path = wb.global_skills_dir.replace('\\', "/");
         assert!(
-            wb.global_skills_dir
-                .contains(".workbuddy/skills-marketplace/skills"),
-            "WorkBuddy should scan ~/.workbuddy/skills-marketplace/skills, got: {}",
+            workbuddy_path.contains(".workbuddy/skills"),
+            "WorkBuddy should scan ~/.workbuddy/skills, got: {}",
             wb.global_skills_dir
         );
     }
@@ -3048,9 +2886,10 @@ mod tests {
             .unwrap()
             .expect("AutoClaw agent should exist");
         assert_eq!(ac.display_name, "AutoClaw");
-        assert_eq!(ac.category, "lobster");
+        assert_eq!(ac.category, "platform");
+        let autoclaw_path = ac.global_skills_dir.replace('\\', "/");
         assert!(
-            ac.global_skills_dir.contains(".openclaw-autoclaw/skills"),
+            autoclaw_path.contains(".openclaw-autoclaw/skills"),
             "AutoClaw should scan ~/.openclaw-autoclaw/skills, got: {}",
             ac.global_skills_dir
         );

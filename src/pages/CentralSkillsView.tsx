@@ -32,7 +32,10 @@ import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
 import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
 import { formatPathForDisplay } from "@/lib/path";
 import { buildSearchText, normalizeSearchQuery } from "@/lib/search";
-import { dirnameFromSkillFile, splitSkillsByTopLevel } from "@/lib/skillFolders";
+import {
+  splitResourceLibrarySkillsByFolder,
+  type SkillFolderGroup,
+} from "@/lib/skillFolders";
 import {
   getFolderSortTimestamp,
   sortBySkillBrowserOrder,
@@ -46,7 +49,6 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
     id: "claude-code",
     display_name: "Claude Code",
-    category: "coding",
     global_skills_dir: "/Users/browser/.claude/skills/",
     is_detected: true,
     is_builtin: true,
@@ -55,7 +57,6 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
     id: "cursor",
     display_name: "Cursor",
-    category: "coding",
     global_skills_dir: "/Users/browser/.cursor/skills/",
     is_detected: true,
     is_builtin: true,
@@ -64,7 +65,6 @@ const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
   {
     id: "central",
     display_name: "Shared Hub",
-    category: "central",
     global_skills_dir: "/Users/browser/.agents/skills/",
     is_detected: true,
     is_builtin: true,
@@ -247,6 +247,8 @@ export function CentralSkillsView() {
     useState<SkillWithLinks | null>(null);
   const [deleteTargetBundle, setDeleteTargetBundle] =
     useState<CentralSkillBundle | null>(null);
+  const [deletingFolderGroupPath, setDeletingFolderGroupPath] =
+    useState<string | null>(null);
   const [activeFolderKey, setActiveFolderKey] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [drawerSkillId, setDrawerSkillId] = useState<string | null>(null);
@@ -263,38 +265,43 @@ export function CentralSkillsView() {
     [effectiveSearchQuery]
   );
   const centralFolderSplit = useMemo(
-    () =>
-      splitSkillsByTopLevel({
-        skills,
-        rootPath: centralSkillsRoot,
-        getDirPaths: (skill) => [
-          skill.canonical_path,
-          dirnameFromSkillFile(skill.file_path),
-        ],
-        getLinkedAgentIds: (skill) => skill.linked_agents,
-        getReadOnlyAgentIds: (skill) => skill.read_only_agents ?? [],
-      }),
-    [centralSkillsRoot, skills]
+    () => splitResourceLibrarySkillsByFolder(skills, centralAgentDir),
+    [centralAgentDir, skills]
   );
   const centralFolderGroupsByPath = useMemo(
     () =>
       new Map(
-        centralFolderSplit.groups.map((group) => [
-          group.relativePath,
-          group,
-        ])
+        [
+          ...centralFolderSplit.groups,
+          ...bundles
+            .filter(
+              (bundle) =>
+                !centralFolderSplit.groups.some(
+                  (group) =>
+                    group.relativePath === bundle.relativePath ||
+                    group.path === bundle.path
+                )
+            )
+            .map((bundle) => ({
+              name: bundle.name,
+              relativePath: bundle.relativePath,
+              path: bundle.path,
+              skillCount: bundle.skillCount,
+              linkedAgentIds: [],
+              readOnlyAgentIds: [],
+              linkedAgentCount: bundle.linkedAgentCount,
+              readOnlyAgentCount: bundle.readOnlyAgentCount,
+              skills: [],
+            })),
+        ].map((group) => [group.relativePath, group])
       ),
-    [centralFolderSplit.groups]
+    [bundles, centralFolderSplit.groups]
   );
   const activeFolderGroup = activeFolderKey
     ? centralFolderGroupsByPath.get(activeFolderKey) ?? null
     : null;
-  const activeBundle = activeFolderKey
-    ? bundles.find((bundle) => bundle.relativePath === activeFolderKey) ?? null
-    : null;
   const isFolderOpen = viewMode === "folders" && activeFolderKey !== null;
-  const activeFolderName =
-    activeFolderGroup?.name ?? activeBundle?.name ?? activeFolderKey;
+  const activeFolderName = activeFolderGroup?.name ?? activeFolderKey;
   const searchableSkills = useMemo(() => {
     const visibleSkills =
       viewMode === "folders"
@@ -314,7 +321,7 @@ export function CentralSkillsView() {
           skill.source_repo,
         ]),
       }));
-  }, [activeFolderGroup?.skills, centralFolderSplit.rootSkills, isFolderOpen, skills, viewMode]);
+  }, [activeFolderGroup?.skills, isFolderOpen, skills, viewMode]);
   const availableTags = useMemo(() => {
     const tags = new Map<string, string>();
     for (const skill of skills) {
@@ -351,22 +358,21 @@ export function CentralSkillsView() {
       .map(({ skill }) => skill);
   }, [normalizedSearchQuery, searchableSkills, selectedTag]);
 
-  const filteredBundles = useMemo(() => {
+  const filteredFolderGroups = useMemo(() => {
     if (viewMode !== "folders" || isFolderOpen) return [];
-    return bundles.filter((bundle) => {
-      const group = centralFolderGroupsByPath.get(bundle.relativePath);
+    return [...centralFolderGroupsByPath.values()].filter((group) => {
       if (selectedTag) {
         const hasSelectedTag =
-          group?.skills.some((skill) =>
+          group.skills.some((skill) =>
             (skill.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag)
-          ) ?? false;
+          );
         if (!hasSelectedTag) return false;
       }
       if (!normalizedSearchQuery) return true;
-      const bundleSearchText = buildSearchText([bundle.name, bundle.relativePath, bundle.path]);
-      if (bundleSearchText.includes(normalizedSearchQuery)) return true;
+      const folderSearchText = buildSearchText([group.name, group.relativePath, group.path]);
+      if (folderSearchText.includes(normalizedSearchQuery)) return true;
       return (
-        group?.skills.some((skill) =>
+        group.skills.some((skill) =>
           buildSearchText([
             skill.name,
             skill.description,
@@ -375,18 +381,24 @@ export function CentralSkillsView() {
             skill.source_author,
             skill.source_repo,
           ]).includes(normalizedSearchQuery)
-        ) ?? false
+        )
       );
     });
-  }, [bundles, centralFolderGroupsByPath, isFolderOpen, normalizedSearchQuery, selectedTag, viewMode]);
+  }, [
+    centralFolderGroupsByPath,
+    isFolderOpen,
+    normalizedSearchQuery,
+    selectedTag,
+    viewMode,
+  ]);
 
   const sortedSkills = useMemo(() => {
     return sortBySkillBrowserOrder(filteredSkills, sortField, sortDirection);
   }, [filteredSkills, sortDirection, sortField]);
 
-  const sortedBundles = useMemo(() => {
+  const sortedFolderGroups = useMemo(() => {
     const multiplier = sortDirection === "asc" ? 1 : -1;
-    return [...filteredBundles].sort((a, b) => {
+    return [...filteredFolderGroups].sort((a, b) => {
       const nameComparison = a.name.localeCompare(b.name, undefined, {
         numeric: true,
         sensitivity: "base",
@@ -397,14 +409,12 @@ export function CentralSkillsView() {
       if (sortField === "source") {
         return nameComparison * multiplier;
       }
-      const aGroup = centralFolderGroupsByPath.get(a.relativePath);
-      const bGroup = centralFolderGroupsByPath.get(b.relativePath);
       const timeComparison =
-        (aGroup ? getFolderSortTimestamp(aGroup, sortField) : 0) -
-        (bGroup ? getFolderSortTimestamp(bGroup, sortField) : 0);
+        getFolderSortTimestamp(a, sortField) -
+        getFolderSortTimestamp(b, sortField);
       return timeComparison === 0 ? nameComparison : timeComparison * multiplier;
     });
-  }, [centralFolderGroupsByPath, filteredBundles, sortDirection, sortField]);
+  }, [filteredFolderGroups, sortDirection, sortField]);
 
   useEffect(() => {
     if (viewMode === "all") {
@@ -413,12 +423,11 @@ export function CentralSkillsView() {
     }
     if (
       activeFolderKey &&
-      !centralFolderGroupsByPath.has(activeFolderKey) &&
-      !bundles.some((bundle) => bundle.relativePath === activeFolderKey)
+      !centralFolderGroupsByPath.has(activeFolderKey)
     ) {
       setActiveFolderKey(null);
     }
-  }, [activeFolderKey, bundles, centralFolderGroupsByPath, viewMode]);
+  }, [activeFolderKey, centralFolderGroupsByPath, viewMode]);
 
   useEffect(() => {
     if (!isSearchActive || !contentRef.current) return;
@@ -432,6 +441,16 @@ export function CentralSkillsView() {
 
   function linkedAgentNames(skill: SkillWithLinks): string[] {
     return agentDisplayNames([...skill.linked_agents, ...(skill.read_only_agents ?? [])]);
+  }
+
+  function findBundleForFolderGroup(
+    group: SkillFolderGroup<SkillWithLinks>
+  ): CentralSkillBundle | null {
+    return (
+      bundles.find((bundle) => bundle.relativePath === group.relativePath) ??
+      bundles.find((bundle) => bundle.path === group.path) ??
+      null
+    );
   }
 
   function setDetailButtonRef(skillId: string, node: HTMLButtonElement | null) {
@@ -500,6 +519,15 @@ export function CentralSkillsView() {
     }
   }
 
+  function handleDeleteFolderGroupClick(group: SkillFolderGroup<SkillWithLinks>) {
+    const bundle = findBundleForFolderGroup(group);
+    if (bundle) {
+      void handleDeleteBundleClick(bundle);
+      return;
+    }
+    void handleDeleteCentralFolderGroup(group);
+  }
+
   async function handleDeleteCentralBundle(bundle: CentralSkillBundle) {
     try {
       await deleteCentralBundle(bundle.relativePath, { cascadeUninstall: true });
@@ -512,6 +540,31 @@ export function CentralSkillsView() {
       }
     } catch (err) {
       toast.error(t("central.deleteBundleError", { error: String(err) }));
+    }
+  }
+
+  async function handleDeleteCentralFolderGroup(
+    group: SkillFolderGroup<SkillWithLinks>
+  ) {
+    if (group.skills.length === 0) {
+      return;
+    }
+
+    setDeletingFolderGroupPath(group.relativePath);
+    try {
+      for (const skill of group.skills) {
+        await deleteCentralSkill(skill.id, { cascadeUninstall: true });
+      }
+      await refreshCounts();
+      await Promise.all([loadCentralSkills(), loadCentralBundles()]);
+      toast.success(t("central.deleteFolderGroupSuccess", { name: group.name }));
+      if (activeFolderKey === group.relativePath) {
+        setActiveFolderKey(null);
+      }
+    } catch (err) {
+      toast.error(t("central.deleteError", { error: String(err) }));
+    } finally {
+      setDeletingFolderGroupPath(null);
     }
   }
 
@@ -633,7 +686,7 @@ export function CentralSkillsView() {
               </div>
             )}
 
-            {viewMode === "folders" && !isFolderOpen && sortedBundles.length > 0 && (
+            {viewMode === "folders" && !isFolderOpen && sortedFolderGroups.length > 0 && (
               <section aria-label={t("central.bundlesSectionLabel")} className="space-y-3">
                 <SkillBrowserTable
                   kind="folder"
@@ -646,31 +699,33 @@ export function CentralSkillsView() {
                   }}
                   onToggleColumn={toggleFolderColumn}
                   onResetColumns={resetFolderColumns}
-                  folders={sortedBundles.map((bundle): FolderTableItem => {
-                    const group = centralFolderGroupsByPath.get(bundle.relativePath);
-                    const groupSkills = group?.skills ?? [];
+                  folders={sortedFolderGroups.map((group): FolderTableItem => {
+                    const groupSkills = group.skills;
                     return {
-                      key: bundle.relativePath,
-                      name: bundle.name,
-                      path: bundle.path,
-                      skillCount: bundle.skillCount,
+                      key: group.relativePath,
+                      name: group.name,
+                      path: group.path,
+                      skillCount: group.skillCount,
                       installAgents: agents,
-                      installLinkedAgentIds: group?.linkedAgentIds ?? [],
-                      installReadOnlyAgentIds: group?.readOnlyAgentIds ?? [],
+                      installLinkedAgentIds: group.linkedAgentIds,
+                      installReadOnlyAgentIds: group.readOnlyAgentIds,
                       previewNames: groupSkills.map((skill) => skill.name),
                       createdAt: earliestSkillCreatedAt(groupSkills),
                       updatedAt: latestSkillUpdatedAt(groupSkills),
-                      onOpen: () => setActiveFolderKey(bundle.relativePath),
-                      onDelete: () => void handleDeleteBundleClick(bundle),
+                      onOpen: () => setActiveFolderKey(group.relativePath),
+                      onDelete: () => handleDeleteFolderGroupClick(group),
                       deleteLabel: t("resource.deleteAction"),
-                      isDeleting: deletingBundlePath === bundle.relativePath,
+                      deleteRequiresConfirmation: !findBundleForFolderGroup(group),
+                      isDeleting:
+                        deletingBundlePath === group.relativePath ||
+                        deletingFolderGroupPath === group.relativePath,
                     };
                   })}
                 />
               </section>
             )}
 
-            {filteredSkills.length === 0 && sortedBundles.length === 0 ? (
+            {filteredSkills.length === 0 && sortedFolderGroups.length === 0 ? (
               <EmptyState message={t("central.noMatch", { query: searchQuery })} />
             ) : filteredSkills.length > 0 ? (
               <section className="space-y-3">

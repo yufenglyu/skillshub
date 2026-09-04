@@ -7,7 +7,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "claude-code",
     display_name: "Claude Code",
-    category: "coding",
     global_skills_dir: "/Users/test/.claude/skills",
     is_detected: true,
     is_builtin: true,
@@ -16,7 +15,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "cursor",
     display_name: "Cursor",
-    category: "coding",
     global_skills_dir: "/Users/test/.cursor/skills",
     is_detected: true,
     is_builtin: true,
@@ -25,7 +23,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "trae",
     display_name: "Trae",
-    category: "coding",
     global_skills_dir: "/Users/test/.trae/skills",
     is_detected: true,
     is_builtin: true,
@@ -34,7 +31,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "windsurf",
     display_name: "Windsurf",
-    category: "coding",
     global_skills_dir: "/Users/test/.codeium/windsurf/memories",
     is_detected: true,
     is_builtin: true,
@@ -43,7 +39,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "codex",
     display_name: "Codex CLI",
-    category: "coding",
     global_skills_dir: "/Users/test/.codex/skills",
     is_detected: true,
     is_builtin: true,
@@ -52,7 +47,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "qwen",
     display_name: "Qwen Code",
-    category: "coding",
     global_skills_dir: "/Users/test/.qwen/skills",
     is_detected: true,
     is_builtin: true,
@@ -61,7 +55,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "gemini-cli",
     display_name: "Gemini CLI",
-    category: "coding",
     global_skills_dir: "/Users/test/.gemini/skills",
     is_detected: true,
     is_builtin: true,
@@ -70,7 +63,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "copilot",
     display_name: "GitHub Copilot",
-    category: "coding",
     global_skills_dir: "/Users/test/.copilot/skills",
     is_detected: true,
     is_builtin: true,
@@ -79,7 +71,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "opencode",
     display_name: "OpenCode",
-    category: "coding",
     global_skills_dir: "/Users/test/.opencode/skills",
     is_detected: true,
     is_builtin: true,
@@ -88,7 +79,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "openclaw",
     display_name: "OpenClaw",
-    category: "lobster",
     global_skills_dir: "/Users/test/.openclaw/skills",
     is_detected: true,
     is_builtin: true,
@@ -97,7 +87,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "kiro",
     display_name: "Kiro",
-    category: "lobster",
     global_skills_dir: "/Users/test/.kiro/skills",
     is_detected: true,
     is_builtin: true,

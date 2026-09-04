@@ -24,14 +24,18 @@ import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { useSkillListViewMode } from "@/hooks/useSkillListViewMode";
 import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
 import { useSkillTableColumns } from "@/hooks/useSkillTableColumns";
-import { splitSkillsByTopLevel } from "@/lib/skillFolders";
+import {
+  dirnameFromSkillFile,
+  normalizeFsPath,
+  splitSkillsByTopLevel,
+  type SkillFolderGroup,
+} from "@/lib/skillFolders";
 import {
   sortBySkillBrowserOrder,
   sortFoldersBySkillBrowserOrder,
   type SkillSortDirection,
   type SkillSortField,
 } from "@/lib/skillSort";
-import { cn } from "@/lib/utils";
 import { isProjectAgentId } from "@/lib/projectTargets";
 import { ScannedSkill } from "@/types";
 import { getSkillSourceLocation } from "@/lib/skillSourceDisplay";
@@ -48,8 +52,6 @@ function EmptyState({ message }: { message: string }) {
     </div>
   );
 }
-
-type ClaudeSourceFilter = "all" | "user" | "plugin";
 
 function latestSkillUpdatedAt(skills: ScannedSkill[]) {
   return skills.reduce<string | null>((latest, skill) => {
@@ -69,6 +71,99 @@ function earliestSkillCreatedAt(skills: ScannedSkill[]) {
   }, null);
 }
 
+function uniqueAgentIds(values: Iterable<string | undefined | null>) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function sourceFolderName(skill: ScannedSkill): string | null {
+  const repo = skill.source_repo?.trim();
+  if (repo) return repo;
+  const sourcePath = skill.source_path?.replace(/\\/g, "/").trim();
+  if (!sourcePath || sourcePath === ".") return null;
+  const parts = sourcePath.split("/").filter(Boolean);
+  if (parts.length >= 3 && parts[0].toLowerCase() === "plugins") {
+    return `${parts[0]}/${parts[1]}`;
+  }
+  if (parts.length >= 2 && parts[0].toLowerCase() === "skills") {
+    return parts.length >= 3 ? `${parts[0]}/${parts[1]}` : parts[0];
+  }
+  return parts[0] ?? null;
+}
+
+function splitPlatformSkillsBySourceFolder(
+  skills: ScannedSkill[],
+  fallbackGroups: SkillFolderGroup<ScannedSkill>[],
+  agentId?: string
+) {
+  const sourceGroups = new Map<string, SkillFolderGroup<ScannedSkill>>();
+  const groupedRowKeys = new Set<string>();
+
+  for (const skill of skills) {
+    const name = sourceFolderName(skill);
+    if (!name) continue;
+    const key = `source:${name.toLowerCase()}`;
+    const group =
+      sourceGroups.get(key) ?? {
+        name,
+        relativePath: key,
+        path: skill.dir_path ?? dirnameFromSkillFile(skill.file_path) ?? name,
+        skillCount: 0,
+        linkedAgentIds: [],
+        readOnlyAgentIds: [],
+        linkedAgentCount: 0,
+        readOnlyAgentCount: 0,
+        skills: [],
+      };
+
+    group.skills.push(skill);
+    group.skills.sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+    );
+    group.skillCount = group.skills.length;
+    group.linkedAgentIds = uniqueAgentIds(
+      group.skills.flatMap((item): Array<string | undefined> =>
+        item.is_read_only ? [] : [agentId]
+      )
+    );
+    group.readOnlyAgentIds = uniqueAgentIds(
+      group.skills.flatMap((item): Array<string | undefined> =>
+        item.is_read_only ? [agentId] : []
+      )
+    );
+    group.linkedAgentCount = group.linkedAgentIds.length;
+    group.readOnlyAgentCount = group.readOnlyAgentIds.length;
+    sourceGroups.set(key, group);
+    groupedRowKeys.add(skill.row_id ?? skill.id);
+  }
+
+  const merged = [...sourceGroups.values()];
+  for (const group of fallbackGroups) {
+    const remainingSkills = group.skills.filter(
+      (skill) => !groupedRowKeys.has(skill.row_id ?? skill.id)
+    );
+    if (remainingSkills.length === 0) continue;
+    merged.push({
+      ...group,
+      skills: remainingSkills,
+      skillCount: remainingSkills.length,
+    });
+  }
+
+  return merged.sort((a, b) =>
+    normalizeFsPath(a.relativePath).localeCompare(normalizeFsPath(b.relativePath), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    })
+  );
+}
+
 // ─── PlatformView ─────────────────────────────────────────────────────────────
 
 export function PlatformView() {
@@ -81,7 +176,7 @@ export function PlatformView() {
       return encodedAgentId;
     }
   }, [encodedAgentId]);
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const agents = usePlatformStore((state) => state.agents);
   const scanGeneration = usePlatformStore((state) => state.scanGeneration ?? 0);
 
@@ -96,7 +191,6 @@ export function PlatformView() {
   const refreshCounts = usePlatformStore((state) => state.refreshCounts);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<ClaudeSourceFilter>("all");
   const [viewMode, setViewMode] = useSkillListViewMode("platform");
   useConfiguredHotkey("toggleSkillViewMode", () => {
     setViewMode(viewMode === "all" ? "folders" : "all");
@@ -127,7 +221,6 @@ export function PlatformView() {
   }
 
   const agent = agents.find((a) => a.id === agentId);
-  const isClaudePage = agent?.id === "claude-code";
   const isProjectDirectoryPage = agent ? isProjectAgentId(agent.id) : false;
 
   // Load skills for this agent when the route changes or a fresh scan completes.
@@ -143,7 +236,6 @@ export function PlatformView() {
   }, [agentId]);
 
   useEffect(() => {
-    setSourceFilter("all");
     setActiveFolderKey(null);
   }, [agentId]);
 
@@ -176,13 +268,6 @@ export function PlatformView() {
     [agentId, skillsByAgent]
   );
 
-  const sourceFilteredSkills = useMemo(() => {
-    if (!isClaudePage || sourceFilter === "all") {
-      return skills;
-    }
-    return skills.filter((skill) => skill.source_kind === sourceFilter);
-  }, [isClaudePage, skills, sourceFilter]);
-
   const centralSkillsById = useMemo(
     () => new Map(centralSkills.map((skill) => [skill.id, skill])),
     [centralSkills]
@@ -190,7 +275,7 @@ export function PlatformView() {
   const platformFolderSplit = useMemo(
     () =>
       splitSkillsByTopLevel({
-        skills: sourceFilteredSkills,
+        skills,
         rootPath: agent?.global_skills_dir ?? "",
         getRootPath: (skill) => skill.source_root ?? agent?.global_skills_dir ?? "",
         getDirPaths: (skill) => skill.dir_path,
@@ -201,42 +286,32 @@ export function PlatformView() {
           centralSkillsById.get(skill.id)?.read_only_agents ??
           (skill.is_read_only && agentId ? [agentId] : []),
       }),
-    [agent?.global_skills_dir, agentId, centralSkillsById, sourceFilteredSkills]
+    [agent?.global_skills_dir, agentId, centralSkillsById, skills]
   );
   const platformFolderGroupsByPath = useMemo(
     () =>
       new Map(
-        platformFolderSplit.groups.map((group) => [
+        splitPlatformSkillsBySourceFolder(
+          skills,
+          platformFolderSplit.groups,
+          agentId
+        ).map((group) => [
           group.relativePath,
           group,
         ])
       ),
-    [platformFolderSplit.groups]
+    [agentId, platformFolderSplit.groups, skills]
   );
   const activeFolder = activeFolderKey
     ? platformFolderGroupsByPath.get(activeFolderKey) ?? null
     : null;
-  const visibleSkills =
-    viewMode === "folders"
-      ? activeFolder?.skills ?? []
-      : sourceFilteredSkills;
-  const sourceCounts = useMemo(() => {
-    const counts: Record<ClaudeSourceFilter, number> = {
-      all: skills.length,
-      user: 0,
-      plugin: 0,
-    };
-
-    for (const skill of skills) {
-      if (skill.source_kind === "user") {
-        counts.user += 1;
-      } else if (skill.source_kind === "plugin") {
-        counts.plugin += 1;
-      }
-    }
-
-    return counts;
-  }, [skills]);
+  const visibleSkills = useMemo(
+    () =>
+      viewMode === "folders"
+        ? activeFolder?.skills ?? []
+        : skills,
+    [activeFolder?.skills, skills, viewMode]
+  );
 
   // Filter skills by search query using useMemo
   const filteredSkills = useMemo(() => {
@@ -256,9 +331,10 @@ export function PlatformView() {
 
   const filteredFolderGroups = useMemo(() => {
     if (viewMode !== "folders" || activeFolder) return [];
-    if (!searchQuery.trim()) return platformFolderSplit.groups;
+    const folderGroups = [...platformFolderGroupsByPath.values()];
+    if (!searchQuery.trim()) return folderGroups;
     const q = searchQuery.toLowerCase();
-    return platformFolderSplit.groups.filter(
+    return folderGroups.filter(
       (group) =>
         group.name.toLowerCase().includes(q) ||
         group.path.toLowerCase().includes(q) ||
@@ -269,7 +345,7 @@ export function PlatformView() {
             skill.description?.toLowerCase().includes(q)
         )
     );
-  }, [activeFolder, platformFolderSplit.groups, searchQuery, viewMode]);
+  }, [activeFolder, platformFolderGroupsByPath, searchQuery, viewMode]);
 
   const sortedFolderGroups = useMemo(() => {
     return sortFoldersBySkillBrowserOrder(filteredFolderGroups, sortField, sortDirection);
@@ -357,31 +433,6 @@ export function PlatformView() {
     );
   }
 
-  const sourceTabs: { id: ClaudeSourceFilter; label: string; count: number }[] = [
-    {
-      id: "all",
-      label: t("platform.sourceFilter.all", {
-        defaultValue: i18n.language.startsWith("zh") ? "全部" : "All",
-      }),
-      count: sourceCounts.all,
-    },
-    {
-      id: "user",
-      label: t("platform.sourceFilter.user", {
-        defaultValue: i18n.language.startsWith("zh") ? "用户目录" : "User folder",
-      }),
-      count: sourceCounts.user,
-    },
-    {
-      id: "plugin",
-      label: t("platform.sourceFilter.plugin", {
-        defaultValue: i18n.language.startsWith("zh") ? "插件" : "Plugins",
-      }),
-      count: sourceCounts.plugin,
-    },
-  ];
-  const activeSourceLabel = sourceTabs.find((tab) => tab.id === sourceFilter)?.label ?? sourceTabs[0].label;
-
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -396,35 +447,6 @@ export function PlatformView() {
         </div>
         <OpenableDirectoryPath path={agent.global_skills_dir} />
       </div>
-
-      {isClaudePage && (
-        <div
-          role="tablist"
-          aria-label={t("platform.sourceFilterTabsLabel", {
-            defaultValue: i18n.language.startsWith("zh") ? "Claude 来源筛选" : "Claude source filters",
-          })}
-          className="flex items-center gap-1 px-6 py-3 border-b border-border"
-        >
-          {sourceTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={sourceFilter === tab.id}
-              onClick={() => setSourceFilter(tab.id)}
-              className={cn(
-                "inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm transition-colors cursor-pointer",
-                sourceFilter === tab.id
-                  ? "bg-primary/15 text-foreground font-medium"
-                  : "text-muted-foreground hover:bg-muted/40"
-              )}
-            >
-              <span>{tab.label}</span>
-              <span className="text-xs opacity-75">({tab.count})</span>
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Search bar */}
       <div className="px-6 py-3 border-b border-border">
@@ -450,16 +472,6 @@ export function PlatformView() {
         ) : skills.length === 0 ? (
           <EmptyState
             message={t("platform.noSkills", { name: agent.display_name })}
-          />
-        ) : sourceFilteredSkills.length === 0 ? (
-          <EmptyState
-            message={t("platform.noSourceSkills", {
-              name: agent.display_name,
-              source: activeSourceLabel,
-              defaultValue: i18n.language.startsWith("zh")
-                ? `${agent.display_name} 下暂无${activeSourceLabel}技能`
-                : `No ${activeSourceLabel} skills installed for ${agent.display_name}`,
-            })}
           />
         ) : sortedSkills.length === 0 && sortedFolderGroups.length === 0 ? (
           <EmptyState

@@ -19,7 +19,7 @@ import { useTranslation } from "react-i18next";
 import { Checkbox } from "@/components/ui/checkbox";
 import { InlineConfirmAction } from "@/components/ui/inline-confirm-action";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
-import type { AgentWithStatus, ClaudeSourceKind } from "@/types";
+import type { AgentWithStatus, PlatformSourceKind } from "@/types";
 import { cn } from "@/lib/utils";
 import { isInstallTargetAgent } from "@/lib/agents";
 import {
@@ -121,7 +121,7 @@ export interface UnifiedSkillCardProps {
   // ── platform variant ──
   sourceType?: "symlink" | "copy" | "native";
   sourceLocation?: "central" | "resource-library" | "standalone";
-  originKind?: ClaudeSourceKind | null;
+  originKind?: PlatformSourceKind | null;
   isReadOnly?: boolean;
 
   // ── metadata badges ──
@@ -578,31 +578,22 @@ function SourceIndicator({
   );
 }
 
-function SourceOriginBadge({ originKind }: { originKind: ClaudeSourceKind }) {
+function SourceOriginBadge({ originKind }: { originKind: PlatformSourceKind }) {
   const { t } = useTranslation();
-  const isPlugin = originKind === "plugin";
-  const isCompatibility = originKind === "compatibility";
-  const label = isPlugin
-    ? t("platform.originPlugin")
-    : isCompatibility
-      ? t("platform.originCompatibility")
-      : t("platform.originUser");
-  const hint = isPlugin
-    ? t("platform.originPluginHint")
-    : isCompatibility
-      ? t("platform.originCompatibilityHint")
-      : t("platform.originUserHint");
+  const label =
+    originKind === "shared-central"
+      ? t("platform.originSharedCentral")
+      : t("platform.originCompatibility");
+  const hint =
+    originKind === "shared-central"
+      ? t("platform.originSharedCentralHint")
+      : t("platform.originCompatibilityHint");
 
   return (
     <span
       title={hint}
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1",
-        isPlugin
-          ? "bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300"
-          : isCompatibility
-            ? "bg-violet-500/10 text-violet-700 ring-violet-500/20 dark:text-violet-300"
-          : "bg-sky-500/10 text-sky-700 ring-sky-500/20 dark:text-sky-300"
+        "inline-flex items-center rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-500/20 dark:text-violet-300"
       )}
     >
       {label}
@@ -617,8 +608,8 @@ function ReadOnlyBadge() {
   });
   const description = t("platform.readOnlyHint", {
     defaultValue: i18n.language.startsWith("zh")
-      ? "来自共享中心或插件缓存的只读可见项，不是当前平台的可删除安装。"
-      : "Visible from Shared Hub or a plugin cache; this is not a removable install in the current platform.",
+      ? "来自共享中心兼容目录的只读可见项，不是当前平台的可删除安装。"
+      : "Visible from a Shared Hub compatibility directory; this is not a removable install in the current platform.",
   });
 
   return (

@@ -18,8 +18,8 @@ export function getSkillSourceLineKeys(
 
 export function isExceptionalSkillOrigin(
   originKind?: string | null
-): originKind is "plugin" | "compatibility" {
-  return originKind === "plugin" || originKind === "compatibility";
+): originKind is "compatibility" | "shared-central" {
+  return originKind === "compatibility" || originKind === "shared-central";
 }
 
 export function getSkillSourceLocation(skill: {

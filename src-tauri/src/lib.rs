@@ -1,6 +1,5 @@
 pub mod commands;
 pub mod db;
-mod default_platform_icons;
 pub mod path_utils;
 pub mod platforms;
 
@@ -115,7 +114,7 @@ pub fn run() {
             commands::skills::read_file_by_path,
             commands::skills::list_skill_directory,
             commands::skills::open_in_file_manager,
-            commands::skills_cli::import_skills_via_npx,
+            commands::skills::export_resource_skill_directory_list,
             // Backup
             commands::backup::export_app_backup,
             commands::backup::export_app_backup_to_path,
@@ -153,18 +152,19 @@ pub fn run() {
             commands::settings::check_app_update,
             commands::github_import::preview_github_repo_import,
             commands::github_import::import_github_repo_skills,
+            commands::github_import::import_github_repo_snapshot,
             commands::github_import::fetch_github_skill_markdown,
             // Source updates and AI explanations
-            commands::marketplace::update_source_backed_central_skills,
-            commands::marketplace::update_source_backed_central_skill,
-            commands::marketplace::update_source_backed_resource_skills,
-            commands::marketplace::update_source_backed_resource_skill,
-            commands::marketplace::preview_source_backed_resource_repository_updates,
-            commands::marketplace::sync_source_backed_resource_skills,
-            commands::marketplace::explain_skill,
-            commands::marketplace::get_skill_explanation,
-            commands::marketplace::explain_skill_stream,
-            commands::marketplace::refresh_skill_explanation,
+            commands::remote_sources::update_source_backed_central_skills,
+            commands::remote_sources::update_source_backed_central_skill,
+            commands::remote_sources::update_source_backed_resource_skills,
+            commands::remote_sources::update_source_backed_resource_skill,
+            commands::remote_sources::preview_source_backed_resource_repository_updates,
+            commands::remote_sources::sync_source_backed_resource_skills,
+            commands::remote_sources::explain_skill,
+            commands::remote_sources::get_skill_explanation,
+            commands::remote_sources::explain_skill_stream,
+            commands::remote_sources::refresh_skill_explanation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -13,7 +13,7 @@ const mockUpdateSourceBackedSkills = vi.fn();
 const mockPreviewRepositorySync = vi.fn();
 const mockSyncSourceBackedSkills = vi.fn();
 const mockUpdateSourceBackedSkill = vi.fn();
-const mockImportSkillsViaNpx = vi.fn();
+const mockImportGitHubRepoSnapshot = vi.fn();
 const mockAddLocalSkills = vi.fn();
 const mockCreateManualSkill = vi.fn();
 const mockPreviewDeleteResourceBundle = vi.fn();
@@ -33,7 +33,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "cursor",
     display_name: "Cursor",
-    category: "coding",
     global_skills_dir: "~/.cursor/skills/",
     is_detected: true,
     is_builtin: true,
@@ -42,7 +41,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "project:1",
     display_name: "temp",
-    category: "project",
     global_skills_dir: "~/Projects/temp/.agents/skills",
     project_skills_dir: ".agents/skills",
     is_detected: true,
@@ -52,7 +50,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "hermes",
     display_name: "Hermes",
-    category: "coding",
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
     is_builtin: true,
@@ -62,7 +59,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "project:home",
     display_name: "Home",
-    category: "project",
     global_skills_dir: "~/.agents/skills/",
     project_skills_dir: ".agents/skills",
     is_detected: true,
@@ -115,7 +111,8 @@ vi.mock("@/stores/resourceLibraryStore", () => ({
       previewRepositorySync: mockPreviewRepositorySync,
       syncSourceBackedSkills: mockSyncSourceBackedSkills,
       updateSourceBackedSkill: mockUpdateSourceBackedSkill,
-      importSkillsViaNpx: mockImportSkillsViaNpx,
+      importGitHubRepoSnapshot: mockImportGitHubRepoSnapshot,
+      exportDirectoryList: vi.fn(),
       addLocalSkills: mockAddLocalSkills,
       createManualSkill: mockCreateManualSkill,
       previewDeleteResourceBundle: mockPreviewDeleteResourceBundle,
@@ -188,7 +185,7 @@ describe("ResourceLibraryView delete", () => {
     mockSyncSourceBackedSkills.mockReset();
     mockSyncSourceBackedSkills.mockResolvedValue({ items: [] });
     mockUpdateSourceBackedSkill.mockReset();
-    mockImportSkillsViaNpx.mockReset();
+    mockImportGitHubRepoSnapshot.mockReset();
     mockAddLocalSkills.mockReset();
     mockCreateManualSkill.mockReset();
     mockPreviewDeleteResourceBundle.mockReset();
@@ -301,7 +298,7 @@ describe("ResourceLibraryView delete", () => {
     expect(mockRefreshCounts).toHaveBeenCalled();
   });
 
-  it("shows local add after the npx import button", () => {
+  it("shows local add after the GitHub import button", () => {
     render(
       <MemoryRouter>
         <ResourceLibraryView />
@@ -444,7 +441,7 @@ describe("ResourceLibraryView delete", () => {
     resourceSkills = [
       {
         ...defaultSkills[0],
-        source: "skills-cli",
+        source: "github:owner/repo",
         source_repo: "owner/repo",
         source_path: "resource-demo",
       },
@@ -490,7 +487,10 @@ describe("ResourceLibraryView delete", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /应用同步|Apply sync/i }));
 
     await waitFor(() => {
-      expect(mockSyncSourceBackedSkills).toHaveBeenCalledWith({ removeDeleted: true });
+      expect(mockSyncSourceBackedSkills).toHaveBeenCalledWith({
+        removeDeleted: true,
+        repositories: null,
+      });
     });
     expect(mockCompleteTask).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -572,7 +572,7 @@ describe("ResourceLibraryView delete", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens the npx import dialog from the import button", () => {
+  it("opens the GitHub import dialog from the import button", () => {
     render(
       <MemoryRouter>
         <ResourceLibraryView />
@@ -584,9 +584,9 @@ describe("ResourceLibraryView delete", () => {
     const dialog = screen.getByRole("dialog", { name: /导入技能|Import skills/i });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByLabelText(/GitHub 仓库|GitHub repository/i)).toBeInTheDocument();
-    expect(within(dialog).getByLabelText(/技能名称|Skill name/i)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/技能名称或来源路径|Skill name or source path/i)).toBeInTheDocument();
     expect(
-      within(dialog).getByTitle(/留空时导入仓库中能识别到的全部技能|Leave blank to import every skill/i)
+      within(dialog).getByTitle(/留空时导入仓库中能识别到的全部技能|Leave blank to import every detected skill/i)
     ).toBeInTheDocument();
   });
 
@@ -755,16 +755,16 @@ describe("ResourceLibraryView delete", () => {
     });
   });
 
-  it("refreshes skill repository, central skills, and counts after npx import", async () => {
-    mockImportSkillsViaNpx.mockResolvedValue({
-      command: "npx skills add mattpocock/skills --yes",
-      stagingDir: "~/.skillshub/tmp/npx-import",
-      localImport: {
-        sourceDir: "~/.skillshub/tmp/npx-import/.agents/skills",
-        targetDir: "~/.skillshub/library/mattpocock/skills",
-        overwrite: true,
-        addedSkills: [],
+  it("refreshes skill repository, central skills, and counts after GitHub import", async () => {
+    mockImportGitHubRepoSnapshot.mockResolvedValue({
+      repo: {
+        owner: "mattpocock",
+        repo: "skills",
+        branch: "main",
+        normalizedUrl: "https://github.com/mattpocock/skills",
       },
+      importedSkills: [],
+      skippedSkills: [],
     });
 
     render(
@@ -902,6 +902,9 @@ describe("ResourceLibraryView delete", () => {
         source_url: "https://raw.githubusercontent.com/owner/repo/main/resource-demo/SKILL.md",
       },
     ];
+    mockSyncSourceBackedSkills.mockResolvedValue({
+      items: [{ skillId: "resource-demo", name: "resource-demo", status: "updated" }],
+    });
 
     render(
       <MemoryRouter>
@@ -914,12 +917,16 @@ describe("ResourceLibraryView delete", () => {
     fireEvent.click(within(folderRow).getByRole("button", { name: /^更新$|^Update$/i }));
 
     await waitFor(() => {
-      expect(mockUpdateSourceBackedSkill).toHaveBeenCalledWith("resource-demo");
+      expect(mockPreviewRepositorySync).toHaveBeenCalledWith(["owner/repo"]);
+    });
+    expect(mockSyncSourceBackedSkills).toHaveBeenCalledWith({
+      removeDeleted: false,
+      repositories: ["owner/repo"],
     });
     expect(mockStartTask).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: "resource-source-update-folder:example",
-        label: "更新目录 example",
+        id: "resource-source-update",
+        label: "更新技能",
       })
     );
     expect(mockCompleteTask).toHaveBeenCalledWith(

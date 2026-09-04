@@ -37,7 +37,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "claude-code",
     display_name: "Claude Code",
-    category: "coding",
     global_skills_dir: "~/.claude/skills/",
     is_detected: true,
     is_builtin: true,

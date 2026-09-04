@@ -6,505 +6,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
-use super::{github_import, skills, skills_cli};
-use crate::{db, path_utils::source_grouped_skill_dir, AppState};
+use super::{github_import, skills};
+use crate::{db, AppState};
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+const GITHUB_REPOSITORY_SYNC_SCOPE: &str = "github-repository";
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SkillRegistry {
-    pub id: String,
-    pub name: String,
-    pub source_type: String,
-    pub url: String,
-    pub is_builtin: bool,
-    pub is_enabled: bool,
-    pub last_synced: Option<String>,
-    pub last_attempted_sync: Option<String>,
-    pub last_sync_status: String,
-    pub last_sync_error: Option<String>,
-    pub cache_updated_at: Option<String>,
-    pub cache_expires_at: Option<String>,
-    pub etag: Option<String>,
-    pub last_modified: Option<String>,
-    pub created_at: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MarketplaceSkill {
-    pub id: String,
-    pub registry_id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub download_url: String,
-    pub is_installed: bool,
-    pub synced_at: String,
-    pub cache_updated_at: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum RegistrySyncStatus {
-    Never,
-    Success,
-    Error,
-}
-
-impl RegistrySyncStatus {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Never => "never",
-            Self::Success => "success",
-            Self::Error => "error",
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct RegistryCacheMetadata {
-    pub etag: Option<String>,
-    pub last_modified: Option<String>,
-    pub cache_expires_at: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncRegistryOptions {
-    pub force_refresh: bool,
-}
-
-// ─── Registry Fetcher ────────────────────────────────────────────────────────
-
-/// Fetch skills from a GitHub repository.
-/// Reuses the same repository snapshot + manifest classification logic as
-/// the GitHub import flow so Marketplace preview and import stay in sync.
-async fn fetch_github_skills(
-    pool: &crate::db::DbPool,
-    url: &str,
-    registry_id: &str,
-) -> Result<Vec<MarketplaceSkill>, String> {
-    let auth = github_import::github_direct_auth_from_settings(pool).await?;
-    let repo = github_import::resolve_repo_ref(url, auth.as_deref()).await?;
-    let candidates = github_import::fetch_repo_skill_candidates(&repo, auth.as_deref()).await?;
-    Ok(marketplace_skills_from_candidates(registry_id, candidates))
-}
-
-fn marketplace_skills_from_candidates(
-    registry_id: &str,
-    candidates: Vec<github_import::RemoteSkillCandidate>,
-) -> Vec<MarketplaceSkill> {
-    let now = chrono::Utc::now().to_rfc3339();
-    let mut seen_names = HashSet::new();
-    let mut skills = Vec::new();
-
-    for candidate in candidates {
-        if !seen_names.insert(candidate.skill_name.clone()) {
-            continue;
-        }
-
-        skills.push(MarketplaceSkill {
-            id: format!("{}::{}", registry_id, candidate.skill_id),
-            registry_id: registry_id.to_string(),
-            name: candidate.skill_name,
-            description: candidate.description,
-            download_url: candidate.download_url,
-            is_installed: false,
-            synced_at: now.clone(),
-            cache_updated_at: Some(now.clone()),
-        });
-    }
-
-    skills
-}
-
-// ─── IPC Commands ────────────────────────────────────────────────────────────
-
-#[tauri::command]
-pub async fn list_registries(state: State<'_, AppState>) -> Result<Vec<SkillRegistry>, String> {
-    let rows = sqlx::query(
-        "SELECT id, name, source_type, url, is_builtin, is_enabled, last_synced,
-                last_attempted_sync, last_sync_status, last_sync_error,
-                cache_updated_at, cache_expires_at, etag, last_modified, created_at
-         FROM skill_registries ORDER BY is_builtin DESC, name",
-    )
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(rows
-        .iter()
-        .map(|r| {
-            use sqlx::Row;
-            SkillRegistry {
-                id: r.get("id"),
-                name: r.get("name"),
-                source_type: r.get("source_type"),
-                url: r.get("url"),
-                is_builtin: r.get("is_builtin"),
-                is_enabled: r.get("is_enabled"),
-                last_synced: r.get("last_synced"),
-                last_attempted_sync: r.get("last_attempted_sync"),
-                last_sync_status: r.get("last_sync_status"),
-                last_sync_error: r.get("last_sync_error"),
-                cache_updated_at: r.get("cache_updated_at"),
-                cache_expires_at: r.get("cache_expires_at"),
-                etag: r.get("etag"),
-                last_modified: r.get("last_modified"),
-                created_at: r.get("created_at"),
-            }
-        })
-        .collect())
-}
-
-#[tauri::command]
-pub async fn add_registry(
-    state: State<'_, AppState>,
-    name: String,
-    source_type: String,
-    url: String,
-) -> Result<SkillRegistry, String> {
-    add_registry_impl(&state.db, name, source_type, url, None).await
-}
-
-async fn add_registry_impl(
-    pool: &crate::db::DbPool,
-    name: String,
-    source_type: String,
-    url: String,
-    cache_metadata: Option<RegistryCacheMetadata>,
-) -> Result<SkillRegistry, String> {
-    let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-    let cache_metadata = cache_metadata.unwrap_or_default();
-
-    sqlx::query(
-        "INSERT INTO skill_registries
-         (id, name, source_type, url, is_builtin, is_enabled, last_sync_status,
-          cache_expires_at, etag, last_modified, created_at)
-         VALUES (?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?)",
-    )
-    .bind(&id)
-    .bind(&name)
-    .bind(&source_type)
-    .bind(&url)
-    .bind(RegistrySyncStatus::Never.as_str())
-    .bind(&cache_metadata.cache_expires_at)
-    .bind(&cache_metadata.etag)
-    .bind(&cache_metadata.last_modified)
-    .bind(&now)
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(SkillRegistry {
-        id,
-        name,
-        source_type,
-        url,
-        is_builtin: false,
-        is_enabled: true,
-        last_synced: None,
-        last_attempted_sync: None,
-        last_sync_status: RegistrySyncStatus::Never.as_str().to_string(),
-        last_sync_error: None,
-        cache_updated_at: None,
-        cache_expires_at: cache_metadata.cache_expires_at,
-        etag: cache_metadata.etag,
-        last_modified: cache_metadata.last_modified,
-        created_at: now,
-    })
-}
-
-#[tauri::command]
-pub async fn remove_registry(
-    state: State<'_, AppState>,
-    registry_id: String,
-) -> Result<(), String> {
-    // Don't allow removing built-in registries
-    let row = sqlx::query("SELECT is_builtin FROM skill_registries WHERE id = ?")
-        .bind(&registry_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if let Some(r) = &row {
-        use sqlx::Row;
-        if r.get::<bool, _>("is_builtin") {
-            return Err("Cannot remove built-in registry".to_string());
-        }
-    }
-
-    // Delete cached skills first
-    sqlx::query("DELETE FROM marketplace_skills WHERE registry_id = ?")
-        .bind(&registry_id)
-        .execute(&state.db)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    sqlx::query("DELETE FROM skill_registries WHERE id = ?")
-        .bind(&registry_id)
-        .execute(&state.db)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn sync_registry(
-    state: State<'_, AppState>,
-    registry_id: String,
-) -> Result<Vec<MarketplaceSkill>, String> {
-    sync_registry_impl(&state.db, registry_id, SyncRegistryOptions::default()).await
-}
-
-#[tauri::command]
-pub async fn sync_registry_with_options(
-    state: State<'_, AppState>,
-    registry_id: String,
-    options: Option<SyncRegistryOptions>,
-) -> Result<Vec<MarketplaceSkill>, String> {
-    sync_registry_impl(&state.db, registry_id, options.unwrap_or_default()).await
-}
-
-async fn sync_registry_impl(
-    pool: &crate::db::DbPool,
-    registry_id: String,
-    options: SyncRegistryOptions,
-) -> Result<Vec<MarketplaceSkill>, String> {
-    // Get registry info
-    let row = sqlx::query(
-        "SELECT id, name, source_type, url, is_builtin, is_enabled, last_synced,
-                last_attempted_sync, last_sync_status, last_sync_error,
-                cache_updated_at, cache_expires_at, etag, last_modified, created_at
-         FROM skill_registries WHERE id = ?",
-    )
-    .bind(&registry_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| e.to_string())?
-    .ok_or_else(|| "Registry not found".to_string())?;
-
-    let registry = {
-        use sqlx::Row;
-        SkillRegistry {
-            id: row.get("id"),
-            name: row.get("name"),
-            source_type: row.get("source_type"),
-            url: row.get("url"),
-            is_builtin: row.get("is_builtin"),
-            is_enabled: row.get("is_enabled"),
-            last_synced: row.get("last_synced"),
-            last_attempted_sync: row.get("last_attempted_sync"),
-            last_sync_status: row.get("last_sync_status"),
-            last_sync_error: row.get("last_sync_error"),
-            cache_updated_at: row.get("cache_updated_at"),
-            cache_expires_at: row.get("cache_expires_at"),
-            etag: row.get("etag"),
-            last_modified: row.get("last_modified"),
-            created_at: row.get("created_at"),
-        }
-    };
-
-    if !options.force_refresh && registry_has_cached_skills(pool, &registry.id).await? {
-        return search_marketplace_skills_impl(pool, Some(registry_id), None).await;
-    }
-
-    let attempt_time = chrono::Utc::now().to_rfc3339();
-    sqlx::query(
-        "UPDATE skill_registries
-         SET last_attempted_sync = ?, last_sync_error = NULL
-         WHERE id = ?",
-    )
-    .bind(&attempt_time)
-    .bind(&registry.id)
-    .execute(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    // Fetch skills based on source type
-    let skills = match registry.source_type.as_str() {
-        "github" => match fetch_github_skills(pool, &registry.url, &registry.id).await {
-            Ok(skills) => skills,
-            Err(error) => {
-                sqlx::query(
-                    "UPDATE skill_registries
-                     SET last_attempted_sync = ?, last_sync_status = ?, last_sync_error = ?
-                     WHERE id = ?",
-                )
-                .bind(&attempt_time)
-                .bind(RegistrySyncStatus::Error.as_str())
-                .bind(&error)
-                .bind(&registry.id)
-                .execute(pool)
-                .await
-                .map_err(|e| e.to_string())?;
-
-                if registry_has_cached_skills(pool, &registry.id).await? {
-                    return search_marketplace_skills_impl(pool, Some(registry_id), None).await;
-                }
-
-                return Err(error);
-            }
-        },
-        _ => return Err(format!("Unsupported source type: {}", registry.source_type)),
-    };
-
-    // Check which skills are already installed locally
-    let central_dir = central_skills_root(pool).await?;
-
-    // Upsert skills into marketplace_skills
-    for skill in &skills {
-        let is_installed = central_dir.join(&skill.name).join("SKILL.md").exists();
-
-        sqlx::query(
-            "INSERT INTO marketplace_skills (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
-                name = excluded.name,
-                description = excluded.description,
-                download_url = excluded.download_url,
-                is_installed = excluded.is_installed,
-                synced_at = excluded.synced_at,
-                cache_updated_at = excluded.cache_updated_at",
-        )
-        .bind(&skill.id)
-        .bind(&skill.registry_id)
-        .bind(&skill.name)
-        .bind(&skill.description)
-        .bind(&skill.download_url)
-        .bind(is_installed)
-        .bind(&skill.synced_at)
-        .bind(&skill.cache_updated_at)
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-    }
-
-    // Update last_synced
-    let now = chrono::Utc::now().to_rfc3339();
-    sqlx::query(
-        "UPDATE skill_registries
-         SET last_synced = ?, last_attempted_sync = ?, last_sync_status = ?, last_sync_error = NULL, cache_updated_at = ?
-         WHERE id = ?",
-    )
-        .bind(&now)
-        .bind(&attempt_time)
-        .bind(RegistrySyncStatus::Success.as_str())
-        .bind(&now)
-        .bind(&registry_id)
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Return the updated list
-    search_marketplace_skills_impl(pool, Some(registry_id), None).await
-}
-
-#[tauri::command]
-pub async fn search_marketplace_skills(
-    state: State<'_, AppState>,
-    registry_id: Option<String>,
-    query: Option<String>,
-) -> Result<Vec<MarketplaceSkill>, String> {
-    search_marketplace_skills_impl(&state.db, registry_id, query).await
-}
-
-async fn search_marketplace_skills_impl(
-    pool: &crate::db::DbPool,
-    registry_id: Option<String>,
-    query: Option<String>,
-) -> Result<Vec<MarketplaceSkill>, String> {
-    let mut sql = String::from(
-        r#"SELECT id, registry_id, name, description, download_url,
-            is_installed, synced_at, cache_updated_at
-         FROM marketplace_skills WHERE 1=1"#,
-    );
-    let mut bindings: Vec<String> = Vec::new();
-
-    if let Some(ref rid) = registry_id {
-        sql.push_str(" AND registry_id = ?");
-        bindings.push(rid.clone());
-    }
-    if let Some(ref q) = query {
-        if !q.trim().is_empty() {
-            sql.push_str(" AND (name LIKE ? OR description LIKE ?)");
-            let pattern = format!("%{}%", q);
-            bindings.push(pattern.clone());
-            bindings.push(pattern);
-        }
-    }
-    sql.push_str(" ORDER BY name");
-
-    let mut q = sqlx::query(&sql);
-    for b in &bindings {
-        q = q.bind(b);
-    }
-
-    let rows = q.fetch_all(pool).await.map_err(|e| e.to_string())?;
-    Ok(rows.iter().map(row_to_marketplace_skill).collect())
-}
-
-async fn registry_has_cached_skills(
-    pool: &crate::db::DbPool,
-    registry_id: &str,
-) -> Result<bool, String> {
-    let count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM marketplace_skills WHERE registry_id = ?",
-    )
-    .bind(registry_id)
-    .fetch_one(pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(count > 0)
-}
-
-fn row_to_marketplace_skill(row: &sqlx::sqlite::SqliteRow) -> MarketplaceSkill {
-    use sqlx::Row;
-
-    MarketplaceSkill {
-        id: row.get("id"),
-        registry_id: row.get("registry_id"),
-        name: row.get("name"),
-        description: row.get("description"),
-        download_url: row.get("download_url"),
-        is_installed: row.get::<i64, _>("is_installed") != 0,
-        synced_at: row.get("synced_at"),
-        cache_updated_at: row.get("cache_updated_at"),
-    }
-}
-
-#[derive(sqlx::FromRow)]
-struct MarketplaceSkillRow {
-    id: String,
-    registry_id: String,
-    name: String,
-    description: Option<String>,
-    download_url: String,
-    registry_name: Option<String>,
-    registry_url: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct MarketplaceSkillFrontmatter {
-    name: String,
-    description: Option<String>,
-}
-
-async fn central_skills_root(pool: &db::DbPool) -> Result<PathBuf, String> {
-    let central = db::get_agent_by_id(pool, "central")
-        .await?
-        .ok_or_else(|| "Central agent not found in database".to_string())?;
-    Ok(PathBuf::from(central.global_skills_dir))
-}
-
-async fn skill_resource_library_root(pool: &db::DbPool) -> Result<PathBuf, String> {
-    db::get_skill_resource_library_dir(pool).await
-}
-
-fn parse_marketplace_skill_frontmatter(content: &str) -> Option<MarketplaceSkillFrontmatter> {
+fn parse_skill_markdown_frontmatter(content: &str) -> Option<serde_yaml::Value> {
     let after_open = content
         .strip_prefix("---\n")
         .or_else(|| content.strip_prefix("---\r\n"))?;
@@ -513,7 +20,7 @@ fn parse_marketplace_skill_frontmatter(content: &str) -> Option<MarketplaceSkill
 }
 
 fn validate_update_skill_markdown(skill_id: &str, content: &str) -> Result<(), String> {
-    parse_marketplace_skill_frontmatter(content)
+    parse_skill_markdown_frontmatter(content)
         .map(|_| ())
         .ok_or_else(|| {
             format!(
@@ -522,12 +29,12 @@ fn validate_update_skill_markdown(skill_id: &str, content: &str) -> Result<(), S
             )
         })
 }
-
 fn is_updatable_skill_source_url(url: &str) -> bool {
     let Ok(parsed) = reqwest::Url::parse(url) else {
         return false;
     };
-    matches!(parsed.scheme(), "http" | "https") && parsed.path().ends_with("/SKILL.md")
+    matches!(parsed.scheme(), "http" | "https")
+        && parsed.path().to_ascii_lowercase().ends_with("/skill.md")
 }
 
 fn source_path_to_skill_md_path(source_path: &str) -> Option<String> {
@@ -538,7 +45,9 @@ fn source_path_to_skill_md_path(source_path: &str) -> Option<String> {
     if trimmed == "." {
         return Some("SKILL.md".to_string());
     }
-    if trimmed.ends_with("/SKILL.md") || trimmed == "SKILL.md" {
+    if trimmed.to_ascii_lowercase().ends_with("/skill.md")
+        || trimmed.eq_ignore_ascii_case("SKILL.md")
+    {
         Some(trimmed.to_string())
     } else {
         Some(format!("{trimmed}/SKILL.md"))
@@ -554,7 +63,7 @@ fn github_raw_update_urls(source: &db::SkillSource) -> Vec<String> {
     {
         urls.push(url.to_string());
     }
-    if source.source_type != "github" {
+    if !matches!(source.source_type.as_str(), "github" | "skills-cli") {
         return urls;
     }
     let Some(repo) = source.source_repo.as_deref() else {
@@ -589,11 +98,15 @@ fn github_raw_update_urls(source: &db::SkillSource) -> Vec<String> {
 
 fn skill_directory_name_from_source_path(source_path: &str) -> Option<String> {
     let trimmed = source_path.trim().trim_matches('/');
-    if trimmed.is_empty() || trimmed == "SKILL.md" || trimmed == "." {
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("SKILL.md") || trimmed == "." {
         return None;
     }
 
-    let without_manifest = trimmed.strip_suffix("/SKILL.md").unwrap_or(trimmed);
+    let lower = trimmed.to_ascii_lowercase();
+    let without_manifest = lower
+        .strip_suffix("/skill.md")
+        .and_then(|_| trimmed.get(..trimmed.len().saturating_sub("/SKILL.md".len())))
+        .unwrap_or(trimmed);
     without_manifest
         .rsplit('/')
         .find(|segment| !segment.trim().is_empty())
@@ -605,7 +118,7 @@ fn relocated_github_skill_md_url(
     branch: &str,
     repo_paths: &[String],
 ) -> Option<(String, String)> {
-    if source.source_type != "github" {
+    if !matches!(source.source_type.as_str(), "github" | "skills-cli") {
         return None;
     }
     let repo = source.source_repo.as_deref()?.trim_matches('/');
@@ -613,7 +126,9 @@ fn relocated_github_skill_md_url(
     let skill_dir = skill_directory_name_from_source_path(source_path)?;
     let repo_name = repo.rsplit('/').next()?;
     let root_repo_skill_name = repo_name.strip_suffix("-skill").unwrap_or(repo_name);
-    if repo_paths.iter().any(|path| path == "SKILL.md")
+    if repo_paths
+        .iter()
+        .any(|path| path.eq_ignore_ascii_case("SKILL.md"))
         && (skill_dir == repo_name
             || skill_dir == root_repo_skill_name
             || skill_dir == source.skill_id)
@@ -624,11 +139,13 @@ fn relocated_github_skill_md_url(
         ));
     }
 
-    let expected_suffix = format!("/{skill_dir}/SKILL.md");
+    let expected_suffix = format!("/{}/skill.md", skill_dir.to_ascii_lowercase());
+    let expected_root = format!("{}/skill.md", skill_dir.to_ascii_lowercase());
     let mut matches = repo_paths
         .iter()
         .filter(|path| {
-            path.ends_with(&expected_suffix) || path.as_str() == format!("{skill_dir}/SKILL.md")
+            let normalized = path.replace('\\', "/").to_ascii_lowercase();
+            normalized.ends_with(&expected_suffix) || normalized == expected_root
         })
         .collect::<Vec<_>>();
     matches.sort();
@@ -700,7 +217,7 @@ async fn fetch_relocated_github_skill_markdown(
     source: &db::SkillSource,
     auth: Option<&str>,
 ) -> Result<Option<(String, String, String)>, String> {
-    if source.source_type != "github" {
+    if !matches!(source.source_type.as_str(), "github" | "skills-cli") {
         return Ok(None);
     }
     let Some(repo) = source.source_repo.as_deref() else {
@@ -736,6 +253,21 @@ fn source_update_item(
         name: skill.name.clone(),
         status,
         error,
+        remote_deleted: false,
+    }
+}
+
+fn remote_deleted_source_update_item(
+    skill: &db::Skill,
+    status: SkillSourceUpdateStatus,
+    error: Option<String>,
+) -> SkillSourceUpdateItem {
+    SkillSourceUpdateItem {
+        skill_id: skill.id.clone(),
+        name: skill.name.clone(),
+        status,
+        error,
+        remote_deleted: true,
     }
 }
 
@@ -774,319 +306,6 @@ async fn apply_source_update_content(
     })
 }
 
-fn sanitize_local_skill_id(name: &str) -> Result<String, String> {
-    let id = name
-        .trim()
-        .to_lowercase()
-        .replace(' ', "-")
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-                ch
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string();
-
-    if id.is_empty() {
-        Err("Skill name cannot produce a valid local id".to_string())
-    } else {
-        Ok(id)
-    }
-}
-
-async fn local_skill_id_for_source(
-    pool: &db::DbPool,
-    name: &str,
-    source_url: &str,
-    source_repo: Option<&str>,
-    source_author: Option<&str>,
-) -> Result<String, String> {
-    let base_id = sanitize_local_skill_id(name)?;
-    if skill_id_can_be_used_for_source(pool, &base_id, source_url).await? {
-        return Ok(base_id);
-    }
-
-    let suffix_seed = source_repo.or(source_author).unwrap_or("remote-source");
-    let suffix = sanitize_local_skill_id(&suffix_seed.replace('/', "-"))?;
-    let mut candidate = format!("{}-{}", base_id, suffix);
-    if skill_id_can_be_used_for_source(pool, &candidate, source_url).await? {
-        return Ok(candidate);
-    }
-
-    for index in 2..1000 {
-        candidate = format!("{}-{}-{}", base_id, suffix, index);
-        if skill_id_can_be_used_for_source(pool, &candidate, source_url).await? {
-            return Ok(candidate);
-        }
-    }
-
-    Err(format!(
-        "Unable to allocate a unique local id for skill '{}'",
-        name
-    ))
-}
-
-async fn skill_id_can_be_used_for_source(
-    pool: &db::DbPool,
-    skill_id: &str,
-    source_url: &str,
-) -> Result<bool, String> {
-    if db::get_skill_by_id(pool, skill_id).await?.is_none() {
-        return Ok(true);
-    }
-
-    let existing_source = db::get_skill_source(pool, skill_id).await?;
-    Ok(existing_source
-        .as_ref()
-        .and_then(|source| source.source_url.as_deref())
-        .is_some_and(|existing_url| existing_url == source_url))
-}
-
-async fn marketplace_skill_row(
-    pool: &db::DbPool,
-    skill_id: &str,
-) -> Result<MarketplaceSkillRow, String> {
-    sqlx::query_as::<_, MarketplaceSkillRow>(
-        "SELECT ms.id, ms.registry_id, ms.name, ms.description, ms.download_url,
-                sr.name AS registry_name, sr.url AS registry_url
-         FROM marketplace_skills ms
-         LEFT JOIN skill_registries sr ON sr.id = ms.registry_id
-         WHERE ms.id = ?",
-    )
-    .bind(skill_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| e.to_string())?
-    .ok_or_else(|| "Skill not found".to_string())
-}
-
-pub async fn install_marketplace_skill_content_impl(
-    pool: &db::DbPool,
-    skill_id: &str,
-    content: &str,
-) -> Result<(), String> {
-    let skill = marketplace_skill_row(pool, skill_id).await?;
-    let frontmatter = parse_marketplace_skill_frontmatter(content);
-    let resource_root = skill_resource_library_root(pool).await?;
-    std::fs::create_dir_all(&resource_root)
-        .map_err(|e| format!("Failed to create skill resource library directory: {}", e))?;
-
-    let (url_author, url_repo, url_source_path) = github_source_from_url(&skill.download_url);
-    let local_skill_id = local_skill_id_for_source(
-        pool,
-        &skill.name,
-        &skill.download_url,
-        url_repo.as_deref().or(skill.registry_url.as_deref()),
-        url_author.as_deref().or(skill.registry_name.as_deref()),
-    )
-    .await?;
-    let source_author = url_author.or(skill.registry_name.clone());
-    let source_repo = url_repo.or(skill.registry_url.clone());
-    let skill_dir = source_grouped_skill_dir(
-        &resource_root,
-        source_author.as_deref(),
-        source_repo.as_deref(),
-        Some(&skill.registry_id),
-        &local_skill_id,
-    );
-    std::fs::create_dir_all(&skill_dir)
-        .map_err(|e| format!("Failed to create directory: {}", e))?;
-
-    let skill_md_path = skill_dir.join("SKILL.md");
-    std::fs::write(&skill_md_path, content)
-        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
-
-    let now = chrono::Utc::now().to_rfc3339();
-    let name = frontmatter
-        .as_ref()
-        .map(|frontmatter| frontmatter.name.clone())
-        .unwrap_or_else(|| skill.name.clone());
-    let description = frontmatter
-        .and_then(|frontmatter| frontmatter.description)
-        .or(skill.description.clone());
-
-    let db_skill = db::Skill {
-        id: local_skill_id.clone(),
-        name,
-        description,
-        file_path: skill_md_path.to_string_lossy().into_owned(),
-        canonical_path: Some(skill_dir.to_string_lossy().into_owned()),
-        is_central: false,
-        source: skill
-            .registry_url
-            .clone()
-            .or_else(|| Some(skill.registry_id.clone())),
-        content: None,
-        scanned_at: now.clone(),
-    };
-    db::upsert_skill(pool, &db_skill).await?;
-
-    let source = db::SkillSource {
-        skill_id: local_skill_id,
-        source_type: "marketplace".to_string(),
-        source_url: Some(skill.download_url.clone()),
-        source_author,
-        source_repo,
-        source_path: url_source_path,
-        updated_at: now,
-    };
-    db::upsert_skill_source(pool, &source).await?;
-
-    sqlx::query("UPDATE marketplace_skills SET is_installed = 1 WHERE id = ?")
-        .bind(&skill.id)
-        .execute(pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
-}
-
-async fn install_remote_skill_content_impl(
-    pool: &db::DbPool,
-    name: &str,
-    description: Option<String>,
-    download_url: &str,
-    source_label: Option<String>,
-    content: &str,
-) -> Result<(), String> {
-    let frontmatter = parse_marketplace_skill_frontmatter(content);
-    let resource_root = skill_resource_library_root(pool).await?;
-    std::fs::create_dir_all(&resource_root)
-        .map_err(|e| format!("Failed to create skill resource library directory: {}", e))?;
-
-    let (url_author, url_repo, url_source_path) = github_source_from_url(download_url);
-    let local_skill_id = local_skill_id_for_source(
-        pool,
-        name,
-        download_url,
-        url_repo.as_deref(),
-        url_author.as_deref().or(source_label.as_deref()),
-    )
-    .await?;
-    let source_author = url_author.or(source_label.clone());
-    let source_repo = url_repo;
-    let skill_dir = source_grouped_skill_dir(
-        &resource_root,
-        source_author.as_deref(),
-        source_repo.as_deref(),
-        Some("raw-url"),
-        &local_skill_id,
-    );
-    std::fs::create_dir_all(&skill_dir)
-        .map_err(|e| format!("Failed to create directory: {}", e))?;
-
-    let skill_md_path = skill_dir.join("SKILL.md");
-    std::fs::write(&skill_md_path, content)
-        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
-
-    let now = chrono::Utc::now().to_rfc3339();
-    let name = frontmatter
-        .as_ref()
-        .map(|frontmatter| frontmatter.name.clone())
-        .unwrap_or_else(|| name.to_string());
-    let description = frontmatter
-        .and_then(|frontmatter| frontmatter.description)
-        .or(description);
-    let db_skill = db::Skill {
-        id: local_skill_id.clone(),
-        name,
-        description,
-        file_path: skill_md_path.to_string_lossy().into_owned(),
-        canonical_path: Some(skill_dir.to_string_lossy().into_owned()),
-        is_central: false,
-        source: Some(download_url.to_string()),
-        content: None,
-        scanned_at: now.clone(),
-    };
-    db::upsert_skill(pool, &db_skill).await?;
-    db::upsert_skill_source(
-        pool,
-        &db::SkillSource {
-            skill_id: local_skill_id,
-            source_type: "raw".to_string(),
-            source_url: Some(download_url.to_string()),
-            source_author,
-            source_repo,
-            source_path: url_source_path,
-            updated_at: now,
-        },
-    )
-    .await?;
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn install_marketplace_skill(
-    state: State<'_, AppState>,
-    skill_id: String,
-) -> Result<(), String> {
-    let skill = marketplace_skill_row(&state.db, &skill_id).await?;
-
-    // Download SKILL.md content
-    let client = reqwest::Client::builder()
-        .user_agent("SkillsHub/0.10.7")
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client
-        .get(&skill.download_url)
-        .send()
-        .await
-        .map_err(|e| format!("Download failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("Download returned {}", resp.status()));
-    }
-
-    let content = resp
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read response: {}", e))?;
-
-    install_marketplace_skill_content_impl(&state.db, &skill_id, &content).await
-}
-
-#[tauri::command]
-pub async fn install_remote_skill_from_url(
-    state: State<'_, AppState>,
-    name: String,
-    description: Option<String>,
-    download_url: String,
-    source_label: Option<String>,
-) -> Result<(), String> {
-    let client = reqwest::Client::builder()
-        .user_agent("SkillsHub/0.10.7")
-        .build()
-        .map_err(|e| e.to_string())?;
-    let resp = client
-        .get(&download_url)
-        .send()
-        .await
-        .map_err(|e| format!("Download failed: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("Download returned {}", resp.status()));
-    }
-    let content = resp
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read response: {}", e))?;
-
-    install_remote_skill_content_impl(
-        &state.db,
-        &name,
-        description,
-        &download_url,
-        source_label,
-        &content,
-    )
-    .await
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillSourceUpdateProgress {
@@ -1113,6 +332,7 @@ pub struct SkillSourceUpdateItem {
     pub name: String,
     pub status: SkillSourceUpdateStatus,
     pub error: Option<String>,
+    pub remote_deleted: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1151,6 +371,7 @@ pub struct RepositorySyncPreviewReport {
 #[serde(rename_all = "camelCase")]
 pub struct RepositorySyncApplyOptions {
     pub remove_deleted: bool,
+    pub repositories: Option<Vec<String>>,
 }
 
 fn emit_source_update_progress(
@@ -1178,7 +399,7 @@ pub async fn update_source_backed_central_skills(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<SkillSourceUpdateReport, String> {
-    update_source_backed_skills_impl(&state.db, true, Some(&app), false).await
+    update_source_backed_skills_impl(&state.db, true, Some(&app), false, None).await
 }
 
 #[tauri::command]
@@ -1186,7 +407,7 @@ pub async fn update_source_backed_resource_skills(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<SkillSourceUpdateReport, String> {
-    update_source_backed_skills_impl(&state.db, false, Some(&app), false).await
+    update_source_backed_skills_impl(&state.db, false, Some(&app), false, None).await
 }
 
 #[tauri::command]
@@ -1195,36 +416,26 @@ pub async fn sync_source_backed_resource_skills(
     state: State<'_, AppState>,
     options: Option<RepositorySyncApplyOptions>,
 ) -> Result<SkillSourceUpdateReport, String> {
+    let options = options.unwrap_or_default();
     update_source_backed_skills_impl(
         &state.db,
         false,
         Some(&app),
-        options.unwrap_or_default().remove_deleted,
+        options.remove_deleted,
+        options.repositories,
     )
     .await
 }
 
-async fn npx_repo_source_groups(
+async fn github_repo_source_groups(
     pool: &db::DbPool,
     is_central: bool,
 ) -> Result<HashMap<String, Vec<(db::SkillSource, db::Skill)>>, String> {
     let sources = db::get_all_skill_sources(pool).await?;
-    let syncs = db::get_all_skill_source_syncs(pool).await?;
-    let syncs_by_skill = syncs
-        .into_iter()
-        .map(|sync| (sync.skill_id.clone(), sync))
-        .collect::<HashMap<_, _>>();
     let mut groups: HashMap<String, Vec<(db::SkillSource, db::Skill)>> = HashMap::new();
 
     for source in sources {
-        if source.source_type != "skills-cli" {
-            continue;
-        }
-        let sync_scope = syncs_by_skill
-            .get(&source.skill_id)
-            .map(|sync| sync.sync_scope.as_str())
-            .unwrap_or(skills_cli::NPX_SYNC_SCOPE_SKILL);
-        if sync_scope != skills_cli::NPX_SYNC_SCOPE_REPO {
+        if !matches!(source.source_type.as_str(), "github" | "skills-cli") {
             continue;
         }
         let Some(skill) = db::get_skill_by_id(pool, &source.skill_id).await? else {
@@ -1266,7 +477,60 @@ fn preview_item_from_candidate(
     }
 }
 
-async fn preview_npx_repo_group(
+fn normalized_source_path_keys(source_path: &str) -> Vec<String> {
+    let trimmed = source_path.trim().trim_matches('/').replace('\\', "/");
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if trimmed == "." || trimmed.eq_ignore_ascii_case("SKILL.md") {
+        return vec!["SKILL.md".to_string(), ".".to_string()];
+    }
+    let without_manifest = trimmed
+        .strip_suffix("/SKILL.md")
+        .or_else(|| trimmed.strip_suffix("/skill.md"))
+        .unwrap_or(&trimmed)
+        .to_string();
+    let mut keys = vec![trimmed.clone()];
+    if !keys.contains(&without_manifest) {
+        keys.push(without_manifest);
+    }
+    keys
+}
+
+fn skill_source_match_keys(source: &db::SkillSource, skill: &db::Skill) -> HashSet<String> {
+    let mut keys = HashSet::from([skill.id.clone()]);
+    if let Some(path) = source.source_path.as_deref() {
+        keys.extend(normalized_source_path_keys(path));
+    }
+    keys
+}
+
+fn remote_candidate_match_keys(candidate: &github_import::RemoteSkillCandidate) -> HashSet<String> {
+    let mut keys = HashSet::from([
+        candidate.skill_id.clone(),
+        candidate.skill_directory_name.clone(),
+        candidate.source_path.clone(),
+        candidate.source_manifest_path.clone(),
+    ]);
+    keys.extend(normalized_source_path_keys(&candidate.source_path));
+    keys.extend(normalized_source_path_keys(&candidate.source_manifest_path));
+    keys
+}
+
+fn normalized_repository_filter(repositories: Option<Vec<String>>) -> Option<HashSet<String>> {
+    let filter = repositories?
+        .into_iter()
+        .map(|repo| repo.trim().trim_matches('/').to_ascii_lowercase())
+        .filter(|repo| repo.contains('/'))
+        .collect::<HashSet<_>>();
+    if filter.is_empty() {
+        None
+    } else {
+        Some(filter)
+    }
+}
+
+async fn preview_github_repo_group(
     pool: &db::DbPool,
     repo: &str,
     group: &[(db::SkillSource, db::Skill)],
@@ -1344,35 +608,34 @@ async fn preview_npx_repo_group(
         }
     };
 
-    let local_ids = group
+    let local_keys = group
         .iter()
-        .map(|(_, skill)| skill.id.clone())
-        .collect::<HashSet<_>>();
-    let remote_ids = candidates
-        .iter()
-        .map(|candidate| candidate.skill_id.clone())
-        .collect::<HashSet<_>>();
-    let remote_by_id = candidates
-        .iter()
-        .map(|candidate| (candidate.skill_id.clone(), candidate))
-        .collect::<HashMap<_, _>>();
+        .map(|(source, skill)| skill_source_match_keys(source, skill))
+        .collect::<Vec<_>>();
     let remote_changed = current_ref.as_deref() != Some(remote_ref.as_str());
 
     let mut added = candidates
         .iter()
-        .filter(|candidate| !local_ids.contains(&candidate.skill_id))
+        .filter(|candidate| {
+            let candidate_keys = remote_candidate_match_keys(candidate);
+            !local_keys
+                .iter()
+                .any(|keys| keys.iter().any(|key| candidate_keys.contains(key)))
+        })
         .map(preview_item_from_candidate)
         .collect::<Vec<_>>();
     let mut modified = Vec::new();
     let mut deleted = Vec::new();
     let mut unchanged = Vec::new();
 
-    for (_, skill) in group {
-        if remote_ids.contains(&skill.id) {
-            let item = remote_by_id
-                .get(&skill.id)
-                .map(|candidate| preview_item_from_candidate(candidate))
-                .unwrap_or_else(|| preview_item_from_skill(skill));
+    for (source, skill) in group {
+        let skill_keys = skill_source_match_keys(source, skill);
+        if let Some(candidate) = candidates.iter().find(|candidate| {
+            remote_candidate_match_keys(candidate)
+                .iter()
+                .any(|key| skill_keys.contains(key))
+        }) {
+            let item = preview_item_from_candidate(candidate);
             if remote_changed {
                 modified.push(item);
             } else {
@@ -1403,12 +666,21 @@ async fn preview_npx_repo_group(
 #[tauri::command]
 pub async fn preview_source_backed_resource_repository_updates(
     state: State<'_, AppState>,
+    repositories: Option<Vec<String>>,
 ) -> Result<RepositorySyncPreviewReport, String> {
     let auth = github_import::github_direct_auth_from_settings(&state.db).await?;
-    let groups = npx_repo_source_groups(&state.db, false).await?;
+    let groups = github_repo_source_groups(&state.db, false).await?;
+    let filter = normalized_repository_filter(repositories);
     let mut repositories = Vec::new();
     for (repo, group) in groups {
-        repositories.push(preview_npx_repo_group(&state.db, &repo, &group, auth.as_deref()).await);
+        if filter
+            .as_ref()
+            .is_some_and(|filter| !filter.contains(&repo.to_ascii_lowercase()))
+        {
+            continue;
+        }
+        repositories
+            .push(preview_github_repo_group(&state.db, &repo, &group, auth.as_deref()).await);
     }
     repositories.sort_by(|left, right| left.repository.cmp(&right.repository));
     Ok(RepositorySyncPreviewReport { repositories })
@@ -1419,13 +691,10 @@ async fn update_source_backed_skills_impl(
     is_central: bool,
     app: Option<&AppHandle>,
     remove_remote_deleted: bool,
+    repositories: Option<Vec<String>>,
 ) -> Result<SkillSourceUpdateReport, String> {
     let sources = db::get_all_skill_sources(pool).await?;
-    let syncs = db::get_all_skill_source_syncs(pool).await?;
-    let syncs_by_skill = syncs
-        .into_iter()
-        .map(|sync| (sync.skill_id.clone(), sync))
-        .collect::<HashMap<_, _>>();
+    let repository_filter = normalized_repository_filter(repositories);
     let auth = github_import::github_direct_auth_from_settings(pool).await?;
     let client = reqwest::Client::builder()
         .user_agent("SkillsHub/0.10.7")
@@ -1433,8 +702,8 @@ async fn update_source_backed_skills_impl(
         .map_err(|e| e.to_string())?;
     let mut items = Vec::new();
     let mut github_jobs: Vec<(db::SkillSource, db::Skill)> = Vec::new();
-    let mut npx_repo_sources: HashMap<String, Vec<(db::SkillSource, db::Skill)>> = HashMap::new();
-    let mut npx_skill_sources = Vec::new();
+    let mut github_repo_sources: HashMap<String, Vec<(db::SkillSource, db::Skill)>> =
+        HashMap::new();
     let mut local_skipped = Vec::new();
     let mut unupdatable = Vec::new();
 
@@ -1451,27 +720,28 @@ async fn update_source_backed_skills_impl(
             continue;
         }
 
-        if source.source_type == "skills-cli" {
-            let sync_scope = syncs_by_skill
-                .get(&source.skill_id)
-                .map(|sync| sync.sync_scope.as_str())
-                .unwrap_or(skills_cli::NPX_SYNC_SCOPE_SKILL);
-            if sync_scope == skills_cli::NPX_SYNC_SCOPE_REPO {
-                if let Some(repo) = source
-                    .source_repo
-                    .as_deref()
-                    .or(source.source_url.as_deref())
-                    .map(str::trim)
-                    .filter(|repo| !repo.is_empty())
-                {
-                    npx_repo_sources
-                        .entry(repo.to_string())
-                        .or_default()
-                        .push((source, skill));
-                }
-            } else {
-                npx_skill_sources.push((source, skill));
+        if matches!(source.source_type.as_str(), "github" | "skills-cli")
+            && source
+                .source_repo
+                .as_deref()
+                .is_some_and(|repo| repo.trim().contains('/'))
+        {
+            let repo = source.source_repo.clone().unwrap_or_default();
+            let normalized_repo = repo.trim().trim_matches('/').to_string();
+            if repository_filter
+                .as_ref()
+                .is_some_and(|filter| !filter.contains(&normalized_repo.to_ascii_lowercase()))
+            {
+                continue;
             }
+            github_repo_sources
+                .entry(normalized_repo)
+                .or_default()
+                .push((source, skill));
+            continue;
+        }
+
+        if repository_filter.is_some() {
             continue;
         }
 
@@ -1482,12 +752,10 @@ async fn update_source_backed_skills_impl(
         github_jobs.push((source, skill));
     }
 
-    let npx_repo_skill_count: usize = npx_repo_sources.values().map(Vec::len).sum();
-    let total = (github_jobs.len()
-        + npx_repo_skill_count
-        + npx_skill_sources.len()
-        + local_skipped.len()
-        + unupdatable.len()) as u32;
+    let github_repo_skill_count: usize = github_repo_sources.values().map(Vec::len).sum();
+    let total =
+        (github_jobs.len() + github_repo_skill_count + local_skipped.len() + unupdatable.len())
+            as u32;
     let mut current = 0_u32;
 
     for (mut source, skill) in github_jobs {
@@ -1546,11 +814,12 @@ async fn update_source_backed_skills_impl(
         }
     }
 
-    for (repo, group) in npx_repo_sources {
+    for (repo, group) in github_repo_sources {
         if let Some((_, first)) = group.first() {
             emit_source_update_progress(app, current + 1, total, &first.name, &first.id);
         }
-        let group_result = update_npx_repo_source_group(pool, &repo, &group, auth.as_deref()).await;
+        let group_result =
+            update_github_repo_source_group(pool, &repo, &group, auth.as_deref(), app).await;
         for (_, skill) in group {
             current += 1;
             emit_source_update_progress(app, current, total, &skill.name, &skill.id);
@@ -1595,11 +864,11 @@ async fn update_source_backed_skills_impl(
                             )),
                         }
                     } else {
-                        items.push(source_update_item(
+                        items.push(remote_deleted_source_update_item(
                             &skill,
                             SkillSourceUpdateStatus::Skipped,
                             Some(
-                                "The skill was not returned by the latest repository import."
+                                "The skill was not returned by the latest GitHub repository snapshot. It may have been removed or renamed upstream."
                                     .to_string(),
                             ),
                         ));
@@ -1613,7 +882,7 @@ async fn update_source_backed_skills_impl(
                     ));
                 }
                 Err(error) => {
-                    items.push(source_update_item(
+                    items.push(remote_deleted_source_update_item(
                         &skill,
                         SkillSourceUpdateStatus::Failed,
                         Some(error.clone()),
@@ -1631,28 +900,6 @@ async fn update_source_backed_skills_impl(
                     ));
                 }
             }
-        }
-    }
-
-    for (source, skill) in npx_skill_sources {
-        current += 1;
-        emit_source_update_progress(app, current, total, &skill.name, &skill.id);
-        match update_npx_skill_source(pool, &source, &skill, auth.as_deref()).await {
-            Ok(Some(_)) => items.push(source_update_item(
-                &skill,
-                SkillSourceUpdateStatus::Updated,
-                None,
-            )),
-            Ok(None) => items.push(source_update_item(
-                &skill,
-                SkillSourceUpdateStatus::Unchanged,
-                None,
-            )),
-            Err(error) => items.push(source_update_item(
-                &skill,
-                SkillSourceUpdateStatus::Failed,
-                Some(error),
-            )),
         }
     }
 
@@ -1682,17 +929,7 @@ async fn update_source_backed_skills_impl(
     Ok(SkillSourceUpdateReport { items })
 }
 
-fn npx_source_input(source: &db::SkillSource) -> Option<String> {
-    source
-        .source_repo
-        .as_deref()
-        .or(source.source_url.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-async fn fetch_npx_source_remote_ref(repo: &str, auth: Option<&str>) -> Result<String, String> {
+async fn fetch_github_source_remote_ref(repo: &str, auth: Option<&str>) -> Result<String, String> {
     let repo_ref = github_import::resolve_repo_ref(&format!("https://github.com/{repo}"), auth)
         .await
         .map_err(|error| format!("failed to resolve repository: {error}"))?;
@@ -1701,28 +938,7 @@ async fn fetch_npx_source_remote_ref(repo: &str, auth: Option<&str>) -> Result<S
         .map_err(|error| format!("failed to inspect repository head: {error}"))
 }
 
-async fn current_skill_sync(
-    pool: &db::DbPool,
-    skill_id: &str,
-) -> Result<db::SkillSourceSync, String> {
-    let now = Utc::now().to_rfc3339();
-    Ok(db::get_skill_source_sync(pool, skill_id)
-        .await?
-        .unwrap_or(db::SkillSourceSync {
-            skill_id: skill_id.to_string(),
-            sync_scope: skills_cli::NPX_SYNC_SCOPE_SKILL.to_string(),
-            remote_ref: None,
-            skill_fingerprint: None,
-            last_checked_at: None,
-            last_sync_at: None,
-            sync_status: "never".to_string(),
-            sync_error: None,
-            remote_deleted: false,
-            updated_at: now,
-        }))
-}
-
-struct NpxSyncStatusRecord<'a> {
+struct GitHubSyncStatusRecord<'a> {
     skill_id: &'a str,
     sync_scope: &'a str,
     remote_ref: Option<&'a str>,
@@ -1732,9 +948,9 @@ struct NpxSyncStatusRecord<'a> {
     synced: bool,
 }
 
-async fn record_npx_sync_status(
+async fn record_github_sync_status(
     pool: &db::DbPool,
-    record: NpxSyncStatusRecord<'_>,
+    record: GitHubSyncStatusRecord<'_>,
 ) -> Result<(), String> {
     let now = Utc::now().to_rfc3339();
     let existing = db::get_skill_source_sync(pool, record.skill_id).await?;
@@ -1765,20 +981,21 @@ async fn record_npx_sync_status(
     .await
 }
 
-struct NpxRepoGroupUpdate {
+struct GitHubRepoGroupUpdate {
     updated_ids: HashSet<String>,
     added_ids: HashSet<String>,
     deleted_ids: HashSet<String>,
     unchanged: bool,
 }
 
-async fn update_npx_repo_source_group(
+async fn update_github_repo_source_group(
     pool: &db::DbPool,
     repo: &str,
     group: &[(db::SkillSource, db::Skill)],
     auth: Option<&str>,
-) -> Result<NpxRepoGroupUpdate, String> {
-    let remote_ref = fetch_npx_source_remote_ref(repo, auth).await?;
+    app: Option<&AppHandle>,
+) -> Result<GitHubRepoGroupUpdate, String> {
+    let remote_ref = fetch_github_source_remote_ref(repo, auth).await?;
     let mut last_remote_ref = None;
     for (source, _) in group {
         if let Some(sync) = db::get_skill_source_sync(pool, &source.skill_id).await? {
@@ -1794,11 +1011,11 @@ async fn update_npx_repo_source_group(
     }
     if last_remote_ref.as_deref() == Some(remote_ref.as_str()) {
         for (source, _) in group {
-            record_npx_sync_status(
+            record_github_sync_status(
                 pool,
-                NpxSyncStatusRecord {
+                GitHubSyncStatusRecord {
                     skill_id: &source.skill_id,
-                    sync_scope: skills_cli::NPX_SYNC_SCOPE_REPO,
+                    sync_scope: GITHUB_REPOSITORY_SYNC_SCOPE,
                     remote_ref: Some(&remote_ref),
                     status: "unchanged",
                     error: None,
@@ -1808,7 +1025,7 @@ async fn update_npx_repo_source_group(
             )
             .await?;
         }
-        return Ok(NpxRepoGroupUpdate {
+        return Ok(GitHubRepoGroupUpdate {
             updated_ids: HashSet::new(),
             added_ids: HashSet::new(),
             deleted_ids: HashSet::new(),
@@ -1816,17 +1033,16 @@ async fn update_npx_repo_source_group(
         });
     }
 
-    let request = skills_cli::ImportSkillsViaNpxRequest {
+    let request = github_import::GitHubSnapshotImportRequest {
         input: repo.to_string(),
         skill: None,
         overwrite: true,
     };
-    let result = skills_cli::import_skills_via_npx_impl(pool, request).await?;
+    let result = github_import::import_github_repo_snapshot_impl(pool, request, app).await?;
     let imported_ids = result
-        .local_import
-        .added_skills
+        .imported_skills
         .iter()
-        .map(|skill| skill.id.clone())
+        .map(|skill| skill.imported_skill_id.clone())
         .collect::<HashSet<_>>();
     let existing_ids = group
         .iter()
@@ -1840,12 +1056,12 @@ async fn update_npx_repo_source_group(
         .difference(&imported_ids)
         .cloned()
         .collect::<HashSet<_>>();
-    for skill in &result.local_import.added_skills {
-        record_npx_sync_status(
+    for skill in &result.imported_skills {
+        record_github_sync_status(
             pool,
-            NpxSyncStatusRecord {
-                skill_id: &skill.id,
-                sync_scope: skills_cli::NPX_SYNC_SCOPE_REPO,
+            GitHubSyncStatusRecord {
+                skill_id: &skill.imported_skill_id,
+                sync_scope: GITHUB_REPOSITORY_SYNC_SCOPE,
                 remote_ref: Some(&remote_ref),
                 status: "success",
                 error: None,
@@ -1857,14 +1073,16 @@ async fn update_npx_repo_source_group(
     }
     for (source, _) in group {
         if !imported_ids.contains(&source.skill_id) {
-            record_npx_sync_status(
+            record_github_sync_status(
                 pool,
-                NpxSyncStatusRecord {
+                GitHubSyncStatusRecord {
                     skill_id: &source.skill_id,
-                    sync_scope: skills_cli::NPX_SYNC_SCOPE_REPO,
+                    sync_scope: GITHUB_REPOSITORY_SYNC_SCOPE,
                     remote_ref: Some(&remote_ref),
                     status: "remote_deleted",
-                    error: Some("The skill was not returned by the latest repository import."),
+                    error: Some(
+                        "The skill was not returned by the latest GitHub repository snapshot.",
+                    ),
                     remote_deleted: true,
                     synced: false,
                 },
@@ -1872,85 +1090,12 @@ async fn update_npx_repo_source_group(
             .await?;
         }
     }
-    Ok(NpxRepoGroupUpdate {
+    Ok(GitHubRepoGroupUpdate {
         updated_ids: imported_ids,
         added_ids,
         deleted_ids,
         unchanged: false,
     })
-}
-
-async fn update_npx_skill_source(
-    pool: &db::DbPool,
-    source: &db::SkillSource,
-    skill: &db::Skill,
-    auth: Option<&str>,
-) -> Result<Option<String>, String> {
-    let repo = npx_source_input(source)
-        .ok_or_else(|| "source repository is missing for npx skills update".to_string())?;
-    let remote_ref = fetch_npx_source_remote_ref(&repo, auth).await?;
-    let sync = current_skill_sync(pool, &source.skill_id).await?;
-    if sync.remote_ref.as_deref() == Some(remote_ref.as_str()) {
-        record_npx_sync_status(
-            pool,
-            NpxSyncStatusRecord {
-                skill_id: &source.skill_id,
-                sync_scope: skills_cli::NPX_SYNC_SCOPE_SKILL,
-                remote_ref: Some(&remote_ref),
-                status: "unchanged",
-                error: None,
-                remote_deleted: false,
-                synced: false,
-            },
-        )
-        .await?;
-        return Ok(None);
-    }
-    let mut request = skills_cli::npx_update_request_from_source(source)
-        .ok_or_else(|| "source is not an npx skills source".to_string())?;
-    if request.skill.is_none() {
-        request.skill = Some(skill.id.clone());
-    }
-    let result = skills_cli::import_skills_via_npx_impl(pool, request).await?;
-    let updated = result
-        .local_import
-        .added_skills
-        .into_iter()
-        .find(|updated_skill| updated_skill.id == skill.id);
-    if updated.is_some() {
-        record_npx_sync_status(
-            pool,
-            NpxSyncStatusRecord {
-                skill_id: &source.skill_id,
-                sync_scope: skills_cli::NPX_SYNC_SCOPE_SKILL,
-                remote_ref: Some(&remote_ref),
-                status: "success",
-                error: None,
-                remote_deleted: false,
-                synced: true,
-            },
-        )
-        .await?;
-        Ok(Some(skill.id.clone()))
-    } else {
-        record_npx_sync_status(
-            pool,
-            NpxSyncStatusRecord {
-                skill_id: &source.skill_id,
-                sync_scope: skills_cli::NPX_SYNC_SCOPE_SKILL,
-                remote_ref: Some(&remote_ref),
-                status: "remote_deleted",
-                error: Some("The skill was not returned by the latest repository import."),
-                remote_deleted: true,
-                synced: false,
-            },
-        )
-        .await?;
-        Err(
-            "npx skills did not import this skill; it may have been removed or renamed upstream."
-                .to_string(),
-        )
-    }
 }
 
 #[tauri::command]
@@ -1987,30 +1132,6 @@ async fn update_source_backed_skill_impl(
         ));
     }
 
-    if let Some(request) = skills_cli::npx_update_request_from_source(&source) {
-        let auth = github_import::github_direct_auth_from_settings(pool).await?;
-        if request.skill.is_none() {
-            let result = update_npx_repo_source_group(
-                pool,
-                &request.input,
-                &[(source.clone(), skill.clone())],
-                auth.as_deref(),
-            )
-            .await?;
-            if result.unchanged || result.updated_ids.contains(&skill.id) {
-                return Ok(skill.id.clone());
-            }
-            return Err(
-                "npx skills did not import this skill; it may have been removed or renamed upstream."
-                    .to_string(),
-            );
-        }
-        return update_npx_skill_source(pool, &source, &skill, auth.as_deref())
-            .await
-            .map(|updated| updated.unwrap_or_else(|| skill.id.clone()))
-            .map_err(|error| format!("Failed to update {}: {}", skill.id, error));
-    }
-
     let urls = github_raw_update_urls(&source);
     if urls.is_empty() {
         return Err(format!(
@@ -2030,7 +1151,12 @@ async fn update_source_backed_skill_impl(
                 fetch_relocated_github_skill_markdown(&client, &source, auth.as_deref())
                     .await?
                     .map(|(used_url, source_path, content)| (used_url, Some(source_path), content))
-                    .ok_or_else(|| format!("Failed to update {}: {}", skill.id, primary_error))?
+                    .ok_or_else(|| {
+                        format!(
+                            "Failed to update {}: {} The remote skill may have been deleted or renamed upstream.",
+                            skill.id, primary_error
+                        )
+                    })?
             }
         };
     apply_source_update_content(
@@ -2859,71 +1985,22 @@ pub async fn refresh_skill_explanation(
 #[cfg(test)]
 mod tests {
     use super::{
-        add_registry_impl, cache_skill_explanation, classify_reqwest_error,
-        detect_explanation_api_protocol, format_reqwest_error, get_fallback_endpoint,
-        github_raw_update_urls, install_marketplace_skill_content_impl, is_local_only_skill_source,
-        is_updatable_skill_source_url, load_cached_skill_explanation,
-        marketplace_skills_from_candidates, registry_has_cached_skills,
-        relocated_github_skill_md_url, search_marketplace_skills_impl, skill_markdown_is_current,
-        sync_registry_impl, validate_update_skill_markdown, ExplanationApiProtocol,
-        ExplanationErrorKind, RegistryCacheMetadata, RegistrySyncStatus, SyncRegistryOptions,
+        cache_skill_explanation, classify_reqwest_error, detect_explanation_api_protocol,
+        format_reqwest_error, get_fallback_endpoint, github_raw_update_urls,
+        is_local_only_skill_source, is_updatable_skill_source_url, load_cached_skill_explanation,
+        relocated_github_skill_md_url, skill_markdown_is_current, validate_update_skill_markdown,
+        ExplanationApiProtocol, ExplanationErrorKind,
     };
-    use crate::commands::github_import::RemoteSkillCandidate;
     use crate::db;
     use tempfile::{tempdir, TempDir};
 
     async fn setup_test_db() -> (crate::db::DbPool, TempDir) {
         let dir = tempdir().expect("create tempdir");
-        let db_path = dir.path().join("marketplace-cache.sqlite");
+        let db_path = dir.path().join("remote-sources.sqlite");
         let db_path = db_path.to_string_lossy().into_owned();
         let pool = db::create_pool(&db_path).await.expect("create pool");
         db::init_database(&pool).await.expect("init db");
         (pool, dir)
-    }
-
-    #[test]
-    fn marketplace_skills_from_candidates_supports_namespaced_layouts() {
-        let skills = marketplace_skills_from_candidates(
-            "openai",
-            vec![
-                RemoteSkillCandidate {
-                    source_path: "skills/.curated/openai-docs".to_string(),
-                    source_manifest_path: "skills/.curated/openai-docs/SKILL.md".to_string(),
-                    skill_id: "openai-docs".to_string(),
-                    skill_name: "openai-docs".to_string(),
-                    description: Some("Docs skill".to_string()),
-                    root_directory: "skills/.curated".to_string(),
-                    skill_directory_name: "openai-docs".to_string(),
-                    download_url:
-                        "https://raw.githubusercontent.com/openai/skills/main/skills/.curated/openai-docs/SKILL.md"
-                            .to_string(),
-                },
-                RemoteSkillCandidate {
-                    source_path: "skills/.system/skill-creator".to_string(),
-                    source_manifest_path: "skills/.system/skill-creator/SKILL.md".to_string(),
-                    skill_id: "skill-creator".to_string(),
-                    skill_name: "skill-creator".to_string(),
-                    description: Some("Create skills".to_string()),
-                    root_directory: "skills/.system".to_string(),
-                    skill_directory_name: "skill-creator".to_string(),
-                    download_url:
-                        "https://raw.githubusercontent.com/openai/skills/main/skills/.system/skill-creator/SKILL.md"
-                            .to_string(),
-                },
-            ],
-        );
-
-        assert_eq!(skills.len(), 2);
-        assert_eq!(skills[0].id, "openai::openai-docs");
-        assert_eq!(skills[0].name, "openai-docs");
-        assert!(skills[0]
-            .download_url
-            .contains("skills/.curated/openai-docs"));
-        assert_eq!(skills[1].id, "openai::skill-creator");
-        assert_eq!(skills[1].name, "skill-creator");
-        assert!(skills[1]
-            .download_url
-            .contains("skills/.system/skill-creator"));
     }
 
     #[test]
@@ -3137,386 +2214,6 @@ mod tests {
         assert_eq!(count, 0);
     }
 
-    #[tokio::test]
-    async fn add_registry_persists_cache_metadata() {
-        let (pool, _dir) = setup_test_db().await;
-        let registry = add_registry_impl(
-            &pool,
-            "Custom Repo".to_string(),
-            "github".to_string(),
-            "https://github.com/example/custom".to_string(),
-            Some(RegistryCacheMetadata {
-                etag: Some("etag-123".to_string()),
-                last_modified: Some("Wed, 01 Jan 2025 00:00:00 GMT".to_string()),
-                cache_expires_at: Some("2026-04-16T00:00:00Z".to_string()),
-            }),
-        )
-        .await
-        .expect("registry created");
-
-        let row = sqlx::query(
-            "SELECT last_sync_status, etag, last_modified, cache_expires_at
-             FROM skill_registries WHERE id = ?",
-        )
-        .bind(&registry.id)
-        .fetch_one(&pool)
-        .await
-        .expect("fetch registry");
-
-        use sqlx::Row;
-        assert_eq!(
-            row.get::<String, _>("last_sync_status"),
-            RegistrySyncStatus::Never.as_str()
-        );
-        assert_eq!(
-            row.get::<Option<String>, _>("etag").as_deref(),
-            Some("etag-123")
-        );
-        assert_eq!(
-            row.get::<Option<String>, _>("last_modified").as_deref(),
-            Some("Wed, 01 Jan 2025 00:00:00 GMT")
-        );
-        assert_eq!(
-            row.get::<Option<String>, _>("cache_expires_at").as_deref(),
-            Some("2026-04-16T00:00:00Z")
-        );
-    }
-
-    #[tokio::test]
-    async fn sync_registry_uses_cached_skills_without_refresh() {
-        let (pool, _dir) = setup_test_db().await;
-        let registry = add_registry_impl(
-            &pool,
-            "Cached Repo".to_string(),
-            "github".to_string(),
-            "https://github.com/example/invalid".to_string(),
-            None,
-        )
-        .await
-        .expect("registry created");
-
-        sqlx::query(
-            "INSERT INTO marketplace_skills
-             (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
-             VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-        )
-        .bind(format!("{}::cached-skill", registry.id))
-        .bind(&registry.id)
-        .bind("cached-skill")
-        .bind("served from cache")
-        .bind("https://example.com/SKILL.md")
-        .bind("2026-04-16T12:00:00Z")
-        .bind("2026-04-16T12:00:00Z")
-        .execute(&pool)
-        .await
-        .expect("insert cached skill");
-
-        let skills = sync_registry_impl(&pool, registry.id.clone(), SyncRegistryOptions::default())
-            .await
-            .expect("sync succeeds from cache");
-
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].name, "cached-skill");
-
-        let row = sqlx::query(
-            "SELECT last_attempted_sync, last_synced, last_sync_status
-             FROM skill_registries WHERE id = ?",
-        )
-        .bind(&registry.id)
-        .fetch_one(&pool)
-        .await
-        .expect("fetch registry");
-
-        use sqlx::Row;
-        assert!(row
-            .get::<Option<String>, _>("last_attempted_sync")
-            .is_none());
-        assert!(row.get::<Option<String>, _>("last_synced").is_none());
-        assert_eq!(
-            row.get::<String, _>("last_sync_status"),
-            RegistrySyncStatus::Never.as_str()
-        );
-    }
-
-    #[tokio::test]
-    async fn force_refresh_failure_preserves_last_good_cached_data() {
-        let (pool, _dir) = setup_test_db().await;
-        let registry = add_registry_impl(
-            &pool,
-            "Broken Repo".to_string(),
-            "github".to_string(),
-            "not-a-valid-github-url".to_string(),
-            None,
-        )
-        .await
-        .expect("registry created");
-
-        sqlx::query(
-            "INSERT INTO marketplace_skills
-             (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
-             VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-        )
-        .bind(format!("{}::last-good", registry.id))
-        .bind(&registry.id)
-        .bind("last-good")
-        .bind("cached before failure")
-        .bind("https://example.com/last-good/SKILL.md")
-        .bind("2026-04-16T12:00:00Z")
-        .bind("2026-04-16T12:00:00Z")
-        .execute(&pool)
-        .await
-        .expect("insert cached skill");
-
-        let skills = sync_registry_impl(
-            &pool,
-            registry.id.clone(),
-            SyncRegistryOptions {
-                force_refresh: true,
-            },
-        )
-        .await
-        .expect("force refresh returns cached data on failure");
-
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].name, "last-good");
-
-        let row = sqlx::query(
-            "SELECT last_sync_status, last_sync_error, last_synced
-             FROM skill_registries WHERE id = ?",
-        )
-        .bind(&registry.id)
-        .fetch_one(&pool)
-        .await
-        .expect("fetch registry");
-
-        use sqlx::Row;
-        assert_eq!(
-            row.get::<String, _>("last_sync_status"),
-            RegistrySyncStatus::Error.as_str()
-        );
-        let last_sync_error = row
-            .get::<Option<String>, _>("last_sync_error")
-            .unwrap_or_default();
-        assert!(
-            last_sync_error.contains("GitHub repository URL")
-                || last_sync_error.contains("github.com"),
-            "unexpected sync error: {last_sync_error}"
-        );
-        assert!(row.get::<Option<String>, _>("last_synced").is_none());
-
-        let cached_skills = search_marketplace_skills_impl(&pool, Some(registry.id.clone()), None)
-            .await
-            .expect("cached skills still queryable");
-        assert_eq!(cached_skills.len(), 1);
-        assert_eq!(cached_skills[0].name, "last-good");
-    }
-
-    #[tokio::test]
-    async fn registry_cache_column_migration_is_idempotent() {
-        let dir = tempdir().expect("create tempdir");
-        let db_path = dir.path().join("migration.sqlite");
-        let db_path = db_path.to_string_lossy().into_owned();
-        let pool = db::create_pool(&db_path).await.expect("create pool");
-
-        sqlx::query(
-            "CREATE TABLE skill_registries (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                source_type TEXT NOT NULL,
-                url TEXT NOT NULL,
-                is_builtin BOOLEAN NOT NULL DEFAULT 0,
-                is_enabled BOOLEAN NOT NULL DEFAULT 1,
-                last_synced TEXT,
-                created_at TEXT NOT NULL
-            )",
-        )
-        .execute(&pool)
-        .await
-        .expect("create legacy skill_registries");
-        sqlx::query(
-            "CREATE TABLE marketplace_skills (
-                id TEXT PRIMARY KEY,
-                registry_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                description TEXT,
-                download_url TEXT NOT NULL,
-                is_installed BOOLEAN NOT NULL DEFAULT 0,
-                synced_at TEXT NOT NULL
-            )",
-        )
-        .execute(&pool)
-        .await
-        .expect("create legacy marketplace_skills");
-
-        db::init_database(&pool).await.expect("migrate once");
-        db::init_database(&pool).await.expect("migrate twice");
-
-        let registry_columns = sqlx::query("PRAGMA table_info(skill_registries)")
-            .fetch_all(&pool)
-            .await
-            .expect("pragma registry");
-        let skill_columns = sqlx::query("PRAGMA table_info(marketplace_skills)")
-            .fetch_all(&pool)
-            .await
-            .expect("pragma skills");
-
-        use sqlx::Row;
-        let registry_names: Vec<String> =
-            registry_columns.iter().map(|row| row.get("name")).collect();
-        let skill_names: Vec<String> = skill_columns.iter().map(|row| row.get("name")).collect();
-
-        for expected in [
-            "last_attempted_sync",
-            "last_sync_status",
-            "last_sync_error",
-            "cache_updated_at",
-            "cache_expires_at",
-            "etag",
-            "last_modified",
-        ] {
-            assert!(
-                registry_names.iter().any(|name| name == expected),
-                "missing registry column {expected}"
-            );
-        }
-        assert!(
-            skill_names.iter().any(|name| name == "cache_updated_at"),
-            "missing marketplace_skills.cache_updated_at"
-        );
-    }
-
-    #[tokio::test]
-    async fn registry_has_cached_skills_detects_persisted_rows() {
-        let (pool, _dir) = setup_test_db().await;
-        let registry = add_registry_impl(
-            &pool,
-            "Cache Check".to_string(),
-            "github".to_string(),
-            "https://github.com/example/cache-check".to_string(),
-            None,
-        )
-        .await
-        .expect("registry created");
-
-        assert!(!registry_has_cached_skills(&pool, &registry.id)
-            .await
-            .expect("empty"));
-
-        sqlx::query(
-            "INSERT INTO marketplace_skills
-             (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
-             VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-        )
-        .bind(format!("{}::cached", registry.id))
-        .bind(&registry.id)
-        .bind("cached")
-        .bind("cached row")
-        .bind("https://example.com/cached/SKILL.md")
-        .bind("2026-04-16T12:00:00Z")
-        .bind("2026-04-16T12:00:00Z")
-        .execute(&pool)
-        .await
-        .expect("insert skill");
-
-        assert!(registry_has_cached_skills(&pool, &registry.id)
-            .await
-            .expect("cached"));
-    }
-
-    #[tokio::test]
-    async fn install_marketplace_skill_uses_configured_resource_dir_and_records_source() {
-        let (pool, _dir) = setup_test_db().await;
-        let central_dir = tempdir().expect("central dir");
-        let resource_dir = tempdir().expect("resource dir");
-        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
-            .bind(central_dir.path().to_string_lossy().to_string())
-            .execute(&pool)
-            .await
-            .expect("set central dir");
-        db::set_setting(
-            &pool,
-            "skill_resource_library_dir",
-            &resource_dir.path().to_string_lossy(),
-        )
-        .await
-        .expect("set resource dir");
-
-        let registry = add_registry_impl(
-            &pool,
-            "Example Author".to_string(),
-            "github".to_string(),
-            "https://github.com/example/skills".to_string(),
-            None,
-        )
-        .await
-        .expect("registry created");
-        let skill_id = format!("{}::brand-guidelines", registry.id);
-        sqlx::query(
-            "INSERT INTO marketplace_skills
-             (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
-             VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-        )
-        .bind(&skill_id)
-        .bind(&registry.id)
-        .bind("brand-guidelines")
-        .bind("Brand guidance")
-        .bind("https://raw.githubusercontent.com/example/skills/main/skills/brand-guidelines/SKILL.md")
-        .bind("2026-04-16T12:00:00Z")
-        .bind("2026-04-16T12:00:00Z")
-        .execute(&pool)
-        .await
-        .expect("insert marketplace skill");
-
-        install_marketplace_skill_content_impl(
-            &pool,
-            &skill_id,
-            "---\nname: brand-guidelines\ndescription: Brand guidance\n---\n",
-        )
-        .await
-        .expect("install marketplace skill");
-
-        assert!(resource_dir
-            .path()
-            .join("example")
-            .join("skills")
-            .join("brand-guidelines")
-            .join("SKILL.md")
-            .exists());
-        let installed = db::get_skill_by_id(&pool, "brand-guidelines")
-            .await
-            .unwrap()
-            .expect("skill should be tracked as a resource library skill");
-        let expected_canonical = resource_dir
-            .path()
-            .join("example")
-            .join("skills")
-            .join("brand-guidelines")
-            .to_string_lossy()
-            .to_string();
-        assert_eq!(
-            installed.canonical_path.as_deref(),
-            Some(expected_canonical.as_str())
-        );
-        assert!(!installed.is_central);
-
-        let source = db::get_skill_source(&pool, "brand-guidelines")
-            .await
-            .unwrap()
-            .expect("source metadata should be recorded");
-        assert_eq!(source.source_author.as_deref(), Some("example"));
-        assert_eq!(source.source_repo.as_deref(), Some("example/skills"));
-        assert_eq!(
-            source.source_url.as_deref(),
-            Some(
-                "https://raw.githubusercontent.com/example/skills/main/skills/brand-guidelines/SKILL.md"
-            )
-        );
-        assert_eq!(
-            source.source_path.as_deref(),
-            Some("skills/brand-guidelines/SKILL.md")
-        );
-    }
-
     #[test]
     fn github_raw_update_urls_recovers_missing_source_url_from_repo_and_path() {
         let source = db::SkillSource {
@@ -3564,8 +2261,6 @@ mod tests {
         assert!(is_local_only_skill_source("local-folder"));
         assert!(is_local_only_skill_source("manual"));
         assert!(!is_local_only_skill_source("github"));
-        assert!(!is_local_only_skill_source("skills-cli"));
-        assert!(!is_local_only_skill_source("marketplace"));
     }
 
     #[test]
@@ -3615,197 +2310,5 @@ mod tests {
                 "SKILL.md".to_string()
             ))
         );
-    }
-
-    #[tokio::test]
-    async fn install_marketplace_skill_writes_resource_library_not_central() {
-        let (pool, _dir) = setup_test_db().await;
-        let central_dir = tempdir().expect("central dir");
-        let resource_dir = tempdir().expect("resource dir");
-        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
-            .bind(central_dir.path().to_string_lossy().to_string())
-            .execute(&pool)
-            .await
-            .expect("set central dir");
-        db::set_setting(
-            &pool,
-            "skill_resource_library_dir",
-            &resource_dir.path().to_string_lossy(),
-        )
-        .await
-        .expect("set resource dir");
-
-        let registry = add_registry_impl(
-            &pool,
-            "Example Author".to_string(),
-            "github".to_string(),
-            "https://github.com/example/skills".to_string(),
-            None,
-        )
-        .await
-        .expect("registry created");
-        let skill_id = format!("{}::brand-guidelines", registry.id);
-        sqlx::query(
-            "INSERT INTO marketplace_skills
-             (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
-             VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-        )
-        .bind(&skill_id)
-        .bind(&registry.id)
-        .bind("brand-guidelines")
-        .bind("Brand guidance")
-        .bind("https://raw.githubusercontent.com/example/skills/main/brand-guidelines/SKILL.md")
-        .bind("2026-04-16T12:00:00Z")
-        .bind("2026-04-16T12:00:00Z")
-        .execute(&pool)
-        .await
-        .expect("insert marketplace skill");
-
-        install_marketplace_skill_content_impl(
-            &pool,
-            &skill_id,
-            "---\nname: brand-guidelines\ndescription: Brand guidance\n---\n",
-        )
-        .await
-        .expect("install marketplace skill");
-
-        let resource_skill_dir = resource_dir
-            .path()
-            .join("example")
-            .join("skills")
-            .join("brand-guidelines");
-        assert!(resource_skill_dir.join("SKILL.md").exists());
-        assert!(
-            !central_dir
-                .path()
-                .join("example")
-                .join("skills")
-                .join("brand-guidelines")
-                .exists(),
-            "marketplace install should not make a skill visible via central library"
-        );
-
-        let installed = db::get_skill_by_id(&pool, "brand-guidelines")
-            .await
-            .unwrap()
-            .expect("skill should be tracked");
-        assert_eq!(
-            installed.canonical_path.as_deref(),
-            Some(resource_skill_dir.to_string_lossy().as_ref())
-        );
-        assert!(
-            !installed.is_central,
-            "resource library installs are not central until explicitly synced"
-        );
-    }
-
-    #[tokio::test]
-    async fn install_marketplace_skill_keeps_same_name_different_sources_distinct() {
-        let (pool, _dir) = setup_test_db().await;
-        let central_dir = tempdir().expect("central dir");
-        let resource_dir = tempdir().expect("resource dir");
-        sqlx::query("UPDATE agents SET global_skills_dir = ? WHERE id = 'central'")
-            .bind(central_dir.path().to_string_lossy().to_string())
-            .execute(&pool)
-            .await
-            .expect("set central dir");
-        db::set_setting(
-            &pool,
-            "skill_resource_library_dir",
-            &resource_dir.path().to_string_lossy(),
-        )
-        .await
-        .expect("set resource dir");
-
-        let first_registry = add_registry_impl(
-            &pool,
-            "Example".to_string(),
-            "github".to_string(),
-            "https://github.com/example/skills".to_string(),
-            None,
-        )
-        .await
-        .expect("first registry");
-        let second_registry = add_registry_impl(
-            &pool,
-            "Other".to_string(),
-            "github".to_string(),
-            "https://github.com/other/skills".to_string(),
-            None,
-        )
-        .await
-        .expect("second registry");
-
-        let first_skill_id = format!("{}::brand-guidelines", first_registry.id);
-        let second_skill_id = format!("{}::brand-guidelines", second_registry.id);
-        for (skill_id, registry_id, download_url) in [
-            (
-                &first_skill_id,
-                &first_registry.id,
-                "https://raw.githubusercontent.com/example/skills/main/brand-guidelines/SKILL.md",
-            ),
-            (
-                &second_skill_id,
-                &second_registry.id,
-                "https://raw.githubusercontent.com/other/skills/main/brand-guidelines/SKILL.md",
-            ),
-        ] {
-            sqlx::query(
-                "INSERT INTO marketplace_skills
-                 (id, registry_id, name, description, download_url, is_installed, synced_at, cache_updated_at)
-                 VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-            )
-            .bind(skill_id)
-            .bind(registry_id)
-            .bind("brand-guidelines")
-            .bind("Brand guidance")
-            .bind(download_url)
-            .bind("2026-04-16T12:00:00Z")
-            .bind("2026-04-16T12:00:00Z")
-            .execute(&pool)
-            .await
-            .expect("insert marketplace skill");
-        }
-
-        install_marketplace_skill_content_impl(
-            &pool,
-            &first_skill_id,
-            "---\nname: brand-guidelines\ndescription: First\n---\n",
-        )
-        .await
-        .expect("install first skill");
-        install_marketplace_skill_content_impl(
-            &pool,
-            &second_skill_id,
-            "---\nname: brand-guidelines\ndescription: Second\n---\n",
-        )
-        .await
-        .expect("install second skill");
-
-        assert!(resource_dir
-            .path()
-            .join("example")
-            .join("skills")
-            .join("brand-guidelines")
-            .join("SKILL.md")
-            .exists());
-        assert!(resource_dir
-            .path()
-            .join("other")
-            .join("skills")
-            .join("brand-guidelines-other-skills")
-            .join("SKILL.md")
-            .exists());
-
-        let first_source = db::get_skill_source(&pool, "brand-guidelines")
-            .await
-            .unwrap()
-            .expect("first source");
-        let second_source = db::get_skill_source(&pool, "brand-guidelines-other-skills")
-            .await
-            .unwrap()
-            .expect("second source");
-        assert_eq!(first_source.source_repo.as_deref(), Some("example/skills"));
-        assert_eq!(second_source.source_repo.as_deref(), Some("other/skills"));
     }
 }

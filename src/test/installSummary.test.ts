@@ -8,7 +8,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "claude-code",
     display_name: "Claude Code",
-    category: "coding",
     global_skills_dir: "~/.claude/skills",
     is_detected: true,
     is_builtin: true,
@@ -17,7 +16,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "project:1",
     display_name: "Demo",
-    category: "project",
     global_skills_dir: "~/Projects/Demo/.agents/skills",
     is_detected: true,
     is_builtin: false,
@@ -26,7 +24,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "hermes",
     display_name: "Hermes",
-    category: "coding",
     global_skills_dir: "~/.agents/skills",
     is_detected: true,
     is_builtin: true,
@@ -87,7 +84,6 @@ describe("mergeProjectAgents", () => {
       {
         id: "central",
         display_name: "Shared Hub",
-        category: "central",
         global_skills_dir: "C:/Users/alice/.agents/skills",
         is_detected: true,
         is_builtin: true,
@@ -96,7 +92,6 @@ describe("mergeProjectAgents", () => {
       {
         id: "cursor",
         display_name: "Cursor",
-        category: "coding",
         global_skills_dir: "C:/Users/alice/.cursor/skills",
         is_detected: true,
         is_builtin: true,

@@ -11,8 +11,8 @@ import {
   DeleteCentralSkillBundleResult,
   DeleteResourceSkillOptions,
   DeleteResourceSkillResult,
-  ImportSkillsViaNpxInput,
-  ImportSkillsViaNpxResult,
+  GitHubRepoImportResult,
+  GitHubSnapshotImportInput,
   RepositorySyncApplyOptions,
   RepositorySyncPreviewReport,
   ScanDirectory,
@@ -60,12 +60,13 @@ interface ResourceLibraryState {
   ) => Promise<BatchInstallResult>;
   togglePlatformLink: (skillId: string, agentId: string) => Promise<void>;
   updateSourceBackedSkills: () => Promise<SkillSourceUpdateReport>;
-  previewRepositorySync: () => Promise<RepositorySyncPreviewReport>;
+  previewRepositorySync: (repositories?: string[]) => Promise<RepositorySyncPreviewReport>;
   syncSourceBackedSkills: (
     options: RepositorySyncApplyOptions
   ) => Promise<SkillSourceUpdateReport>;
   updateSourceBackedSkill: (skillId: string) => Promise<string>;
-  importSkillsViaNpx: (input: ImportSkillsViaNpxInput) => Promise<ImportSkillsViaNpxResult>;
+  importGitHubRepoSnapshot: (input: GitHubSnapshotImportInput) => Promise<GitHubRepoImportResult>;
+  exportDirectoryList: (outputPath: string) => Promise<number>;
   addLocalSkills: (input: AddLocalResourceSkillsInput) => Promise<AddLocalResourceSkillsResult>;
   createManualSkill: (input: CreateManualResourceSkillInput) => Promise<SkillWithLinks>;
   previewDeleteResourceBundle: (relativePath: string) => Promise<CentralSkillBundleDeletePreview>;
@@ -187,13 +188,14 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
     }
   },
 
-  previewRepositorySync: async () => {
+  previewRepositorySync: async (repositories) => {
     if (!isTauriRuntime()) {
       return { repositories: [] };
     }
 
     return await invoke<RepositorySyncPreviewReport>(
-      "preview_source_backed_resource_repository_updates"
+      "preview_source_backed_resource_repository_updates",
+      { repositories: repositories ?? null }
     );
   },
 
@@ -236,39 +238,25 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
     }
   },
 
-  importSkillsViaNpx: async (input) => {
+  importGitHubRepoSnapshot: async (input) => {
     set({ isLoading: true, error: null });
     if (!isTauriRuntime()) {
-      const imported: SkillWithLinks = {
-        ...BROWSER_RESOURCE_SKILLS[0],
-        id: input.skill ?? "imported-skill",
-        name: input.skill ?? "imported-skill",
-        source: "skills-cli",
-        source_repo: input.input,
-        source_path: input.skill ?? null,
-        scanned_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      const result: ImportSkillsViaNpxResult = {
-        package: input.input,
-        skill: input.skill ?? null,
-        originalInput: input.input,
-        cliVersion: "browser",
-        localImport: {
-          sourceDir: "~/.skillshub/staging/browser",
-          importKind: "collection",
-          collectionName: "browser",
-          addedSkills: [imported],
-          skippedSkills: [],
+      const result: GitHubRepoImportResult = {
+        repo: {
+          owner: "example",
+          repo: "skills",
+          branch: "main",
+          normalizedUrl: "https://github.com/example/skills",
         },
+        importedSkills: [],
+        skippedSkills: [],
       };
-      set((state) => ({ skills: [imported, ...state.skills], isLoading: false }));
+      set({ isLoading: false });
       return result;
     }
 
     try {
-      const result = await invoke<ImportSkillsViaNpxResult>("import_skills_via_npx", { input });
+      const result = await invoke<GitHubRepoImportResult>("import_github_repo_snapshot", { input });
       const skills = await invoke<SkillWithLinks[]>("get_resource_library_skills");
       set({ skills: skills ?? [], isLoading: false });
       return result;
@@ -276,6 +264,13 @@ export const useResourceLibraryStore = create<ResourceLibraryState>((set, get) =
       set({ error: String(err), isLoading: false });
       throw err;
     }
+  },
+
+  exportDirectoryList: async (outputPath) => {
+    if (!isTauriRuntime()) {
+      return get().skills.length;
+    }
+    return await invoke<number>("export_resource_skill_directory_list", { outputPath });
   },
 
   addLocalSkills: async (input) => {

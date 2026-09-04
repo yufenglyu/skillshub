@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 import { InstallDialog } from "@/components/central/InstallDialog";
 import { InstallTargetList } from "@/components/central/InstallTargetList";
@@ -95,7 +95,8 @@ function isSourceBackedSkill(skill: SkillWithLinks) {
 
 function sourceUpdateItems(
   skills: SkillWithLinks[],
-  report: SkillSourceUpdateReport | null | undefined
+  report: SkillSourceUpdateReport | null | undefined,
+  remoteDeletedHint: string
 ): AppStatusTaskItem[] {
   const byId = new Map(skills.map((skill) => [skill.id, skill]));
   const seen = new Set<string>();
@@ -107,7 +108,9 @@ function sourceUpdateItems(
       name: skill?.name ?? outcome.name,
       status: outcome.status,
       repository: skill?.source_repo ?? null,
-      detail: outcome.error ?? null,
+      detail: outcome.remoteDeleted
+        ? [outcome.error, remoteDeletedHint].filter(Boolean).join(" ")
+        : outcome.error ?? null,
     };
   });
   for (const skill of skills) {
@@ -162,7 +165,8 @@ export function ResourceLibraryView() {
   const addToCentral = useResourceLibraryStore((state) => state.addToCentral);
   const removeFromCentral = useResourceLibraryStore((state) => state.removeFromCentral);
   const togglePlatformLink = useResourceLibraryStore((state) => state.togglePlatformLink);
-  const importSkillsViaNpx = useResourceLibraryStore((state) => state.importSkillsViaNpx);
+  const importGitHubRepoSnapshot = useResourceLibraryStore((state) => state.importGitHubRepoSnapshot);
+  const exportDirectoryList = useResourceLibraryStore((state) => state.exportDirectoryList);
   const addLocalSkills = useResourceLibraryStore((state) => state.addLocalSkills);
   const previewDeleteResourceBundle = useResourceLibraryStore(
     (state) => state.previewDeleteResourceBundle
@@ -212,10 +216,11 @@ export function ResourceLibraryView() {
   const [drawerSkillId, setDrawerSkillId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [updatingSkillId, setUpdatingSkillId] = useState<string | null>(null);
-  const [isNpxImportOpen, setIsNpxImportOpen] = useState(false);
-  const [npxImportInput, setNpxImportInput] = useState("");
-  const [npxImportSkill, setNpxImportSkill] = useState("");
-  const [isNpxImporting, setIsNpxImporting] = useState(false);
+  const [isGitHubImportOpen, setIsGitHubImportOpen] = useState(false);
+  const [githubImportInput, setGitHubImportInput] = useState("");
+  const [githubImportSkill, setGitHubImportSkill] = useState("");
+  const [isGitHubImporting, setIsGitHubImporting] = useState(false);
+  const [isExportingDirectoryList, setIsExportingDirectoryList] = useState(false);
   const [isLocalAddOpen, setIsLocalAddOpen] = useState(false);
   const [localSourceDir, setLocalSourceDir] = useState("");
   const [isAddingLocal, setIsAddingLocal] = useState(false);
@@ -237,6 +242,7 @@ export function ResourceLibraryView() {
   const [isRepositorySyncPreviewLoading, setIsRepositorySyncPreviewLoading] = useState(false);
   const [removeRemoteDeleted, setRemoveRemoteDeleted] = useState(false);
   const [pendingRepositorySync, setPendingRepositorySync] = useState(false);
+  const [repositorySyncScopeRepos, setRepositorySyncScopeRepos] = useState<string[] | null>(null);
   const detailButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -293,8 +299,10 @@ export function ResourceLibraryView() {
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
   }, [skills]);
 
-  const visibleSkills =
-    viewMode === "folders" ? activeFolder?.skills ?? [] : skills;
+  const visibleSkills = useMemo(
+    () => (viewMode === "folders" ? activeFolder?.skills ?? [] : skills),
+    [activeFolder?.skills, skills, viewMode]
+  );
   const filteredSkills = useMemo(() => {
     return visibleSkills.filter((skill) => {
       if (selectedTag && !(skill.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag)) {
@@ -520,7 +528,7 @@ export function ResourceLibraryView() {
         ? await syncSourceBackedSkills(options)
         : await updateSourceBackedSkills();
       await Promise.all([loadCentralSkills(), refreshSyncedInstallTargets()]);
-      const items = sourceUpdateItems(skills, report);
+      const items = sourceUpdateItems(skills, report, t("status.remoteDeletedHint"));
       const updatedCount = items.filter((item) => item.status === "updated").length;
       const unchangedCount = items.filter((item) => item.status === "unchanged").length;
       const deletedCount = items.filter((item) => item.status === "deleted").length;
@@ -559,6 +567,7 @@ export function ResourceLibraryView() {
       if (repositorySyncNeedsConfirmation(report)) {
         setRepositorySyncPreview(report);
         setRemoveRemoteDeleted(false);
+        setRepositorySyncScopeRepos(null);
         setIsRepositorySyncPreviewOpen(true);
         return;
       }
@@ -582,9 +591,13 @@ export function ResourceLibraryView() {
     setPendingRepositorySync(true);
     setIsRepositorySyncPreviewOpen(false);
     try {
-      await runUpdateSources({ removeDeleted: removeRemoteDeleted });
+      await runUpdateSources({
+        removeDeleted: removeRemoteDeleted,
+        repositories: repositorySyncScopeRepos,
+      });
     } finally {
       setPendingRepositorySync(false);
+      setRepositorySyncScopeRepos(null);
     }
   }
 
@@ -761,82 +774,42 @@ export function ResourceLibraryView() {
   }
 
   async function handleUpdateFolderSources(group: SkillFolderGroup<SkillWithLinks>) {
-    if (pendingFolderAction) return;
+    if (pendingFolderAction || isRepositorySyncPreviewLoading || pendingRepositorySync) return;
+    const repositories = Array.from(
+      new Set(
+        group.skills
+          .map(resourceSkillSourceRepo)
+          .filter((repo): repo is string => !!repo && repo.includes("/"))
+      )
+    );
+    if (repositories.length === 0) {
+      toast.error(t("resource.updateSourcesError", { error: t("resource.noSourceBackedSkills") }));
+      return;
+    }
     setPendingFolderAction("update");
     setPendingFolderActionKey(group.relativePath);
-    startStatusTask({
-      id: `resource-source-update-folder:${group.relativePath}`,
-      label: t("status.resourceFolderSourceUpdate", { name: group.name }),
-      detail: t("status.resourceSourceConnecting"),
-      currentCount: 0,
-      totalCount: group.skills.length,
-    });
-
-    const items: AppStatusTaskItem[] = [];
+    setIsRepositorySyncPreviewLoading(true);
     try {
-      for (const [index, skill] of group.skills.entries()) {
-        updateStatusTask({
-          currentCount: index + 1,
-          totalCount: group.skills.length,
-          detail: t("status.resourceSourceUpdatingItem", { name: skill.name }),
-        });
-
-        if (!isSourceBackedSkill(skill)) {
-          items.push({
-            skillId: skill.id,
-            name: skill.name,
-            status: "skipped",
-            repository: skill.source_repo ?? null,
-          });
-          updateStatusItems(items);
-          continue;
-        }
-
-        setUpdatingSkillId(skill.id);
-        try {
-          await updateSourceBackedSkill(skill.id);
-          items.push({
-            skillId: skill.id,
-            name: skill.name,
-            status: "updated",
-            repository: resourceSkillSourceRepo(skill),
-          });
-        } catch (err) {
-          items.push({
-            skillId: skill.id,
-            name: skill.name,
-            status: "failed",
-            repository: resourceSkillSourceRepo(skill),
-            detail: formatTaskError(err),
-          });
-        } finally {
-          setUpdatingSkillId(null);
-          updateStatusItems(items);
-        }
+      const report = await previewRepositorySync(repositories);
+      if (repositorySyncNeedsConfirmation(report)) {
+        setRepositorySyncPreview(report);
+        setRemoveRemoteDeleted(false);
+        setRepositorySyncScopeRepos(repositories);
+        setIsRepositorySyncPreviewOpen(true);
+        return;
       }
-
-      await loadResourceLibrary();
-      const updatedCount = items.filter((item) => item.status === "updated").length;
-      completeStatusTask({
-        detail: t("status.resourceSourceUpdated", { count: updatedCount }),
-        updatedCount,
-        unchangedCount: items.filter((item) => item.status === "unchanged").length,
-        skippedCount: items.filter((item) => item.status === "skipped").length,
-        failedCount: items.filter((item) => item.status === "failed").length,
-        items,
-        onRetryFailedItem: handleRetryFailedStatusItem,
-      });
-      toast.success(t("resource.updateSourcesSuccess", { count: updatedCount }));
+      await runUpdateSources({ removeDeleted: false, repositories });
     } catch (err) {
       const errorMessage = formatTaskError(err);
       failStatusTask({
         detail: errorMessage,
         error: errorMessage,
         failedCount: 1,
-        items,
+        items: [],
       });
       toast.error(t("resource.updateSourcesError", { error: String(err) }));
     } finally {
+      setIsRepositorySyncPreviewLoading(false);
       setPendingFolderAction(null);
       setPendingFolderActionKey(null);
       setUpdatingSkillId(null);
@@ -944,40 +917,60 @@ export function ResourceLibraryView() {
     void handleDeleteResourceSkill(skill, false);
   }
 
-  async function handleImportViaNpx() {
-    const input = npxImportInput.trim();
-    if (!input || isNpxImporting) return;
-    setIsNpxImporting(true);
+  async function handleImportViaGitHubSnapshot() {
+    const input = githubImportInput.trim();
+    if (!input || isGitHubImporting) return;
+    setIsGitHubImporting(true);
     startStatusTask({
-      id: "resource-npx-import",
-      label: t("resource.npxImportStatus"),
-      detail: t("resource.npxImportConnecting"),
+      id: "resource-github-import",
+      label: t("resource.githubImportStatus"),
+      detail: t("resource.githubImportConnecting"),
     });
     try {
-      const result = await importSkillsViaNpx({
+      const result = await importGitHubRepoSnapshot({
         input,
-        skill: npxImportSkill.trim() || null,
+        skill: githubImportSkill.trim() || null,
         overwrite: true,
       });
       await Promise.all([loadResourceLibrary(), loadCentralSkills(), refreshCounts()]);
+      const importedCount = result.importedSkills.length;
       completeStatusTask({
-        detail: t("resource.npxImportSuccessDetail", {
-          count: result.localImport.addedSkills.length,
+        detail: t("resource.githubImportSuccessDetail", {
+          count: importedCount,
         }),
-        updatedCount: result.localImport.addedSkills.length,
+        updatedCount: importedCount,
       });
       toast.success(
-        t("resource.npxImportSuccess", { count: result.localImport.addedSkills.length })
+        t("resource.githubImportSuccess", { count: importedCount })
       );
-      setIsNpxImportOpen(false);
-      setNpxImportInput("");
-      setNpxImportSkill("");
+      setIsGitHubImportOpen(false);
+      setGitHubImportInput("");
+      setGitHubImportSkill("");
     } catch (err) {
       const errorMessage = formatTaskError(err);
       failStatusTask({ detail: errorMessage, error: errorMessage });
-      toast.error(t("resource.npxImportError", { error: errorMessage }));
+      toast.error(t("resource.githubImportError", { error: errorMessage }));
     } finally {
-      setIsNpxImporting(false);
+      setIsGitHubImporting(false);
+    }
+  }
+
+  async function handleExportDirectoryList() {
+    if (isExportingDirectoryList) return;
+    const selected = await saveDialog({
+      title: t("resource.exportDirectoryListTitle"),
+      defaultPath: "skill-directory-list.csv",
+      filters: [{ name: "CSV", extensions: ["csv"] }],
+    });
+    if (!selected) return;
+    setIsExportingDirectoryList(true);
+    try {
+      const count = await exportDirectoryList(selected);
+      toast.success(t("resource.exportDirectoryListSuccess", { count }));
+    } catch (err) {
+      toast.error(t("resource.exportDirectoryListError", { error: String(err) }));
+    } finally {
+      setIsExportingDirectoryList(false);
     }
   }
 
@@ -1072,9 +1065,21 @@ export function ResourceLibraryView() {
             )}
             {t("resource.updateSources")}
           </Button>
-          <Button variant="outline" onClick={() => setIsNpxImportOpen(true)}>
+          <Button variant="outline" onClick={() => setIsGitHubImportOpen(true)}>
             <Download className="size-4" />
             {t("resource.importSkills")}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void handleExportDirectoryList()}
+            disabled={isExportingDirectoryList}
+          >
+            {isExportingDirectoryList ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Download className="size-4" />
+            )}
+            {t("resource.exportDirectoryList")}
           </Button>
           <Button variant="outline" onClick={() => setIsLocalAddOpen(true)}>
             <Plus className="size-4" />
@@ -1491,48 +1496,48 @@ export function ResourceLibraryView() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isNpxImportOpen} onOpenChange={setIsNpxImportOpen}>
+      <Dialog open={isGitHubImportOpen} onOpenChange={setIsGitHubImportOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="inline-flex items-center gap-2">
-              {t("resource.npxImportTitle")}
-              <HelpIcon label={t("common.info")} title={t("resource.npxImportDesc")} />
+              {t("resource.githubImportTitle")}
+              <HelpIcon label={t("common.info")} title={t("resource.githubImportDesc")} />
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label htmlFor="npx-import-input" className="mb-1 block text-xs text-muted-foreground">
-                {t("resource.npxImportInput")}
+              <label htmlFor="github-import-input" className="mb-1 block text-xs text-muted-foreground">
+                {t("resource.githubImportInput")}
               </label>
               <Input
-                id="npx-import-input"
-                value={npxImportInput}
-                onChange={(event) => setNpxImportInput(event.target.value)}
+                id="github-import-input"
+                value={githubImportInput}
+                onChange={(event) => setGitHubImportInput(event.target.value)}
                 placeholder="mattpocock/skills"
               />
             </div>
             <div>
-              <label htmlFor="npx-import-skill" className="mb-1 block text-xs text-muted-foreground">
+              <label htmlFor="github-import-skill" className="mb-1 block text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
-                  {t("resource.npxImportSkill")}
-                  <HelpIcon label={t("common.info")} title={t("resource.npxImportSkillHelp")} className="[&_svg]:size-3.5" />
+                  {t("resource.githubImportSkill")}
+                  <HelpIcon label={t("common.info")} title={t("resource.githubImportSkillHelp")} className="[&_svg]:size-3.5" />
                 </span>
               </label>
               <Input
-                id="npx-import-skill"
-                value={npxImportSkill}
-                onChange={(event) => setNpxImportSkill(event.target.value)}
+                id="github-import-skill"
+                value={githubImportSkill}
+                onChange={(event) => setGitHubImportSkill(event.target.value)}
                 placeholder="ask-matt"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsNpxImportOpen(false)} disabled={isNpxImporting}>
+            <Button variant="outline" onClick={() => setIsGitHubImportOpen(false)} disabled={isGitHubImporting}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={() => void handleImportViaNpx()} disabled={!npxImportInput.trim() || isNpxImporting}>
-              {isNpxImporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-              {t("resource.npxImportSubmit")}
+            <Button onClick={() => void handleImportViaGitHubSnapshot()} disabled={!githubImportInput.trim() || isGitHubImporting}>
+              {isGitHubImporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+              {t("resource.githubImportSubmit")}
             </Button>
           </DialogFooter>
         </DialogContent>

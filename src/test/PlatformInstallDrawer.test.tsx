@@ -7,7 +7,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "claude-code",
     display_name: "Claude Code",
-    category: "coding",
     global_skills_dir: "~/.claude/skills",
     is_detected: true,
     is_builtin: true,
@@ -16,7 +15,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "cursor",
     display_name: "Cursor",
-    category: "coding",
     global_skills_dir: "~/.cursor/skills",
     is_detected: true,
     is_builtin: true,
@@ -25,7 +23,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "openclaw",
     display_name: "OpenClaw",
-    category: "lobster",
     global_skills_dir: "~/.openclaw/skills",
     is_detected: true,
     is_builtin: true,
@@ -34,7 +31,6 @@ const agents: AgentWithStatus[] = [
   {
     id: "central",
     display_name: "Shared Hub",
-    category: "central",
     global_skills_dir: "~/.agents/skills",
     is_detected: true,
     is_builtin: true,

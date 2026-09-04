@@ -15,7 +15,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "claude-code",
     display_name: "Claude Code",
-    category: "coding",
     global_skills_dir: "~/.claude/skills/",
     is_detected: true,
     is_builtin: true,
@@ -24,7 +23,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "central",
     display_name: "Shared Hub",
-    category: "central",
     global_skills_dir: "~/.agents/skills/",
     is_detected: true,
     is_builtin: true,
@@ -117,7 +115,6 @@ describe("platformStore", () => {
       expect.objectContaining({
         id: "project:1",
         display_name: "Demo",
-        category: "project",
         global_skills_dir: "D:\\Projects\\Demo\\.agents\\skills",
       }),
     ]);

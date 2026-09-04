@@ -89,6 +89,14 @@ pub struct GitHubRepoImportResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubSnapshotImportRequest {
+    pub input: String,
+    pub skill: Option<String>,
+    pub overwrite: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum GitHubImportProgressPhase {
     Preparing,
@@ -260,6 +268,15 @@ pub async fn import_github_repo_skills(
 }
 
 #[tauri::command]
+pub async fn import_github_repo_snapshot(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: GitHubSnapshotImportRequest,
+) -> Result<GitHubRepoImportResult, String> {
+    import_github_repo_snapshot_impl(&state.db, input, Some(&app)).await
+}
+
+#[tauri::command]
 pub async fn fetch_github_skill_markdown(
     state: State<'_, AppState>,
     download_url: String,
@@ -288,7 +305,56 @@ async fn preview_github_repo_import_impl(
     Ok(GitHubRepoPreview { repo, skills })
 }
 
-async fn import_github_repo_skills_impl(
+pub(crate) async fn import_github_repo_snapshot_impl(
+    pool: &DbPool,
+    input: GitHubSnapshotImportRequest,
+    app: Option<&AppHandle>,
+) -> Result<GitHubRepoImportResult, String> {
+    let repo_url = normalize_github_repo_input(&input.input)?;
+    let preview = preview_github_repo_import_impl(pool, &repo_url).await?;
+    let filter = input
+        .skill
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mut selections = Vec::new();
+
+    for skill in preview.skills {
+        if let Some(filter) = filter {
+            let matches_filter = skill.skill_id.eq_ignore_ascii_case(filter)
+                || skill.skill_directory_name.eq_ignore_ascii_case(filter)
+                || skill.source_path.eq_ignore_ascii_case(filter)
+                || skill
+                    .source_path
+                    .eq_ignore_ascii_case(filter.trim_end_matches("/SKILL.md"));
+            if !matches_filter {
+                continue;
+            }
+        }
+        selections.push(GitHubSkillImportSelection {
+            source_path: skill.source_path,
+            resolution: if skill.conflict.is_some() && !input.overwrite {
+                DuplicateResolution::Skip
+            } else {
+                DuplicateResolution::Overwrite
+            },
+            renamed_skill_id: None,
+        });
+    }
+
+    if selections.is_empty() {
+        if let Some(filter) = filter {
+            return Err(format!(
+                "Skill '{filter}' was not found in this repository."
+            ));
+        }
+        return Err("No importable skills were selected.".to_string());
+    }
+
+    import_github_repo_skills_impl(pool, &repo_url, selections, app).await
+}
+
+pub(crate) async fn import_github_repo_skills_impl(
     pool: &DbPool,
     repo_url: &str,
     selections: Vec<GitHubSkillImportSelection>,
@@ -759,6 +825,28 @@ fn parse_github_url(url: &str) -> Result<(String, String), String> {
     Ok((owner.to_lowercase(), repo.to_lowercase()))
 }
 
+pub(crate) fn normalize_github_repo_input(input: &str) -> Result<String, String> {
+    let trimmed = input.trim().trim_end_matches('/');
+    if trimmed.starts_with("https://") {
+        let (owner, repo) = parse_github_url(trimmed)?;
+        return Ok(format!("https://github.com/{owner}/{repo}"));
+    }
+    let without_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
+    let parts = without_git.split('/').collect::<Vec<_>>();
+    if parts.len() == 2
+        && parts
+            .iter()
+            .all(|part| !part.trim().is_empty() && !part.contains('\\'))
+    {
+        return Ok(format!(
+            "https://github.com/{}/{}",
+            parts[0].trim(),
+            parts[1].trim()
+        ));
+    }
+    Err("Enter a GitHub repository as owner/repo or https://github.com/owner/repo.".to_string())
+}
+
 pub(crate) async fn fetch_repo_skill_candidates(
     repo: &GitHubRepoRef,
     auth_token: Option<&str>,
@@ -777,7 +865,10 @@ pub(crate) async fn fetch_repo_skill_manifest_paths(
     let mut paths = snapshot
         .files
         .keys()
-        .filter(|path| path.ends_with("/SKILL.md") || path.as_str() == "SKILL.md")
+        .filter(|path| {
+            let lower = path.to_ascii_lowercase();
+            lower.ends_with("/skill.md") || lower == "skill.md"
+        })
         .cloned()
         .collect::<Vec<_>>();
     paths.sort();
@@ -798,6 +889,7 @@ fn build_repo_skill_candidates_from_snapshot(
 
     let mut candidates = Vec::with_capacity(manifests.len());
     for manifest in manifests {
+        let is_root_manifest = manifest.is_root_manifest();
         let raw = snapshot
             .files
             .get(&manifest.skill_md_path)
@@ -805,7 +897,7 @@ fn build_repo_skill_candidates_from_snapshot(
         let content = String::from_utf8(raw.clone())
             .map_err(|_| format!("Skill '{}' is not valid UTF-8.", manifest.source_path))?;
         let frontmatter = parse_frontmatter(&content).ok_or_else(|| {
-            if manifest.source_path == "." {
+            if is_root_manifest {
                 "Repository root SKILL.md is missing valid frontmatter.".to_string()
             } else {
                 format!(
@@ -815,7 +907,7 @@ fn build_repo_skill_candidates_from_snapshot(
             }
         })?;
 
-        let skill_id = if manifest.source_path == "." {
+        let skill_id = if is_root_manifest {
             let repo_skill_id = sanitize_skill_id(&repo.repo)?;
             repo_skill_id
                 .strip_suffix("-skill")
@@ -832,7 +924,7 @@ fn build_repo_skill_candidates_from_snapshot(
             skill_name: frontmatter.name,
             description: frontmatter.description,
             root_directory: manifest.root_directory,
-            skill_directory_name: if manifest.source_path == "." {
+            skill_directory_name: if is_root_manifest {
                 repo.repo.clone()
             } else {
                 manifest.skill_directory_name
@@ -853,6 +945,12 @@ struct SnapshotSkillManifest {
     skill_md_path: String,
 }
 
+impl SnapshotSkillManifest {
+    fn is_root_manifest(&self) -> bool {
+        self.skill_md_path.eq_ignore_ascii_case("SKILL.md")
+    }
+}
+
 fn classify_skill_manifest_path(path: &str) -> Option<SnapshotSkillManifest> {
     let normalized = path.trim_matches('/');
     if normalized.is_empty() {
@@ -861,7 +959,7 @@ fn classify_skill_manifest_path(path: &str) -> Option<SnapshotSkillManifest> {
 
     if normalized.eq_ignore_ascii_case("SKILL.md") {
         return Some(SnapshotSkillManifest {
-            source_path: ".".to_string(),
+            source_path: "SKILL.md".to_string(),
             source_manifest_path: "SKILL.md".to_string(),
             root_directory: "/".to_string(),
             skill_directory_name: String::new(),
@@ -875,7 +973,7 @@ fn classify_skill_manifest_path(path: &str) -> Option<SnapshotSkillManifest> {
         return None;
     }
 
-    let source_path = source_parts.join("/");
+    let source_path = normalized.to_string();
     match source_parts {
         [skill_dir] if *skill_dir != ".github" && *skill_dir != "skills" => {
             Some(SnapshotSkillManifest {
@@ -1038,17 +1136,18 @@ fn collect_snapshot_source_files(
     snapshot: &GitHubRepoSnapshot,
     source_path: &str,
 ) -> Result<Vec<SnapshotSourceFile>, String> {
+    let source_directory = snapshot_source_directory(source_path);
     let mut files = snapshot
         .files
         .iter()
         .filter_map(|(path, bytes)| {
-            let relative_path = if source_path == "." {
+            let relative_path = if source_directory.is_empty() {
                 if path.contains('/') {
                     return None;
                 }
                 path.clone()
             } else {
-                let prefix = format!("{}/", source_path.trim_matches('/'));
+                let prefix = format!("{}/", source_directory);
                 let relative = path.strip_prefix(&prefix)?;
                 if relative.is_empty() {
                     return None;
@@ -1076,77 +1175,17 @@ fn collect_snapshot_source_files(
     Ok(files)
 }
 
-/// Materialize repo skills into `dest_skills_dir/{skill_id}/` using the same
-/// GitHub archive + mirror path as the dedicated GitHub importer. Used when
-/// `npx skills` cannot `git clone` github.com.
-pub(crate) async fn stage_repo_skills_into_dir(
-    pool: &DbPool,
-    package: &str,
-    skill_filter: Option<&str>,
-    dest_skills_dir: &Path,
-) -> Result<usize, String> {
-    let auth = github_direct_auth_from_settings(pool).await?;
-    let repo_url = format!("https://github.com/{package}");
-    let repo = resolve_repo_ref(&repo_url, auth.as_deref()).await?;
-    let client = github_client()?;
-    let snapshot = download_repo_snapshot(&client, &repo, auth.as_deref()).await?;
-    let mut candidates = build_repo_skill_candidates_from_snapshot(&repo, &snapshot)?;
-    if let Some(filter) = skill_filter
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        candidates.retain(|candidate| {
-            candidate.skill_id.eq_ignore_ascii_case(filter)
-                || candidate.skill_directory_name.eq_ignore_ascii_case(filter)
-                || candidate.source_path.eq_ignore_ascii_case(filter)
-                || candidate.source_manifest_path.eq_ignore_ascii_case(filter)
-        });
-        if candidates.is_empty() {
-            return Err(format!("Skill '{filter}' was not found in {package}."));
-        }
-    }
-    if candidates.is_empty() {
-        return Err(format!(
-            "No importable skills found in {package}. Supported layouts are repo-root skill directories, a skills/ directory, or plugin skills under plugins/*/skills/."
-        ));
+fn snapshot_source_directory(source_path: &str) -> String {
+    let normalized = source_path.trim().trim_matches('/').replace('\\', "/");
+    if normalized.is_empty() || normalized == "." || normalized.eq_ignore_ascii_case("SKILL.md") {
+        return String::new();
     }
 
-    if dest_skills_dir.exists() {
-        std::fs::remove_dir_all(dest_skills_dir).map_err(|error| {
-            format!(
-                "Failed to reset skills CLI staging directory '{}': {}",
-                dest_skills_dir.display(),
-                error
-            )
-        })?;
-    }
-    std::fs::create_dir_all(dest_skills_dir).map_err(|error| {
-        format!(
-            "Failed to create skills CLI staging directory '{}': {}",
-            dest_skills_dir.display(),
-            error
-        )
-    })?;
-
-    let mut progress_state = GitHubImportProgressState {
-        completed_files: 0,
-        total_files: 0,
-        completed_bytes: 0,
-        total_bytes: 0,
-    };
-    for candidate in &candidates {
-        let files = collect_snapshot_source_files(&snapshot, &candidate.source_path)?;
-        let target = dest_skills_dir.join(&candidate.skill_id);
-        write_snapshot_source_to_target(
-            &snapshot,
-            &files,
-            &target,
-            &candidate.source_path,
-            &mut progress_state,
-            None,
-        )?;
-    }
-    Ok(candidates.len())
+    normalized
+        .strip_suffix("/SKILL.md")
+        .or_else(|| normalized.strip_suffix("/skill.md"))
+        .unwrap_or(&normalized)
+        .to_string()
 }
 
 fn write_snapshot_source_to_target(
@@ -1175,7 +1214,12 @@ fn write_snapshot_source_to_target(
             )
         })?;
 
-        let destination = target_dir.join(&file.relative_path);
+        let destination_name = if file.relative_path.eq_ignore_ascii_case("skill.md") {
+            "SKILL.md".to_string()
+        } else {
+            file.relative_path.clone()
+        };
+        let destination = target_dir.join(&destination_name);
         let parent = destination
             .parent()
             .ok_or_else(|| "Failed to determine imported file parent directory.".to_string())?;
@@ -1542,13 +1586,46 @@ fn parse_rate_limit_reset_epoch(raw: &str) -> Option<String> {
 }
 
 fn parse_frontmatter(content: &str) -> Option<SkillFrontmatter> {
-    let trimmed = content.trim();
-    if !trimmed.starts_with("---") {
+    let normalized = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let mut lines = normalized.lines();
+    if lines.next()?.trim() != "---" {
         return None;
     }
-    let rest = &trimmed[3..];
-    let end = rest.find("---")?;
-    serde_yaml::from_str::<SkillFrontmatter>(&rest[..end]).ok()
+    let mut yaml = String::new();
+    for line in lines {
+        if line.trim() == "---" {
+            return serde_yaml::from_str::<SkillFrontmatter>(&yaml)
+                .ok()
+                .or_else(|| parse_frontmatter_required_fields(&yaml));
+        }
+        yaml.push_str(line);
+        yaml.push('\n');
+    }
+    None
+}
+
+fn parse_frontmatter_required_fields(yaml: &str) -> Option<SkillFrontmatter> {
+    let name = parse_frontmatter_scalar(yaml, "name")?;
+    let description = parse_frontmatter_scalar(yaml, "description");
+    Some(SkillFrontmatter { name, description })
+}
+
+fn parse_frontmatter_scalar(yaml: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}:");
+    yaml.lines().find_map(|line| {
+        let trimmed = line.trim_start();
+        let value = trimmed.strip_prefix(&prefix)?.trim();
+        if value.is_empty() {
+            return None;
+        }
+        Some(
+            value
+                .trim_matches('"')
+                .trim_matches('\'')
+                .trim()
+                .to_string(),
+        )
+    })
 }
 
 fn sanitize_skill_id(raw: &str) -> Result<String, String> {
@@ -1717,6 +1794,24 @@ mod tests {
         let parsed = parse_frontmatter(&sample_frontmatter("alpha", "desc")).expect("fm");
         assert_eq!(parsed.name, "alpha");
         assert_eq!(parsed.description.as_deref(), Some("desc"));
+    }
+
+    #[test]
+    fn parse_frontmatter_accepts_realistic_plugin_metadata() {
+        let content = r#"---
+name: assetseeker
+description: Search free commercial-use creative assets across multiple online sources — photos, illustrations, icons, video footage, music, sound effects, and fonts.
+argument-hint: "[asset type] [keyword]"
+author: Agents365-ai
+category: Content Creation
+version: 1.0.0
+metadata: {"openclaw":{"requires":{"bins":["python3"]},"env":["PEXELS_API_KEY"]},"primaryEnv":"PEXELS_API_KEY","emoji":"🔍"}
+---
+# Asset Seeker
+"#;
+
+        let parsed = parse_frontmatter(content).expect("frontmatter");
+        assert_eq!(parsed.name, "assetseeker");
     }
 
     #[test]
@@ -1904,15 +1999,15 @@ mod tests {
 
         let agent_planner = candidates
             .iter()
-            .find(|candidate| candidate.source_path == "skills/agent-planner")
+            .find(|candidate| candidate.source_path == "skills/agent-planner/SKILL.md")
             .expect("agent planner");
         let commit = candidates
             .iter()
-            .find(|candidate| candidate.source_path == "skills/commit")
+            .find(|candidate| candidate.source_path == "skills/commit/SKILL.md")
             .expect("commit");
         let code_review = candidates
             .iter()
-            .find(|candidate| candidate.source_path == "skills/code-review")
+            .find(|candidate| candidate.source_path == "skills/code-review/SKILL.md")
             .expect("code review");
 
         db::upsert_skill(
@@ -2004,7 +2099,7 @@ mod tests {
             &pool,
             "https://github.com/example/definitely-missing-repo",
             vec![GitHubSkillImportSelection {
-                source_path: "skills/foo".to_string(),
+                source_path: "skills/foo/SKILL.md".to_string(),
                 resolution: DuplicateResolution::Skip,
                 renamed_skill_id: None,
             }],
@@ -2042,7 +2137,7 @@ mod tests {
             &pool,
             "https://github.com/example/restricted-repo",
             vec![GitHubSkillImportSelection {
-                source_path: "skills/private-skill".to_string(),
+                source_path: "skills/private-skill/SKILL.md".to_string(),
                 resolution: DuplicateResolution::Overwrite,
                 renamed_skill_id: None,
             }],
@@ -2117,7 +2212,7 @@ mod tests {
 
         let curated = candidates
             .iter()
-            .find(|candidate| candidate.source_path == "skills/.curated/openai-docs")
+            .find(|candidate| candidate.source_path == "skills/.curated/openai-docs/SKILL.md")
             .expect("curated skill");
         assert_eq!(curated.root_directory, "skills/.curated");
         assert_eq!(curated.skill_directory_name, "openai-docs");
@@ -2125,7 +2220,7 @@ mod tests {
 
         let system = candidates
             .iter()
-            .find(|candidate| candidate.source_path == "skills/.system/skill-creator")
+            .find(|candidate| candidate.source_path == "skills/.system/skill-creator/SKILL.md")
             .expect("system skill");
         assert_eq!(system.root_directory, "skills/.system");
         assert_eq!(system.skill_directory_name, "skill-creator");
@@ -2141,11 +2236,11 @@ mod tests {
         assert!(preview
             .skills
             .iter()
-            .any(|skill| skill.source_path == "skills/.curated/openai-docs"));
+            .any(|skill| skill.source_path == "skills/.curated/openai-docs/SKILL.md"));
         assert!(preview
             .skills
             .iter()
-            .any(|skill| skill.source_path == "skills/.system/skill-creator"));
+            .any(|skill| skill.source_path == "skills/.system/skill-creator/SKILL.md"));
     }
 
     #[tokio::test]
@@ -2168,7 +2263,7 @@ mod tests {
             .expect("agent native");
         assert_eq!(
             native.source_path,
-            "plugins/agent-native-design/skills/agent-native-design"
+            "plugins/agent-native-design/skills/agent-native-design/SKILL.md"
         );
         assert_eq!(
             native.source_manifest_path,
@@ -2193,7 +2288,7 @@ mod tests {
         assert!(preview
             .skills
             .iter()
-            .any(|skill| skill.source_path == "plugins/pi/skills/pi-cli-runtime"));
+            .any(|skill| skill.source_path == "plugins/pi/skills/pi-cli-runtime/SKILL.md"));
     }
 
     #[tokio::test]

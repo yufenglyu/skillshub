@@ -70,41 +70,40 @@ const mockDetailAfterUninstall: SkillDetail = {
   installations: [],
 };
 
-const mockClaudePluginDetail: SkillDetail = {
+const mockCompatibilityDetail: SkillDetail = {
   ...mockDetail,
-  row_id: "claude-code::plugin::frontend-design",
-  file_path:
-    "~/.claude/plugins/cache/publisher/frontend-design/unknown/skills/frontend-design/SKILL.md",
-  dir_path: "~/.claude/plugins/cache/publisher/frontend-design/unknown/skills/frontend-design",
+  row_id: "cursor::compatibility::frontend-design",
+  file_path: "~/.agents/skills/frontend-design/SKILL.md",
+  dir_path: "~/.agents/skills/frontend-design",
   canonical_path: undefined,
   is_central: false,
-  source: "plugin",
-  source_kind: "plugin",
-  source_root: "~/.claude/plugins/cache/publisher/frontend-design/unknown",
+  source: "compatibility",
+  source_kind: "compatibility",
+  source_root: "~/.agents/skills",
   is_read_only: true,
   installations: [],
 };
 
-const mockClaudeUserDetail: SkillDetail = {
+const mockPlatformManagedDetail: SkillDetail = {
   ...mockDetail,
-  row_id: "claude-code::user::frontend-design",
-  file_path: "~/.claude/skills/frontend-design/SKILL.md",
-  dir_path: "~/.claude/skills/frontend-design",
+  row_id: "cursor::frontend-design",
+  file_path: "~/.cursor/skills/frontend-design/SKILL.md",
+  dir_path: "~/.cursor/skills/frontend-design",
   is_central: false,
-  source: "user",
-  source_kind: "user",
-  source_root: "~/.claude/skills",
+  source: "native",
+  source_kind: null,
+  source_root: null,
 };
 
-const mockClaudeUserDetailAfterInstall: SkillDetail = {
+const mockPlatformManagedDetailAfterInstall: SkillDetail = {
   ...mockDetailAfterInstall,
-  row_id: "claude-code::user::frontend-design",
-  file_path: "~/.claude/skills/frontend-design/SKILL.md",
-  dir_path: "~/.claude/skills/frontend-design",
+  row_id: "cursor::frontend-design",
+  file_path: "~/.cursor/skills/frontend-design/SKILL.md",
+  dir_path: "~/.cursor/skills/frontend-design",
   is_central: false,
-  source: "user",
-  source_kind: "user",
-  source_root: "~/.claude/skills",
+  source: "native",
+  source_kind: null,
+  source_root: null,
 };
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -148,17 +147,17 @@ describe("skillDetailStore", () => {
     });
   });
 
-  it("passes agentId and rowId when loading a source-aware Claude row", async () => {
+  it("passes agentId and rowId when loading a source-aware row", async () => {
     vi.mocked(invoke).mockResolvedValueOnce(mockDetail).mockResolvedValueOnce(mockContent);
     await useSkillDetailStore.getState().loadDetail({
       skillId: "frontend-design",
-      agentId: "claude-code",
-      rowId: "claude-code::plugin::frontend-design",
+      agentId: "cursor",
+      rowId: "cursor::compatibility::frontend-design",
     });
     expect(invoke).toHaveBeenCalledWith("get_skill_detail", {
       skillId: "frontend-design",
-      agentId: "claude-code",
-      rowId: "claude-code::plugin::frontend-design",
+      agentId: "cursor",
+      rowId: "cursor::compatibility::frontend-design",
     });
   });
 
@@ -170,22 +169,22 @@ describe("skillDetailStore", () => {
     });
   });
 
-  it("reads content from the resolved Claude row path even when the caller omits rowId", async () => {
+  it("reads content from the resolved row path even when the caller omits rowId", async () => {
     vi.mocked(invoke)
-      .mockResolvedValueOnce(mockClaudePluginDetail)
+      .mockResolvedValueOnce(mockCompatibilityDetail)
       .mockResolvedValueOnce(mockContent);
 
     await useSkillDetailStore.getState().loadDetail({
       skillId: "frontend-design",
-      agentId: "claude-code",
+      agentId: "cursor",
     });
 
     expect(invoke).toHaveBeenNthCalledWith(1, "get_skill_detail", {
       skillId: "frontend-design",
-      agentId: "claude-code",
+      agentId: "cursor",
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "read_file_by_path", {
-      path: mockClaudePluginDetail.file_path,
+      path: mockCompatibilityDetail.file_path,
     });
     expect(useSkillDetailStore.getState().content).toBe(mockContent);
   });
@@ -450,7 +449,7 @@ describe("skillDetailStore", () => {
     );
   });
 
-  it("reloads install mutations against the active Claude row identity", async () => {
+  it("reloads install mutations against the active row identity", async () => {
     vi.mocked(invoke)
       .mockResolvedValueOnce(mockDetail)
       .mockResolvedValueOnce(mockContent)
@@ -459,35 +458,35 @@ describe("skillDetailStore", () => {
 
     await useSkillDetailStore.getState().loadDetail({
       skillId: "frontend-design",
-      agentId: "claude-code",
-      rowId: "claude-code::user::frontend-design",
+      agentId: "cursor",
+      rowId: "cursor::frontend-design",
     });
     await useSkillDetailStore.getState().installSkill("frontend-design", "cursor");
 
     expect(invoke).toHaveBeenLastCalledWith("get_skill_detail", {
       skillId: "frontend-design",
-      agentId: "claude-code",
-      rowId: "claude-code::user::frontend-design",
+      agentId: "cursor",
+      rowId: "cursor::frontend-design",
     });
   });
 
-  it("promotes the resolved Claude row id into subsequent refreshes when the initial request omitted rowId", async () => {
+  it("promotes the resolved row id into subsequent refreshes when the initial request omitted rowId", async () => {
     vi.mocked(invoke)
-      .mockResolvedValueOnce(mockClaudeUserDetail)
+      .mockResolvedValueOnce(mockPlatformManagedDetail)
       .mockResolvedValueOnce(mockContent)
       .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce(mockClaudeUserDetailAfterInstall);
+      .mockResolvedValueOnce(mockPlatformManagedDetailAfterInstall);
 
     await useSkillDetailStore.getState().loadDetail({
       skillId: "frontend-design",
-      agentId: "claude-code",
+      agentId: "cursor",
     });
     await useSkillDetailStore.getState().installSkill("frontend-design", "cursor");
 
     expect(invoke).toHaveBeenLastCalledWith("get_skill_detail", {
       skillId: "frontend-design",
-      agentId: "claude-code",
-      rowId: "claude-code::user::frontend-design",
+      agentId: "cursor",
+      rowId: "cursor::frontend-design",
     });
   });
 

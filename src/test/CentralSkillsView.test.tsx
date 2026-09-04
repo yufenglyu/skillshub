@@ -60,7 +60,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "claude-code",
     display_name: "Claude Code",
-    category: "coding",
     global_skills_dir: "/Users/test/.claude/skills/",
     is_detected: true,
     is_builtin: true,
@@ -69,7 +68,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "cursor",
     display_name: "Cursor",
-    category: "coding",
     global_skills_dir: "/Users/test/.cursor/skills/",
     is_detected: true,
     is_builtin: true,
@@ -78,7 +76,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "trae",
     display_name: "Trae",
-    category: "coding",
     global_skills_dir: "/Users/test/.trae/skills/",
     is_detected: true,
     is_builtin: true,
@@ -87,7 +84,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "openclaw",
     display_name: "OpenClaw",
-    category: "lobster",
     global_skills_dir: "/Users/test/.openclaw/skills/",
     is_detected: true,
     is_builtin: true,
@@ -96,7 +92,6 @@ const mockAgents: AgentWithStatus[] = [
   {
     id: "central",
     display_name: "Shared Hub",
-    category: "central",
     global_skills_dir: "/Users/test/.agents/skills/",
     is_detected: true,
     is_builtin: true,
@@ -487,6 +482,54 @@ describe("CentralSkillsView", () => {
     expect(
       within(folderRow as HTMLElement).getByRole("button", { name: /^删除$|^Delete$/i })
     ).toBeInTheDocument();
+  });
+
+  it("keeps delete actions for source-grouped central folders", async () => {
+    window.localStorage.setItem("skills-manage.skillListViewMode.central", "folders");
+    mockDeleteCentralSkill.mockResolvedValue({
+      skillId: "deleted",
+      removedCanonicalPath: "/Users/test/.agents/skills/deleted",
+      uninstalledAgents: [],
+      skippedReadOnlyAgents: [],
+    });
+
+    renderCentralSkillsView({
+      skills: [
+        {
+          ...mockSkills[0],
+          id: "source-alpha",
+          name: "source-alpha",
+          file_path: "/Users/test/.agents/skills/source-alpha/SKILL.md",
+          canonical_path: "/Users/test/Skills/addyosmani/agent-skills/source-alpha",
+          source_repo: "addyosmani/agent-skills",
+          linked_agents: [],
+        },
+        {
+          ...mockSkills[1],
+          id: "source-beta",
+          name: "source-beta",
+          file_path: "/Users/test/.agents/skills/source-beta/SKILL.md",
+          canonical_path: "/Users/test/Skills/addyosmani/agent-skills/source-beta",
+          source_repo: "addyosmani/agent-skills",
+          linked_agents: [],
+        },
+      ],
+    });
+
+    const folderRow = screen.getByRole("row", { name: /addyosmani\/agent-skills/i });
+    fireEvent.click(
+      within(folderRow).getByRole("button", { name: /^删除$|^Delete$/i })
+    );
+    fireEvent.click(screen.getByRole("button", { name: /确认删除/i }));
+
+    await waitFor(() => {
+      expect(mockDeleteCentralSkill).toHaveBeenCalledWith("source-alpha", {
+        cascadeUninstall: true,
+      });
+      expect(mockDeleteCentralSkill).toHaveBeenCalledWith("source-beta", {
+        cascadeUninstall: true,
+      });
+    });
   });
 
   it("does not render a separate top-level skills table in folder overview", () => {

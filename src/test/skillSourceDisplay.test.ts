@@ -63,8 +63,10 @@ describe("skill source display", () => {
     ).toBe("resource-library");
   });
 
-  it("keeps plugin and compatibility origins exceptional", () => {
-    expect(isExceptionalSkillOrigin("plugin")).toBe(true);
+  it("keeps managed platform origins exceptional", () => {
+    expect(isExceptionalSkillOrigin("compatibility")).toBe(true);
+    expect(isExceptionalSkillOrigin("shared-central")).toBe(true);
+    expect(isExceptionalSkillOrigin("plugin")).toBe(false);
     expect(isExceptionalSkillOrigin("user")).toBe(false);
   });
 });

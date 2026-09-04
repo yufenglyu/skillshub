@@ -41,7 +41,7 @@ import { useShortcutStore } from "@/stores/shortcutStore";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-export const APP_VERSION = "0.90.0";
+export const APP_VERSION = "0.90.1";
 const CONFIG_DIR_FALLBACK = "~/.skillshub";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
@@ -283,12 +283,12 @@ function SoftwarePlatformRow({
   return (
     <div
       className={cn(
-        "flex min-w-0 items-center gap-2 rounded-md border px-3 py-2",
+        "flex min-w-0 items-center gap-2 border-b border-border/60 bg-transparent px-1 py-2 transition-colors last:border-b-0 hover:bg-muted/20",
         showBuiltinDetection && agent.is_detected
-          ? "border-border/60 bg-background"
+          ? ""
           : showBuiltinDetection
-            ? "border-dashed border-border/70 bg-muted/20 opacity-75"
-            : "border-border/60 bg-background"
+            ? "opacity-75"
+            : ""
       )}
     >
       <Cpu className="size-3.5 shrink-0 text-muted-foreground" />
@@ -509,7 +509,7 @@ function SoftwarePlatformsCard({
                   {t("settings.noPlatforms")}
                 </p>
               ) : (
-                <div className="mt-2 grid grid-cols-1 gap-2 xl:grid-cols-2">
+                <div className="mt-2 grid grid-cols-1 overflow-hidden rounded-lg border border-border/60 px-2 xl:grid-cols-2 xl:gap-x-4">
                   {softwarePlatforms.map((agent) => (
                     <SoftwarePlatformRow
                       key={agent.id}
@@ -1143,7 +1143,6 @@ export function SettingsView() {
       await updateCustomAgent(editingPlatform.id, {
         display_name: displayName,
         global_skills_dir: globalSkillsDir,
-        category: editingPlatform.category || "coding",
       });
       // Refresh agents + rescan.
       await rescan();
