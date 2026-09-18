@@ -281,14 +281,24 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          CHANGELOG_PATH="CHANGELOG.md"
-          [ -f "$CHANGELOG_PATH" ] || { echo "Changelog file not found: $CHANGELOG_PATH" >&2; exit 1; }
-          awk -v version="$VERSION" '
-            $0 ~ "^## " version "([[:space:]]|$)" { capture = 1; print; next }
-            capture && /^## / { exit }
-            capture { print }
-          ' "$CHANGELOG_PATH" > release-body.md
-          [ -s release-body.md ] || { echo "Changelog section not found for version: $VERSION" >&2; exit 1; }
+          : > release-body.md
+          for CHANGELOG_PATH in CHANGELOG.md CHANGELOG.zh.md; do
+            [ -f "$CHANGELOG_PATH" ] || { echo "Changelog file not found: $CHANGELOG_PATH" >&2; exit 1; }
+            awk -v version="$VERSION" '
+              $1 == "##" && $2 == version { capture = 1; print; next }
+              capture && /^## / { exit }
+              capture { print }
+            ' "$CHANGELOG_PATH" > release-section.md
+            [ -s release-section.md ] || { echo "Changelog section not found in $CHANGELOG_PATH for version: $VERSION" >&2; exit 1; }
+            if [ "$CHANGELOG_PATH" = "CHANGELOG.md" ]; then
+              echo '# English' >> release-body.md
+            else
+              echo '# 简体中文' >> release-body.md
+            fi
+            echo >> release-body.md
+            cat release-section.md >> release-body.md
+            echo >> release-body.md
+          done
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Download release artifacts

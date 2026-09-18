@@ -1,7 +1,9 @@
 # Changelog
 
+[English](CHANGELOG.md) | [简体中文](CHANGELOG.zh.md)
+
 ## 1.0.0 - 2026-09-18
 
-- 发布 SkillsHub 1.0.0，提供技能资源库、技能集合、技能中心及平台和项目安装管理。
-- 支持技能导入、来源更新、AI 解释及备份功能。
-- 完善 Git 忽略规则，排除构建缓存、本地应用数据及密钥文件。
+- Release SkillsHub 1.0.0 with a skill resource library, collections, a central skills directory, and installation management for platforms and projects.
+- Support skill imports, updates from source repositories, AI explanations, and backups.
+- Improve Git ignore rules to exclude build caches, local application data, and key files.
