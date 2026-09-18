@@ -1,0 +1,175 @@
+import { create } from "zustand";
+import { invoke, isTauriRuntime } from "@/lib/tauri";
+import { AgentWithStatus, ScanDirectory, ScanResult } from "@/types";
+import { mergeProjectAgents } from "@/lib/projectTargets";
+
+const BROWSER_FIXTURE_AGENTS: AgentWithStatus[] = [
+  {
+    id: "claude-code",
+    display_name: "Claude Code",
+    global_skills_dir: "~/.claude/skills/",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+    shares_central_skills: false,
+  },
+  {
+    id: "cursor",
+    display_name: "Cursor",
+    global_skills_dir: "~/.cursor/skills/",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+    shares_central_skills: true,
+  },
+  {
+    id: "central",
+    display_name: "Shared Hub",
+    global_skills_dir: "~/.agents/skills/",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "project:1",
+    display_name: "Example Project",
+    global_skills_dir: "~/Projects/example/.agents/skills",
+    project_skills_dir: ".agents/skills",
+    is_detected: true,
+    is_builtin: false,
+    is_enabled: true,
+  },
+];
+
+const BROWSER_FIXTURE_COUNTS: ScanResult = {
+  total_skills: 1,
+  agents_scanned: 3,
+  skills_by_agent: {
+    "claude-code": 1,
+    cursor: 1,
+    central: 1,
+    "project:1": 1,
+  },
+};
+
+// ─── State ────────────────────────────────────────────────────────────────────
+
+interface PlatformState {
+  agents: AgentWithStatus[];
+  skillsByAgent: Record<string, number>;
+  isLoading: boolean;
+  isRefreshing: boolean;
+  scanGeneration?: number;
+  error: string | null;
+
+  // Actions
+  initialize: () => Promise<void>;
+  rescan: () => Promise<void>;
+  refreshCounts: () => Promise<void>;
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+
+export const usePlatformStore = create<PlatformState>((set) => ({
+  agents: [],
+  skillsByAgent: {},
+  isLoading: false,
+  isRefreshing: false,
+  scanGeneration: 0,
+  error: null,
+
+  /**
+   * Initialize the store on app mount: load agents then trigger a full scan.
+   * Called once from AppShell's useEffect.
+   */
+  initialize: async () => {
+    set({ isLoading: true, error: null });
+    if (!isTauriRuntime()) {
+      set((state) => ({
+        agents: BROWSER_FIXTURE_AGENTS,
+        skillsByAgent: BROWSER_FIXTURE_COUNTS.skills_by_agent,
+        isLoading: false,
+        scanGeneration: (state.scanGeneration ?? 0) + 1,
+      }));
+      return;
+    }
+    try {
+      const [agents, scanDirectories, scanResult] = await Promise.all([
+        invoke<AgentWithStatus[]>("get_agents"),
+        invoke<ScanDirectory[]>("get_scan_directories"),
+        invoke<ScanResult>("scan_all_skills"),
+      ]);
+      set((state) => ({
+        agents: mergeProjectAgents(agents, scanDirectories),
+        skillsByAgent: scanResult.skills_by_agent,
+        isLoading: false,
+        scanGeneration: (state.scanGeneration ?? 0) + 1,
+      }));
+    } catch (err) {
+      set({ error: String(err), isLoading: false });
+    }
+  },
+
+  /**
+   * Re-trigger a full scan and refresh agent list.
+   * Called from manual refresh button.
+   */
+  rescan: async () => {
+    set({ isLoading: true, error: null });
+    if (!isTauriRuntime()) {
+      set((state) => ({
+        agents: BROWSER_FIXTURE_AGENTS,
+        skillsByAgent: BROWSER_FIXTURE_COUNTS.skills_by_agent,
+        isLoading: false,
+        scanGeneration: (state.scanGeneration ?? 0) + 1,
+      }));
+      return;
+    }
+    try {
+      const [agents, scanDirectories, scanResult] = await Promise.all([
+        invoke<AgentWithStatus[]>("get_agents"),
+        invoke<ScanDirectory[]>("get_scan_directories"),
+        invoke<ScanResult>("scan_all_skills"),
+      ]);
+      set((state) => ({
+        agents: mergeProjectAgents(agents, scanDirectories),
+        skillsByAgent: scanResult.skills_by_agent,
+        isLoading: false,
+        scanGeneration: (state.scanGeneration ?? 0) + 1,
+      }));
+    } catch (err) {
+      set({ error: String(err), isLoading: false });
+    }
+  },
+
+  refreshCounts: async () => {
+    set({ isRefreshing: true, error: null });
+    if (!isTauriRuntime()) {
+      set((state) => ({
+        agents: BROWSER_FIXTURE_AGENTS,
+        skillsByAgent: BROWSER_FIXTURE_COUNTS.skills_by_agent,
+        isRefreshing: false,
+        isLoading: state.isLoading,
+        scanGeneration: (state.scanGeneration ?? 0) + 1,
+      }));
+      return;
+    }
+    try {
+      await invoke("detect_agents");
+      const [agents, scanDirectories, scanResult] = await Promise.all([
+        invoke<AgentWithStatus[]>("get_agents"),
+        invoke<ScanDirectory[]>("get_scan_directories"),
+        invoke<ScanResult>("scan_all_skills"),
+      ]);
+      set((state) => ({
+        agents: mergeProjectAgents(agents, scanDirectories),
+        skillsByAgent: scanResult.skills_by_agent,
+        isRefreshing: false,
+        isLoading: state.isLoading,
+        scanGeneration: (state.scanGeneration ?? 0) + 1,
+      }));
+    } catch (err) {
+      set({ error: String(err), isRefreshing: false });
+    }
+  },
+}));

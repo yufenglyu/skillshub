@@ -1,0 +1,133 @@
+[
+  {
+    "id": "claude-code",
+    "display_name": "Claude Code",
+    "global_skills_dir": "~/.claude/skills",
+    "project_skills_dir": ".claude/skills"
+  },
+  {
+    "id": "codex",
+    "display_name": "Codex CLI",
+    "global_skills_dir": "~/.codex/skills",
+    "project_skills_dir": ".agents/skills",
+    "supports_universal_agents_skills": true
+  },
+  {
+    "id": "cursor",
+    "display_name": "Cursor",
+    "global_skills_dir": "~/.cursor/skills",
+    "supports_universal_agents_skills": true
+  },
+  {
+    "id": "antigravity",
+    "display_name": "Antigravity",
+    "global_skills_dir": "~/.agents/skills",
+    "supports_universal_agents_skills": true
+  },
+  {
+    "id": "cline",
+    "display_name": "Cline",
+    "global_skills_dir": "~/.agents/skills",
+    "supports_universal_agents_skills": true
+  },
+  {
+    "id": "gemini-cli",
+    "display_name": "Gemini CLI",
+    "global_skills_dir": "~/.gemini/skills",
+    "supports_universal_agents_skills": true
+  },
+  {
+    "id": "kimi-code-cli",
+    "display_name": "Kimi Code CLI",
+    "global_skills_dir": "~/.agents/skills",
+    "supports_universal_agents_skills": true
+  },
+  {
+    "id": "trae",
+    "display_name": "Trae",
+    "global_skills_dir": "~/.trae/skills",
+    "project_skills_dir": ".trae/skills"
+  },
+  {
+    "id": "qwen",
+    "display_name": "Qwen Code",
+    "global_skills_dir": "~/.qwen/skills",
+    "project_skills_dir": ".qwen/skills"
+  },
+  {
+    "id": "trae-cn",
+    "display_name": "Trae CN",
+    "global_skills_dir": "~/.trae-cn/skills",
+    "project_skills_dir": ".trae/skills"
+  },
+  {
+    "id": "windsurf",
+    "display_name": "Windsurf",
+    "global_skills_dir": "~/.codeium/windsurf/skills",
+    "project_skills_dir": ".windsurf/skills"
+  },
+  {
+    "id": "qoder",
+    "display_name": "Qoder",
+    "global_skills_dir": "~/.qoder/skills",
+    "project_skills_dir": ".qoder/skills"
+  },
+  {
+    "id": "opencode",
+    "display_name": "OpenCode",
+    "global_skills_dir": "~/.opencode/skills",
+    "supports_universal_agents_skills": true
+  },
+  {
+    "id": "kiro",
+    "display_name": "Kiro CLI",
+    "global_skills_dir": "~/.kiro/skills",
+    "project_skills_dir": ".kiro/skills"
+  },
+  {
+    "id": "codebuddy",
+    "display_name": "CodeBuddy",
+    "global_skills_dir": "~/.codebuddy/skills",
+    "project_skills_dir": ".codebuddy/skills"
+  },
+  {
+    "id": "codearts-agent",
+    "display_name": "CodeArts Agent",
+    "global_skills_dir": "~/.codeartsdoer/skills",
+    "project_skills_dir": ".codeartsdoer/skills"
+  },
+  {
+    "id": "pi",
+    "display_name": "Pi",
+    "global_skills_dir": "~/.pi/agent/skills",
+    "project_skills_dir": ".pi/skills"
+  },
+  {
+    "id": "copilot",
+    "display_name": "GitHub Copilot",
+    "global_skills_dir": "~/.copilot/skills",
+    "supports_universal_agents_skills": true
+  },
+  {
+    "id": "warp",
+    "display_name": "Warp",
+    "global_skills_dir": "~/.agents/skills",
+    "supports_universal_agents_skills": true
+  },
+  {
+    "id": "hermes",
+    "display_name": "Hermes",
+    "global_skills_dir": "~/.hermes/skills"
+  },
+  {
+    "id": "openclaw",
+    "display_name": "OpenClaw",
+    "global_skills_dir": "~/.openclaw/skills",
+    "project_skills_dir": "skills"
+  },
+  {
+    "id": "workbuddy",
+    "display_name": "WorkBuddy",
+    "global_skills_dir": "~/.workbuddy/skills"
+  }
+]

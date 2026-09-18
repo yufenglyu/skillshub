@@ -1,0 +1,95 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useRepositorySyncStore } from "@/stores/repositorySyncStore";
+import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
+import type { RepositorySyncPreviewReport } from "@/types";
+
+describe("background repository preview", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    useRepositorySyncStore.setState({ preview: null, open: false, isChecking: false, error: null,
+      applied: false, appliedRepositories: [], checkingRepository: null, repositories: null, requestedRepositories: null, includeAdded: true, removeDeleted: false });
+  });
+
+  it("continues without a mounted page and coalesces repeat clicks", async () => {
+    let finish!: (report: RepositorySyncPreviewReport) => void;
+    const check = vi.spyOn(useResourceLibraryStore.getState(), "previewRepositorySync")
+      .mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const apply = vi.spyOn(useResourceLibraryStore.getState(), "syncSourceBackedSkills");
+    const request = useRepositorySyncStore.getState().checkForUpdates(["example/skills"]);
+    useRepositorySyncStore.getState().setOpen(false);
+    expect(useRepositorySyncStore.getState().isChecking).toBe(true);
+    expect(useRepositorySyncStore.getState().checkForUpdates()).toBe(request);
+    finish({ repositories: [] });
+    await request;
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(apply).not.toHaveBeenCalled();
+    expect(useRepositorySyncStore.getState()).toMatchObject({
+      isChecking: false, open: true, preview: { repositories: [] }, repositories: ["example/skills"],
+    });
+  });
+
+  it("retains failures for status-bar retry and accepts a later successful check", async () => {
+    const check = vi.spyOn(useResourceLibraryStore.getState(), "previewRepositorySync")
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValueOnce({ repositories: [] });
+    await useRepositorySyncStore.getState().checkForUpdates();
+    expect(useRepositorySyncStore.getState()).toMatchObject({ isChecking: false, error: "Error: network unavailable" });
+    await useRepositorySyncStore.getState().checkForUpdates();
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(useRepositorySyncStore.getState()).toMatchObject({ error: null, open: true });
+  });
+
+  it("restores the report and choices without reopening a dialog or resuming a spinner", async () => {
+    useRepositorySyncStore.setState({ preview: { repositories: [] }, repositories: ["example/skills"],
+      includeAdded: false, removeDeleted: true, applied: true, open: true, isChecking: true });
+    const key = "skillshub.repository-update-preview.v1";
+    const saved = localStorage.getItem(key)!;
+    expect(JSON.parse(saved).state).not.toHaveProperty("open");
+    expect(JSON.parse(saved).state).not.toHaveProperty("isChecking");
+    useRepositorySyncStore.setState({ preview: null, repositories: null, includeAdded: true,
+      removeDeleted: false, applied: false, open: false, isChecking: false });
+    localStorage.setItem(key, saved);
+    await useRepositorySyncStore.persist.rehydrate();
+    expect(useRepositorySyncStore.getState()).toMatchObject({ preview: { repositories: [] },
+      repositories: ["example/skills"], includeAdded: false, removeDeleted: true, applied: true,
+      open: false, isChecking: false });
+  });
+
+  it("keeps the saved report on failure and replaces its scope and choices only on success", async () => {
+    useRepositorySyncStore.setState({ preview: { repositories: [] }, repositories: ["old/skills"],
+      includeAdded: false, removeDeleted: true, applied: true });
+    vi.spyOn(useResourceLibraryStore.getState(), "previewRepositorySync")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ repositories: [] });
+    await useRepositorySyncStore.getState().checkForUpdates(["new/skills"]);
+    expect(useRepositorySyncStore.getState()).toMatchObject({ preview: { repositories: [] },
+      repositories: ["old/skills"], requestedRepositories: ["new/skills"], applied: true });
+    await useRepositorySyncStore.getState().checkForUpdates(["new/skills"]);
+    expect(useRepositorySyncStore.getState()).toMatchObject({ repositories: ["new/skills"],
+      includeAdded: true, removeDeleted: false, applied: false });
+  });
+  it("rechecks one repository without losing other results or options", async () => {
+    const first = {repository:"one/repo",added:[],modified:[],deleted:[],unchanged:[]};
+    const second = {...first,repository:"two/repo"};
+    useRepositorySyncStore.setState({preview:{repositories:[first,second]},includeAdded:false,removeDeleted:true});
+    useRepositorySyncStore.getState().markApplied();
+    const check = vi.spyOn(useResourceLibraryStore.getState(), "previewRepositorySync").mockResolvedValue({repositories:[{...first,modified:[{skillId:"x",name:"Changed"}]}]});
+    await useRepositorySyncStore.getState().recheckRepository("one/repo");
+    expect(check).toHaveBeenCalledWith(["one/repo"]);
+    expect(useRepositorySyncStore.getState().preview?.repositories[1]).toEqual(second);
+    expect(useRepositorySyncStore.getState()).toMatchObject({applied:false,appliedRepositories:["two/repo"],includeAdded:false,removeDeleted:true,checkingRepository:null});
+    useRepositorySyncStore.getState().markRepositoryApplied("one/repo");
+    expect(useRepositorySyncStore.getState().applied).toBe(true);
+  });
+
+  it("retains other items when a single recheck fails", async () => {
+    const item = {repository:"one/repo",added:[],modified:[],deleted:[],unchanged:[]};
+    useRepositorySyncStore.setState({preview:{repositories:[item,{...item,repository:"two/repo"}]}});
+    vi.spyOn(useResourceLibraryStore.getState(), "previewRepositorySync").mockRejectedValue(new Error("offline"));
+    await useRepositorySyncStore.getState().recheckRepository("one/repo");
+    expect(useRepositorySyncStore.getState().preview?.repositories[0].error).toContain("offline");
+    expect(useRepositorySyncStore.getState().preview?.repositories[1].error).toBeUndefined();
+  });
+
+});

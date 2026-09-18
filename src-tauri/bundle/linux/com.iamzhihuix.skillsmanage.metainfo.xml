@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.iamzhihuix.skillsmanage</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <name>SkillsHub</name>
+  <summary>AI Agent Skills Hub</summary>
+  <description>
+    <p>Manage resource libraries, central skills, platform installs, collections, and GitHub skill imports from a local-first Tauri desktop app.</p>
+  </description>
+  <launchable type="desktop-id">skills-manage.desktop</launchable>
+  <url type="homepage">https://github.com/yufenglyu/skillshub</url>
+  <developer id="io.github.yufenglyu">
+    <name>yufenglyu</name>
+  </developer>
+  <categories>
+    <category>Development</category>
+    <category>Utility</category>
+  </categories>
+  <provides>
+    <binary>skillshub</binary>
+  </provides>
+  <releases>
+    <release version="0.92.2" date="2026-09-18"/>
+    <release version="0.92.1" date="2026-09-18"/>
+    <release version="0.92.0" date="2026-09-18"/>
+
+    <release version="0.91.0" date="2026-09-17"/>
+
+    <release version="0.90.3" date="2026-09-15"/>
+    <release version="0.90.2" date="2026-09-06"/>
+
+    <release version="0.90.1" date="2026-09-04"/>
+
+    <release version="0.90.0" date="2026-09-01"/>
+
+    <release version="0.80.2" date="2026-08-21"/>
+
+    <release version="0.80.1" date="2026-08-21"/>
+
+    <release version="0.80.0" date="2026-08-21"/>
+
+    <release version="0.70.0" date="2026-08-21"/>
+
+    <release version="0.60.0" date="2026-08-20"/>
+
+    <release version="0.50.2" date="2026-08-20"/>
+
+    <release version="0.50.1" date="2026-08-20"/>
+
+    <release version="0.50.0" date="2026-08-20"/>
+
+    <release version="0.40.0" date="2026-08-19"/>
+
+    <release version="0.30.0" date="2026-08-15"/>
+
+    <release version="0.20.1" date="2026-08-14"/>
+
+    <release version="0.20.0" date="2026-08-13"/>
+
+    <release version="0.16.0" date="2026-08-10"/>
+
+    <release version="0.15.0" date="2026-07-23"/>
+
+    <release version="0.14.0" date="2026-07-23"/>
+
+    <release version="0.13.0" date="2026-07-22"/>
+
+    <release version="0.12.0" date="2026-07-20"/>
+    <release version="0.11.1" date="2026-07-19"/>
+    <release version="0.11.0" date="2026-07-15"/>
+    <release version="0.10.8" date="2026-07-14"/>
+    <release version="0.10.7" date="2026-07-14"/>
+    <release version="0.10.6" date="2026-07-14"/>
+    <release version="0.10.5" date="2026-07-14"/>
+    <release version="0.10.4" date="2026-07-14"/>
+    <release version="0.10.3" date="2026-07-14"/>
+    <release version="0.10.2" date="2026-07-14"/>
+    <release version="0.10.1" date="2026-07-13"/>
+    <release version="0.10.0" date="2026-04-30"/>
+  </releases>
+</component>

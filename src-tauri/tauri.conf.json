@@ -1,0 +1,97 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SkillsHub",
+  "version": "0.92.2",
+  "identifier": "com.iamzhihuix.skillsmanage",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:24200",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "SkillsHub",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "yufenglyu",
+    "homepage": "https://github.com/yufenglyu/skillshub",
+    "licenseFile": "../LICENSE",
+    "category": "DeveloperTool",
+    "shortDescription": "AI Agent Skills Hub",
+    "longDescription": "Manage skill repositories, shared hub links, platform installs, skill bundles, and GitHub skill imports from a local-first Tauri desktop app.",
+    "macOS": {
+      "minimumSystemVersion": "10.13"
+    },
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "silent": true,
+        "type": "embedBootstrapper"
+      },
+      "wix": {
+        "language": "en-US",
+        "upgradeCode": "28d41c68-f4a4-5134-b959-34babea58f7f",
+        "fragmentPaths": ["./windows/fragments/user-config.wxs"],
+        "componentRefs": ["SkillshubUserConfigInit"]
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false,
+        "files": {
+          "usr/share/metainfo/com.iamzhihuix.skillsmanage.metainfo.xml": "bundle/linux/com.iamzhihuix.skillsmanage.metainfo.xml"
+        }
+      },
+      "deb": {
+        "desktopTemplate": "bundle/linux/skills-manage.desktop.hbs",
+        "section": "devel",
+        "priority": "optional",
+        "postInstallScript": "bundle/unix/seed-user-config.sh",
+        "files": {
+          "/usr/share/metainfo/com.iamzhihuix.skillsmanage.metainfo.xml": "bundle/linux/com.iamzhihuix.skillsmanage.metainfo.xml",
+          "/usr/share/skillshub/packaged-config": "resources/packaged-config"
+        }
+      },
+      "rpm": {
+        "desktopTemplate": "bundle/linux/skills-manage.desktop.hbs",
+        "release": "1",
+        "postInstallScript": "bundle/unix/seed-user-config.sh",
+        "files": {
+          "/usr/share/metainfo/com.iamzhihuix.skillsmanage.metainfo.xml": "bundle/linux/com.iamzhihuix.skillsmanage.metainfo.xml",
+          "/usr/share/skillshub/packaged-config": "resources/packaged-config"
+        }
+      }
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/packaged-config/",
+      "windows/seed-user-config.cmd",
+      "bundle/unix/seed-user-config.sh"
+    ]
+  },
+  "plugins": {
+    "sql": {
+      "preload": []
+    }
+  }
+}

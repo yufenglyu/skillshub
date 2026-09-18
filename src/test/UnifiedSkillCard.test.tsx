@@ -1,0 +1,247 @@
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { UnifiedSkillCard } from "../components/skill/UnifiedSkillCard";
+import type { AgentWithStatus } from "../types";
+
+const agents: AgentWithStatus[] = [
+  {
+    id: "claude-code",
+    display_name: "Claude Code",
+    global_skills_dir: "/Users/test/.claude/skills",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "cursor",
+    display_name: "Cursor",
+    global_skills_dir: "/Users/test/.cursor/skills",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "trae",
+    display_name: "Trae",
+    global_skills_dir: "/Users/test/.trae/skills",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "windsurf",
+    display_name: "Windsurf",
+    global_skills_dir: "/Users/test/.codeium/windsurf/memories",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "codex",
+    display_name: "Codex CLI",
+    global_skills_dir: "/Users/test/.codex/skills",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "qwen",
+    display_name: "Qwen Code",
+    global_skills_dir: "/Users/test/.qwen/skills",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "gemini-cli",
+    display_name: "Gemini CLI",
+    global_skills_dir: "/Users/test/.gemini/skills",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "copilot",
+    display_name: "GitHub Copilot",
+    global_skills_dir: "/Users/test/.copilot/skills",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "opencode",
+    display_name: "OpenCode",
+    global_skills_dir: "/Users/test/.opencode/skills",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "openclaw",
+    display_name: "OpenClaw",
+    global_skills_dir: "/Users/test/.openclaw/skills",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+  {
+    id: "kiro",
+    display_name: "Kiro",
+    global_skills_dir: "/Users/test/.kiro/skills",
+    is_detected: true,
+    is_builtin: true,
+    is_enabled: true,
+  },
+];
+
+function renderCard(linkedAgents: string[], readOnlyAgents: string[] = []) {
+  const onToggle = vi.fn();
+  const onManagePlatforms = vi.fn();
+  render(
+    <UnifiedSkillCard
+      name="demo-skill"
+      description="Demo skill"
+      platformIcons={{
+        agents,
+        linkedAgents,
+        readOnlyAgents,
+        skillId: "demo-skill",
+        onToggle,
+        togglingAgentId: null,
+        onManage: onManagePlatforms,
+      }}
+    />
+  );
+  return { onToggle, onManagePlatforms };
+}
+
+describe("UnifiedSkillCard source badges", () => {
+  it("explains read-only platform rows", () => {
+    render(
+      <UnifiedSkillCard
+        name="readonly-skill"
+        description="Read-only skill"
+        sourceType="copy"
+        originKind="compatibility"
+        isReadOnly
+      />
+    );
+
+    expect(screen.getByLabelText(/只读: .*不是当前平台的可删除安装/)).toBeInTheDocument();
+  });
+
+  it("shows created and updated dates separately", () => {
+    render(
+      <UnifiedSkillCard
+        name="dated-skill"
+        description="Dated skill"
+        createdAt="2026-07-14T12:25:07Z"
+        updatedAt="2026-07-20T16:48:36Z"
+      />
+    );
+
+    expect(screen.getByText(/创建时间|Created/)).toBeInTheDocument();
+    expect(screen.getByText("2026-07-14")).toBeInTheDocument();
+    expect(screen.getByText(/更新时间|Updated/)).toBeInTheDocument();
+    expect(screen.getByText("2026-07-20")).toBeInTheDocument();
+  });
+});
+
+describe("UnifiedSkillCard action buttons", () => {
+  it("uses a custom install-to-central label when provided", () => {
+    const onInstallToCentral = vi.fn();
+    render(
+      <UnifiedSkillCard
+        name="resource-skill"
+        description="Resource skill"
+        onInstallToCentral={onInstallToCentral}
+        installToCentralLabel="加入共享中心：resource-skill"
+      />
+    );
+
+    const button = screen.getByRole("button", {
+      name: "加入共享中心：resource-skill",
+    });
+    fireEvent.click(button);
+
+    expect(onInstallToCentral).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows install-to-central before install-to-target on resource skills", () => {
+    render(
+      <UnifiedSkillCard
+        name="resource-skill"
+        description="Resource skill"
+        onInstallToCentral={vi.fn()}
+        installToCentralLabel="加入共享中心：resource-skill"
+        onInstallTo={vi.fn()}
+      />
+    );
+
+    const centralButton = screen.getByRole("button", {
+      name: "加入共享中心：resource-skill",
+    });
+    const installTargetButton = screen.getByRole("button", {
+      name: "将 resource-skill 安装到平台",
+    });
+
+    expect(
+      centralButton.compareDocumentPosition(installTargetButton) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(centralButton.querySelector("svg")?.classList.contains("lucide-share-2")).toBe(true);
+    expect(installTargetButton.querySelector("svg")?.classList.contains("lucide-package-plus")).toBe(
+      true
+    );
+  });
+});
+
+describe("UnifiedSkillCard platform toggles", () => {
+  it("renders featured software platform toggles on the card", () => {
+    renderCard(["cursor", "openclaw"]);
+
+    expect(screen.getByText("软件平台")).toBeInTheDocument();
+    expect(screen.queryByText("龙虾类")).not.toBeInTheDocument();
+    expect(screen.queryByText("编程类")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "管理 demo-skill 的平台安装" })).toBeInTheDocument();
+
+    expect(screen.getByRole("button", { name: "切换 demo-skill 在 OpenClaw 的链接状态" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "切换 demo-skill 在 Claude Code 的链接状态" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "切换 demo-skill 在 Cursor 的链接状态" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "切换 demo-skill 在 Trae 的链接状态" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "切换 demo-skill 在 Gemini CLI 的链接状态" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("toggles featured platforms directly from the card", () => {
+    const { onToggle } = renderCard([]);
+
+    const button = screen.getByRole("button", {
+      name: "切换 demo-skill 在 Cursor 的链接状态",
+    });
+
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(button);
+    expect(onToggle).toHaveBeenCalledWith("demo-skill", "cursor");
+  });
+
+  it("keeps read-only direct toggles disabled while showing installed state", () => {
+    renderCard(["cursor"], ["claude-code"]);
+
+    const button = screen.getByRole("button", {
+      name: "切换 demo-skill 在 Claude Code 的链接状态",
+    });
+
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("opens the platform manager for hidden coding platforms", () => {
+    const { onManagePlatforms } = renderCard(["cursor"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "管理 demo-skill 的平台安装" }));
+
+    expect(onManagePlatforms).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("+4")).toBeInTheDocument();
+  });
+});

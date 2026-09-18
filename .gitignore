@@ -1,0 +1,80 @@
+# Dependencies
+node_modules/
+
+# Frontend build output
+dist/
+build/
+out/
+refs/
+
+# Tauri / Rust build output
+target/
+src-tauri/target/
+
+# Release artifacts generated locally
+release-assets/
+*.msi
+*.dmg
+*.AppImage
+*.rpm
+*.deb
+*.app.zip
+*.tar.gz
+
+# Test and coverage output
+coverage/
+*.lcov
+.vitest/
+
+# Local databases and app data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Generated default config copied into MSI/portable ZIP
+src-tauri/resources/packaged-config/**
+!src-tauri/resources/packaged-config/.gitkeep
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local scratch / generated references
+docs/
+tmp/
+/tmp/
+.tmp-chrome-profile/
+.tmp-chrome-*/
+.tmp-npx-probe/
+reference/
+.factory/
+.worktrees/
+
+# Local agent instructions may include private workspace notes
+AGENTS.md
+HANDOFF.md
+
+# WorkBuddy local workspace state (memory, skills, etc.)
+.workbuddy/

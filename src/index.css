@@ -1,0 +1,339 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:is([data-theme='dark'] *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Noto Sans', Arial, sans-serif;
+    --font-mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
+    --color-hover-bg: var(--hover-bg);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ─── VS Code-inspired light/dark themes ─────────────────────────────────── */
+:root,
+[data-theme='light'] {
+    --hover-bg: #007acc;
+    --background: #ffffff;
+    --foreground: #1f1f1f;
+    --card: #f8f8f8;
+    --card-foreground: #1f1f1f;
+    --popover: #ffffff;
+    --popover-foreground: #1f1f1f;
+    --primary: #007acc;
+    --primary-foreground: #ffffff;
+    --secondary: #f3f3f3;
+    --secondary-foreground: #1f1f1f;
+    --muted: #f3f3f3;
+    --muted-foreground: #6a6a6a;
+    --accent: #e8e8e8;
+    --accent-foreground: #1f1f1f;
+    --destructive: #d13438;
+    --border: #d4d4d4;
+    --input: #d4d4d4;
+    --ring: #007acc;
+    --chart-1: #16825d;
+    --chart-2: #007acc;
+    --chart-3: #8957e5;
+    --chart-4: #b26a00;
+    --chart-5: #d13438;
+    --radius: 0.625rem;
+    --sidebar: #f3f3f3;
+    --sidebar-foreground: #333333;
+    --sidebar-primary: #007acc;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #e8e8e8;
+    --sidebar-accent-foreground: #1f1f1f;
+    --sidebar-border: #d4d4d4;
+    --sidebar-ring: #007acc;
+}
+
+[data-theme='dark'] {
+    --hover-bg: #007acc;
+    --background: #1e1e1e;
+    --foreground: #d4d4d4;
+    --card: #252526;
+    --card-foreground: #d4d4d4;
+    --popover: #252526;
+    --popover-foreground: #d4d4d4;
+    --primary: #007acc;
+    --primary-foreground: #ffffff;
+    --secondary: #2d2d30;
+    --secondary-foreground: #d4d4d4;
+    --muted: #2d2d30;
+    --muted-foreground: #9d9d9d;
+    --accent: #3c3c3c;
+    --accent-foreground: #ffffff;
+    --destructive: #f14c4c;
+    --border: #3c3c3c;
+    --input: #3c3c3c;
+    --ring: #007acc;
+    --chart-1: #89d185;
+    --chart-2: #4fc1ff;
+    --chart-3: #c586c0;
+    --chart-4: #dcdcaa;
+    --chart-5: #f14c4c;
+    --radius: 0.625rem;
+    --sidebar: #181818;
+    --sidebar-foreground: #cccccc;
+    --sidebar-primary: #007acc;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #2d2d30;
+    --sidebar-accent-foreground: #ffffff;
+    --sidebar-border: #2d2d30;
+    --sidebar-ring: #007acc;
+}
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    overflow: hidden;
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
+  }
+  #root {
+    overflow: hidden;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--primary) 35%, transparent);
+    color: var(--foreground);
+  }
+
+  [data-interactive]:hover,
+  button:not(:disabled):hover,
+  [role="button"]:not(:disabled):hover {
+    cursor: pointer;
+  }
+}
+
+/* ─── Markdown body styles for SKILL.md preview ─────────────────────────── */
+.markdown-body {
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--foreground);
+}
+
+.markdown-body h1 {
+  font-size: 1.375rem;
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-body h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-body h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.375rem;
+}
+
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  padding-left: 1.5rem;
+}
+
+.markdown-body ul {
+  list-style: disc;
+}
+
+.markdown-body ol {
+  list-style: decimal;
+}
+
+.markdown-body li {
+  margin-bottom: 0.2rem;
+}
+
+.markdown-body code {
+  font-family: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  background: var(--muted);
+  padding: 0.125rem 0.3rem;
+  border-radius: 0.25rem;
+}
+
+.markdown-body pre {
+  background: var(--muted);
+  border-radius: 0.5rem;
+  padding: 0.875rem 1rem;
+  overflow-x: auto;
+  margin-bottom: 0.875rem;
+}
+
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.8125rem;
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 1rem;
+  color: var(--muted-foreground);
+  margin-left: 0;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1rem 0;
+}
+
+.markdown-body a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 500;
+}
+
+.markdown-body strong {
+  font-weight: 600;
+}
+
+.markdown-body em {
+  font-style: italic;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.875rem;
+  font-size: 0.8125rem;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--border);
+  padding: 0.375rem 0.625rem;
+  text-align: left;
+}
+
+.markdown-body th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+/* ─── Custom scrollbar styling ─────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+/* The inspector document tab keeps only its file picker above the preview. */
+[data-inspector-document="true"] > section:not(:first-child) { display: none; }
+
+/* Keep inspector documents at the same compact scale as the other tabs. */
+.inspector-document .markdown-body,
+.inspector-document .markdown-body :is(p, li, blockquote, code, pre, th, td),
+.inspector-document > div p,
+.inspector-document > div .text-sm {
+  font-size: 0.75rem;
+  line-height: 1.65;
+}
+.inspector-document .markdown-body h1,
+.inspector-document .text-2xl {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.inspector-document .markdown-body h2 {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.inspector-document .markdown-body :is(h3, h4, h5, h6) {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}

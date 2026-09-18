@@ -1,0 +1,42 @@
+import { beforeEach, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { ProjectDirectoryMenu } from "@/components/layout/ProjectDirectoryMenu";
+import { useSettingsStore } from "@/stores/settingsStore";
+import { usePlatformStore } from "@/stores/platformStore";
+const directory = {id:1,path:"D:/Projects/Demo",label:"Demo",is_active:true,is_builtin:false,added_at:"2026-09-18"};
+const add = vi.fn().mockResolvedValue(directory);
+const edit = vi.fn().mockResolvedValue(directory);
+const remove = vi.fn().mockResolvedValue(undefined);
+const refresh = vi.fn().mockResolvedValue(undefined);
+beforeEach(() => {
+  vi.clearAllMocks();
+  useSettingsStore.setState({scanDirectories:[directory],addScanDirectory:add,updateScanDirectory:edit,removeScanDirectory:remove});
+  usePlatformStore.setState({refreshCounts:refresh});
+});
+it("adds a project from the heading context menu and refreshes the sidebar", async () => {
+  const onAdded=vi.fn();
+  render(<MemoryRouter><ProjectDirectoryMenu onAdded={onAdded}><button>Projects</button></ProjectDirectoryMenu></MemoryRouter>);
+  fireEvent.contextMenu(screen.getByText("Projects"));
+  fireEvent.click(screen.getByRole("menuitem",{name:"添加目录"}));
+  fireEvent.change(screen.getByLabelText(/项目名称/),{target:{value:"Demo"}});
+  fireEvent.change(screen.getByLabelText(/目录路径/),{target:{value:directory.path}});
+  fireEvent.click(screen.getByRole("button",{name:"添加"}));
+  await waitFor(()=>expect(onAdded).toHaveBeenCalled());
+  expect(add).toHaveBeenCalledWith(directory.path,"Demo");
+  expect(refresh).toHaveBeenCalled();
+});
+it("edits an existing project and confirms its removal", async () => {
+  render(<MemoryRouter><ProjectDirectoryMenu agentId="project:1"><button>Demo</button></ProjectDirectoryMenu></MemoryRouter>);
+  fireEvent.contextMenu(screen.getByText("Demo"));
+  fireEvent.click(screen.getByRole("menuitem",{name:"编辑"}));
+  fireEvent.change(screen.getByLabelText(/项目名称/),{target:{value:"Renamed"}});
+  fireEvent.click(screen.getByRole("button",{name:"保存"}));
+  await waitFor(()=>expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(edit).toHaveBeenCalledWith(directory.path,"D:\\Projects\\Demo","Renamed");
+  fireEvent.contextMenu(screen.getByText("Demo"));
+  fireEvent.click(screen.getByRole("menuitem",{name:"删除"}));
+  expect(remove).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("menuitem",{name:"确认删除"}));
+  await waitFor(()=>expect(remove).toHaveBeenCalledWith(directory.path));
+});
