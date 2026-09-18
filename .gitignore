@@ -3,9 +3,9 @@ node_modules/
 .pnpm-store/
 
 # Frontend build output
-dist/
-build/
-out/
+/dist/
+/build/
+/out/
 
 # Build and tooling caches
 .vite/
