@@ -103,57 +103,57 @@
 
 ### 技能仓库
 
-![技能仓库](images/zh/01.png)
+![技能仓库](docs/images/zh/01.png)
 
 ### 共享中心
 
-![共享中心](images/zh/02.png)
+![共享中心](docs/images/zh/02.png)
 
 ### 技能合集
 
-![技能合集](images/zh/03.png)
+![技能合集](docs/images/zh/03.png)
 
 ### 设置
 
-![设置](images/zh/04.png)
+![设置](docs/images/zh/04.png)
 
 ### 软件平台与项目目录
 
-![软件平台与项目目录](images/zh/05.png)
+![软件平台与项目目录](docs/images/zh/05.png)
 
 ### 更新预览
 
 检查完成后先审阅变更，再决定是否应用；关闭后可从状态栏恢复。
 
-![更新预览](images/zh/06.png)
+![更新预览](docs/images/zh/06.png)
 
 ### WebDAV 仓库同步
 
 仅同步技能仓库与技能合集，安装位置和应用配置由本机管理。
 
-![WebDAV 仓库同步](images/zh/07.png)
+![WebDAV 仓库同步](docs/images/zh/07.png)
 
 ### 项目目录的安装来源
 
 目录中同时存在独立安装和共享中心技能时，显示两种来源。
 
-![项目目录的安装来源](images/zh/08.png)
+![项目目录的安装来源](docs/images/zh/08.png)
 
 ### AI 备注与标签
 
-![AI 备注与标签](images/zh/09.png)
+![AI 备注与标签](docs/images/zh/09.png)
 
 ### 可配置的 AI 提示词
 
-![可配置的 AI 提示词](images/zh/10.png)
+![可配置的 AI 提示词](docs/images/zh/10.png)
 
 ### 简化的技能导入
 
-![简化的技能导入](images/zh/11.png)
+![简化的技能导入](docs/images/zh/11.png)
 
 ### 导入统计与技能明细
 
-![导入统计与技能明细](images/zh/12.png)
+![导入统计与技能明细](docs/images/zh/12.png)
 
 ---
 
@@ -197,8 +197,8 @@ cd src-tauri && cargo test
 skillshub/
 ├── src/           # React 前端
 ├── src-tauri/     # Rust / Tauri 后端
-├── images/        # 中文 README 截图
-├── images/en/     # 英文 README 截图
+├── docs/images/zh/ # 中文 README 截图
+├── docs/images/en/ # 英文 README 截图
 ├── scripts/       # 打包脚本
 ├── CHANGELOG.md
 └── CHANGELOG.zh.md

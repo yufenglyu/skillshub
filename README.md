@@ -103,57 +103,57 @@ Captured from v0.92.0 using demonstration skills and fictional paths.
 
 ### Skill Repository
 
-![Skill Repository](images/en/01.png)
+![Skill Repository](docs/images/en/01.png)
 
 ### Shared Hub
 
-![Shared Hub](images/en/02.png)
+![Shared Hub](docs/images/en/02.png)
 
 ### Skill Bundles
 
-![Skill Bundles](images/en/03.png)
+![Skill Bundles](docs/images/en/03.png)
 
 ### Settings
 
-![Settings](images/en/04.png)
+![Settings](docs/images/en/04.png)
 
 ### Software Platforms And Project Directories
 
-![Software Platforms And Project Directories](images/en/05.png)
+![Software Platforms And Project Directories](docs/images/en/05.png)
 
 ### Update Preview
 
 Review changes before applying them. Preview contents and options survive app restarts and remain available from the status bar until the next successful check.
 
-![Update Preview](images/en/06.png)
+![Update Preview](docs/images/en/06.png)
 
 ### WebDAV Repository Sync
 
 Sync repository files and bundles while keeping installation locations and application settings local.
 
-![WebDAV Repository Sync](images/en/07.png)
+![WebDAV Repository Sync](docs/images/en/07.png)
 
 ### Installation Sources In Project Folders
 
 Folders containing both independently installed and Shared Hub skills show both sources.
 
-![Installation Sources In Project Folders](images/en/08.png)
+![Installation Sources In Project Folders](docs/images/en/08.png)
 
 ### AI notes and tags
 
-![AI notes and tags](images/en/09.png)
+![AI notes and tags](docs/images/en/09.png)
 
 ### Configurable AI prompts
 
-![Configurable AI prompts](images/en/10.png)
+![Configurable AI prompts](docs/images/en/10.png)
 
 ### Simplified skill import
 
-![Simplified skill import](images/en/11.png)
+![Simplified skill import](docs/images/en/11.png)
 
 ### Import statistics and skill details
 
-![Import statistics and skill details](images/en/12.png)
+![Import statistics and skill details](docs/images/en/12.png)
 
 ---
 
@@ -197,8 +197,8 @@ cd src-tauri && cargo test
 skillshub/
 ├── src/           # React frontend
 ├── src-tauri/     # Rust / Tauri backend
-├── images/        # Simplified Chinese README screenshots
-├── images/en/     # English README screenshots
+├── docs/images/zh/ # Simplified Chinese README screenshots
+├── docs/images/en/ # English README screenshots
 ├── scripts/       # Packaging helpers
 ├── CHANGELOG.md
 └── CHANGELOG.zh.md
