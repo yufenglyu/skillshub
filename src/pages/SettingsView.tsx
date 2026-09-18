@@ -44,7 +44,7 @@ import { useShortcutStore } from "@/stores/shortcutStore";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-export const APP_VERSION = "0.92.2";
+export const APP_VERSION = "1.0.0";
 const CONFIG_DIR_FALLBACK = "~/.skillshub";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,

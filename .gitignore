@@ -1,15 +1,21 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Frontend build output
 dist/
 build/
 out/
-refs/
+
+# Build and tooling caches
+.vite/
+*.tsbuildinfo
+.eslintcache
+/vite.config.js
+/vite.config.d.ts
 
 # Tauri / Rust build output
 target/
-src-tauri/target/
 
 # Release artifacts generated locally
 release-assets/
@@ -27,22 +33,29 @@ coverage/
 .vitest/
 
 # Local databases and app data
+.skillshub/
 *.db
 *.db-shm
 *.db-wal
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
 
 # Generated default config copied into MSI/portable ZIP
-src-tauri/resources/packaged-config/**
-!src-tauri/resources/packaged-config/.gitkeep
+/src-tauri/resources/packaged-config/*
+!/src-tauri/resources/packaged-config/.gitkeep
 
 # Environment and secrets
 .env
 .env.*
 !.env.example
 !.env.sample
+*.key
+*.p12
+*.pfx
 
 # Logs
 logs/
@@ -62,19 +75,14 @@ desktop.ini
 *.swo
 
 # Local scratch / generated references
-docs/
-tmp/
 /tmp/
-.tmp-chrome-profile/
-.tmp-chrome-*/
-.tmp-npx-probe/
-reference/
-.factory/
-.worktrees/
+/refs/
+/reference/
+/.tmp-chrome-*/
+/.tmp-npx-probe/
+/.factory/
+/.worktrees/
 
 # Local agent instructions may include private workspace notes
 AGENTS.md
 HANDOFF.md
-
-# WorkBuddy local workspace state (memory, skills, etc.)
-.workbuddy/
