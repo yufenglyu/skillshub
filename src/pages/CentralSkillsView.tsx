@@ -8,7 +8,7 @@ import { SkillBrowserWorkspace } from "@/components/skill/SkillBrowserWorkspace"
 import { repositoryLocationUrl } from "@/lib/skillNavigation";
 import {
 AlertTriangle,
-RefreshCw
+RotateCw
 } from "lucide-react";
 import { useDeferredValue,useEffect,useMemo,useRef,useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -502,7 +502,7 @@ export function CentralSkillsView() {
               disabled={isLoading}
               aria-label={t("central.refresh")}
             >
-              <RefreshCw className={`size-4 ${isLoading ? "animate-spin" : ""}`} />
+              <RotateCw className={`size-4 ${isLoading ? "animate-spin" : ""}`} />
             </Button>
           </div>
           <OpenableDirectoryPath iconOnly

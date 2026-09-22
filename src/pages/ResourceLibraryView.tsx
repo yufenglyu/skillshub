@@ -14,7 +14,7 @@ import { openSkillSearch } from "@/lib/skillNavigation";
 import { useRepositorySyncStore } from "@/stores/repositorySyncStore";
 import {
 Loader2,
-Download,
+RotateCw,
 PackagePlus,
 RefreshCw,
 Trash2
@@ -657,7 +657,7 @@ export function ResourceLibraryView() {
               disabled={isLoading}
               aria-label={t("resource.refresh")}
             >
-              <RefreshCw className={cn("size-4", isLoading && "animate-spin")} />
+              <RotateCw className={cn("size-4", isLoading && "animate-spin")} />
             </Button>
           </div>
           <OpenableDirectoryPath iconOnly
@@ -683,7 +683,7 @@ export function ResourceLibraryView() {
             {isUpdatingSources || isRepositorySyncPreviewLoading || pendingRepositorySync ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Download className="size-4" />
+              <RefreshCw className="size-4" />
             )}
             <span className="sr-only">{t("resource.updateSources")}</span>
           </Button>

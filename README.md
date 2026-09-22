@@ -19,7 +19,7 @@ Import, organize, update and distribute `SKILL.md` skills to Claude Code, Codex 
 
 ![SkillsHub repository with folder browsing, tags and notes](docs/images/en/library.jpg)
 
-*Screenshots show the UI from the current v1.0.0 source, using fictional repositories, skills and paths. The example content is not bundled with the app.*
+*Screenshots show the UI from the current v1.1.0 source, using fictional repositories, skills and paths. The example content is not bundled with the app.*
 
 ## Why SkillsHub?
 
@@ -86,7 +86,7 @@ Update Skills combines source checks and update review. Collapse repositories, f
 4. Read the skill, add tags or notes, organize it into a bundle, then install it to the platforms, projects or Shared Hub you need.
 5. Use **Update center** to review upstream changes and **Background tasks** to follow execution.
 
-The toolbar uses distinct icons: a package with a plus for adding skills, a download arrow for updating, and circular arrows for refreshing the list. Hover for labels. GitHub imports only flag overwrites at the actual destination; matching IDs in different repositories remain independent.
+The toolbar uses distinct icons: a package with a plus for adding skills, two circular arrows for updating, and a single rotating arrow for refreshing the list. Hover for labels. GitHub imports only flag overwrites at the actual destination; matching IDs in different repositories remain independent.
 
 ![Add skills from GitHub or a local folder](docs/images/en/import.jpg)
 

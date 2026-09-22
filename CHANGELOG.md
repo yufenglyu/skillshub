@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md) | [简体中文](CHANGELOG.zh.md)
 
-## Unreleased
+## 1.1.0 - 2026-09-22
 
 - Unify GitHub and local imports, simplify the import wizard, and distinguish add, update and refresh with icon-only buttons and tooltips.
 - Add collapsible repositories, status filters, a resizable update dialog, selected-repository checks and footer retries for failed checks; serialize checks and writes within each repository.

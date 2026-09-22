@@ -38,7 +38,7 @@ import { usePlatformStore } from "@/stores/platformStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useSkillStore } from "@/stores/skillStore";
 import { ScannedSkill } from "@/types";
-import { RefreshCw,Trash2 } from "lucide-react";
+import { RotateCw,Trash2 } from "lucide-react";
 import { useEffect,useMemo,useRef,useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate,useParams } from "react-router-dom";
@@ -421,7 +421,7 @@ export function PlatformView() {
       {/* Content */}
       <SkillBrowserWorkspace toolbar={<SkillBrowserHeader title={<div>
         <div className="flex items-center gap-2.5">
-          <Button variant="ghost" size="icon" title={t("collection.refresh")} aria-label={t("collection.refresh")} disabled={isLoading} onClick={() => void Promise.all([getSkillsByAgent(agent.id), refreshCounts()])}><RefreshCw className={cn("size-4", isLoading && "animate-spin")} /></Button>
+          <Button variant="ghost" size="icon" title={t("collection.refresh")} aria-label={t("collection.refresh")} disabled={isLoading} onClick={() => void Promise.all([getSkillsByAgent(agent.id), refreshCounts()])}><RotateCw className={cn("size-4", isLoading && "animate-spin")} /></Button>
           <h1 className="text-xl font-semibold">{agent.display_name}</h1>
         </div>
         <OpenableDirectoryPath iconOnly path={agent.global_skills_dir} />

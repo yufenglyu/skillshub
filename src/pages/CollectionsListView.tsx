@@ -5,7 +5,7 @@ import { matchesTags } from "@/lib/skillFilters";
 import { sortBySkillBrowserOrder, type SkillSortField, type SkillSortDirection } from "@/lib/skillSort";
 import { repositoryLocationUrl } from "@/lib/skillNavigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus, RotateCw } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -394,7 +394,7 @@ export function CollectionsListView() {
         onSortChange={(field, direction) => { setSortField(field); setSortDirection(direction); }}
         toolbar={<SkillBrowserHeader title={<>
           <h1>{t("sidebar.collections")}</h1>
-          <Button variant="ghost" size="icon" title={t("collection.refresh")} aria-label={t("collection.refresh")} onClick={() => void handleRefresh()} disabled={isLoading || isLoadingDetail}><RefreshCw className={cn("size-4", isLoading && "animate-spin")} /></Button>
+          <Button variant="ghost" size="icon" title={t("collection.refresh")} aria-label={t("collection.refresh")} onClick={() => void handleRefresh()} disabled={isLoading || isLoadingDetail}><RotateCw className={cn("size-4", isLoading && "animate-spin")} /></Button>
           <Button variant="ghost" size="icon" title={t("sidebar.newCollectionLabel")} aria-label={t("sidebar.newCollectionLabel")} onClick={() => setIsEditorOpen(true)}><Plus className="size-4" /></Button>
         </>} search={<div className="flex items-center gap-2"><SearchInput containerClassName="min-w-0 flex-1" value={search} onValueChange={setSearch} placeholder={t("collection.searchCollections")} trailing={<SearchScopes value={searchScopes} onChange={setSearchScopes}/>} /></div>} />}
         folders={collections.filter(collection => (matchesSearch({name:collection.name,description:collection.description},search,searchScopes,collection.name) || (collectionDetails.find(detail=>detail.id===collection.id)?.skills ?? []).some(skill=>matchesSearch(resourceSkills.find(s=>s.id===skill.id)??skill,search,searchScopes,collection.name)))
