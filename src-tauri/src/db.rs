@@ -460,6 +460,7 @@ pub async fn prepare_config_dir(config_dir: &Path) -> Result<(), String> {
         *config = crate::config_store::AppConfig::default();
         Ok(())
     })?;
+    crate::platform_icons::seed(config_dir)?;
     init_schema(&pool).await?;
     sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
         .execute(&pool)
@@ -1651,9 +1652,10 @@ pub async fn update_custom_agent(
         .await?
         .ok_or_else(|| "Failed to retrieve updated agent".to_string())?;
     if updated.id != agent.id {
-        crate::platforms::persist_platform_delete(&agent.id)?;
+        crate::platforms::persist_platform_rename(&agent.id, &updated)?;
+    } else {
+        crate::platforms::persist_platform_edit(&updated)?;
     }
-    crate::platforms::persist_platform_edit(&updated)?;
     Ok(updated)
 }
 
@@ -1980,6 +1982,8 @@ mod tests {
         assert!(!dir.path().join("platform").exists());
         assert!(!dir.path().join("library").exists());
         assert!(dir.path().join("db.sqlite").exists());
+        assert!(dir.path().join("icons/cursor.svg").exists());
+        assert!(dir.path().join("icons/SOURCES.md").exists());
 
         let catalog = std::fs::read_to_string(dir.path().join("config.json")).unwrap();
         assert!(catalog.contains("~/.claude/skills"));

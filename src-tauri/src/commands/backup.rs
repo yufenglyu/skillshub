@@ -168,6 +168,8 @@ impl From<&ScanDirectory> for ScanDirectoryBackup {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AppBackup {
+    #[serde(default)]
+    folder_notes: Vec<super::metadata::FolderNote>,
     schema_version: u32,
     exported_at: String,
     #[serde(default)]
@@ -1000,6 +1002,7 @@ async fn export_app_backup_data_impl(
     };
 
     let mut backup = AppBackup {
+        folder_notes: if options.include_resource_library { super::metadata::folder_notes(pool).await? } else { Vec::new() },
         schema_version: BACKUP_SCHEMA_VERSION,
         exported_at: Utc::now().to_rfc3339(),
         included: options,
@@ -1175,6 +1178,7 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
     std::fs::create_dir_all(&resource_root)
         .map_err(|e| format!("Failed to create Skill Resource Library root: {}", e))?;
     validate_restore_plan(&backup.skills)?;
+    for note in &backup.folder_notes { super::metadata::save_note(pool, note).await?; }
 
     for setting in backup.settings {
         if !is_exportable_setting_key(&setting.key) {
@@ -2140,6 +2144,18 @@ mod tests {
             .await
             .expect("resource path");
         (pool, dir)
+    }
+
+    #[tokio::test]
+    async fn repository_backup_roundtrip_preserves_folder_notes() {
+        let (pool,_dir)=setup_test_db().await;
+        super::super::metadata::save_note(&pool,&super::super::metadata::FolderNote{id:"folder".into(),notes:"memo".into(),skill_ids:vec!["member".into()]}).await.unwrap();
+        let backup=export_app_backup_data_impl(&pool,repository_backup_options()).await.unwrap();
+        assert_eq!(backup.folder_notes.len(),1);
+        let (restored,_other)=setup_test_db().await;
+        import_app_backup_data_impl(&restored,backup).await.unwrap();
+        let notes=super::super::metadata::folder_notes(&restored).await.unwrap();
+        assert_eq!(notes[0].notes,"memo");assert_eq!(notes[0].skill_ids,vec!["member"]);
     }
 
     async fn configure_agent_root(pool: &DbPool, agent_id: &str, root: &Path) {

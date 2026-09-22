@@ -1,3 +1,7 @@
+import { SearchScopes } from "@/components/skill/SearchScopes";
+import { useSearchScopes, matchesSearch } from "@/lib/skillFilters";
+import { TagFilters } from "@/components/skill/TagFilters";
+import { matchesTags } from "@/lib/skillFilters";
 import { SkillBrowserHeader } from "@/components/skill/SkillBrowserHeader";
 import { SidebarTagFilter } from "@/components/layout/SidebarTagFilter";
 import { SkillBrowserWorkspace } from "@/components/skill/SkillBrowserWorkspace";
@@ -27,7 +31,7 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { SearchInput } from "@/components/ui/search-input";
 import { formatPathForDisplay } from "@/lib/path";
-import { buildSearchText,normalizeSearchQuery } from "@/lib/search";
+import { normalizeSearchQuery } from "@/lib/search";
 import {
 splitResourceLibrarySkillsByFolder,
 type SkillFolderGroup,
@@ -39,7 +43,6 @@ type SkillSortDirection,
 type SkillSortField,
 } from "@/lib/skillSort";
 import { isTauriRuntime } from "@/lib/tauri";
-import { cn } from "@/lib/utils";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { AgentWithStatus,CentralSkillBundle,SkillWithLinks } from "@/types";
@@ -220,7 +223,8 @@ export function CentralSkillsView() {
   const [sortField, setSortField] = useState<SkillSortField>("name");
   const [sortDirection, setSortDirection] = useState<SkillSortDirection>("asc");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [searchScopes, setSearchScopes] = useSearchScopes();
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [installTargetSkill, setInstallTargetSkill] =
     useState<SkillWithLinks | null>(null);
   const [deleteTargetSkill, setDeleteTargetSkill] =
@@ -280,22 +284,6 @@ export function CentralSkillsView() {
 
 
 
-  const searchableSkills = useMemo(() => {
-    const visibleSkills =
-      skills;
-
-    return visibleSkills.map((skill) => ({
-        skill,
-        searchText: buildSearchText([
-          skill.name,
-          skill.description,
-          skill.notes,
-          ...(skill.tags ?? []),
-          skill.source_author,
-          skill.source_repo,
-        ]),
-      }));
-  }, [skills]);
   const availableTags = useMemo(() => {
     const tags = new Map<string, string>();
     for (const skill of skills) {
@@ -322,47 +310,11 @@ export function CentralSkillsView() {
   }, [loadCentralBundles]);
 
   // Filter skills by search query.
-  const filteredSkills = useMemo(() => {
-    return searchableSkills
-      .filter(({ skill }) => {
-        if (!selectedTag) return true;
-        return (skill.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag);
-      })
-      .filter(({ searchText }) => !normalizedSearchQuery || searchText.includes(normalizedSearchQuery))
-      .map(({ skill }) => skill);
-  }, [normalizedSearchQuery, searchableSkills, selectedTag]);
-
-  const filteredFolderGroups = useMemo(() => {
-
-    return [...centralFolderGroupsByPath.values()].filter((group) => {
-      if (selectedTag) {
-        const hasSelectedTag =
-          group.skills.some((skill) =>
-            (skill.tags ?? []).some((tag) => tag.toLowerCase() === selectedTag)
-          );
-        if (!hasSelectedTag) return false;
-      }
-      if (!normalizedSearchQuery) return true;
-      const folderSearchText = buildSearchText([group.name, group.relativePath, group.path]);
-      if (folderSearchText.includes(normalizedSearchQuery)) return true;
-      return (
-        group.skills.some((skill) =>
-          buildSearchText([
-            skill.name,
-            skill.description,
-            skill.notes,
-            ...(skill.tags ?? []),
-            skill.source_author,
-            skill.source_repo,
-          ]).includes(normalizedSearchQuery)
-        )
-      );
-    });
-  }, [
-    centralFolderGroupsByPath,
-    normalizedSearchQuery,
-    selectedTag,
-  ]);
+  const filteredSkills = useMemo(() => skills.filter(skill => {
+    const group = [...centralFolderGroupsByPath.values()].find(group=>group.skills.some(item=>item.id===skill.id));
+    return matchesTags(skill.tags,selectedTags) && matchesSearch(skill,normalizedSearchQuery,searchScopes,group?.name);
+  }),[skills,centralFolderGroupsByPath,selectedTags,normalizedSearchQuery,searchScopes]);
+  const filteredFolderGroups = useMemo(() => [...centralFolderGroupsByPath.values()].filter(group=>(!normalizedSearchQuery&&!selectedTags.length)||group.skills.some(skill=>filteredSkills.some(match=>match.id===skill.id))),[centralFolderGroupsByPath,filteredSkills,normalizedSearchQuery,selectedTags.length]);
 
   const sortedSkills = useMemo(() => {
     return sortBySkillBrowserOrder(filteredSkills, sortField, sortDirection);
@@ -539,32 +491,7 @@ export function CentralSkillsView() {
 
 
       {/* Content */}
-      <SidebarTagFilter>
-        {availableTags.length > 0 && (
-          <div
-            role="group"
-            aria-label={t("central.tagFilter")}
-            className="flex flex-wrap items-center gap-1.5"
-          >
-            {availableTags.map((tag) => (
-              <button
-                key={tag.key}
-                type="button"
-                aria-pressed={selectedTag === tag.key}
-                onClick={() => setSelectedTag(selectedTag === tag.key ? null : tag.key)}
-                className={cn(
-                  "h-7 rounded-lg px-2.5 text-xs font-medium transition-colors",
-                  selectedTag === tag.key
-                    ? "bg-primary/15 text-foreground"
-                    : "bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                )}
-              >
-                {tag.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </SidebarTagFilter>
+      <SidebarTagFilter hasSelection={selectedTags.length > 0} onClear={() => setSelectedTags([])}><TagFilters tags={availableTags} selected={selectedTags} onChange={setSelectedTags}/></SidebarTagFilter>
       <SkillBrowserWorkspace toolbar={<SkillBrowserHeader title={<div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold">{t("central.title")}</h1>
@@ -582,13 +509,13 @@ export function CentralSkillsView() {
             path={centralAgentDir}
             displayPath={centralSkillsRoot}
           />
-        </div>} search={<SearchInput
+        </div>} search={<div className="flex items-center gap-2"><SearchInput
             placeholder={t("central.searchPlaceholder")}
             value={searchQuery}
             onValueChange={setSearchQuery}
             aria-label={t("central.searchPlaceholder")}
-            containerClassName="w-64 min-w-32 max-w-sm flex-1"
-          />} />} loading={isLoading} folders={sortedFolderGroups.map((group): FolderTableItem => {
+            containerClassName="min-w-0 flex-1"
+          trailing={<SearchScopes value={searchScopes} onChange={setSearchScopes}/>} /></div>} />} loading={isLoading} folders={sortedFolderGroups.map((group): FolderTableItem => {
                     const groupSkills = group.skills;
                     return {
                       key: group.relativePath,
@@ -614,7 +541,7 @@ export function CentralSkillsView() {
                         deletingBundlePath === group.relativePath ||
                         deletingFolderGroupPath === group.relativePath,
                     };
-                  })} storageKey="CentralSkillsView"  searchActive={Boolean(normalizedSearchQuery || selectedTag)}
+                  })} storageKey="CentralSkillsView"  searchActive={Boolean(normalizedSearchQuery || selectedTags.length)}
                   sortField={sortField}
                   sortDirection={sortDirection}
                   onSortChange={(field, direction) => {

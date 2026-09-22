@@ -3,131 +3,153 @@
     "id": "claude-code",
     "display_name": "Claude Code",
     "global_skills_dir": "~/.claude/skills",
-    "project_skills_dir": ".claude/skills"
+    "project_skills_dir": ".claude/skills",
+    "icon": "icons/claude-code.svg"
   },
   {
     "id": "codex",
     "display_name": "Codex CLI",
     "global_skills_dir": "~/.codex/skills",
     "project_skills_dir": ".agents/skills",
-    "supports_universal_agents_skills": true
+    "supports_universal_agents_skills": true,
+    "icon": "icons/codex.svg"
   },
   {
     "id": "cursor",
     "display_name": "Cursor",
     "global_skills_dir": "~/.cursor/skills",
-    "supports_universal_agents_skills": true
+    "supports_universal_agents_skills": true,
+    "icon": "icons/cursor.svg"
   },
   {
     "id": "antigravity",
     "display_name": "Antigravity",
     "global_skills_dir": "~/.agents/skills",
-    "supports_universal_agents_skills": true
+    "supports_universal_agents_skills": true,
+    "icon": "icons/antigravity.svg"
   },
   {
     "id": "cline",
     "display_name": "Cline",
     "global_skills_dir": "~/.agents/skills",
-    "supports_universal_agents_skills": true
+    "supports_universal_agents_skills": true,
+    "icon": "icons/cline.svg"
   },
   {
     "id": "gemini-cli",
     "display_name": "Gemini CLI",
     "global_skills_dir": "~/.gemini/skills",
-    "supports_universal_agents_skills": true
+    "supports_universal_agents_skills": true,
+    "icon": "icons/gemini-cli.svg"
   },
   {
     "id": "kimi-code-cli",
     "display_name": "Kimi Code CLI",
     "global_skills_dir": "~/.agents/skills",
-    "supports_universal_agents_skills": true
+    "supports_universal_agents_skills": true,
+    "icon": "icons/kimi-code-cli.svg"
   },
   {
     "id": "trae",
     "display_name": "Trae",
     "global_skills_dir": "~/.trae/skills",
-    "project_skills_dir": ".trae/skills"
+    "project_skills_dir": ".trae/skills",
+    "icon": "icons/trae.svg"
   },
   {
     "id": "qwen",
     "display_name": "Qwen Code",
     "global_skills_dir": "~/.qwen/skills",
-    "project_skills_dir": ".qwen/skills"
+    "project_skills_dir": ".qwen/skills",
+    "icon": "icons/qwen.svg"
   },
   {
     "id": "trae-cn",
     "display_name": "Trae CN",
     "global_skills_dir": "~/.trae-cn/skills",
-    "project_skills_dir": ".trae/skills"
+    "project_skills_dir": ".trae/skills",
+    "icon": "icons/trae-cn.svg"
   },
   {
     "id": "windsurf",
     "display_name": "Windsurf",
     "global_skills_dir": "~/.codeium/windsurf/skills",
-    "project_skills_dir": ".windsurf/skills"
+    "project_skills_dir": ".windsurf/skills",
+    "icon": "icons/windsurf.svg"
   },
   {
     "id": "qoder",
     "display_name": "Qoder",
     "global_skills_dir": "~/.qoder/skills",
-    "project_skills_dir": ".qoder/skills"
+    "project_skills_dir": ".qoder/skills",
+    "icon": "icons/qoder.svg"
   },
   {
     "id": "opencode",
     "display_name": "OpenCode",
     "global_skills_dir": "~/.opencode/skills",
-    "supports_universal_agents_skills": true
+    "supports_universal_agents_skills": true,
+    "icon": "icons/opencode.svg"
   },
   {
     "id": "kiro",
     "display_name": "Kiro CLI",
     "global_skills_dir": "~/.kiro/skills",
-    "project_skills_dir": ".kiro/skills"
+    "project_skills_dir": ".kiro/skills",
+    "icon": "icons/kiro.svg"
   },
   {
     "id": "codebuddy",
     "display_name": "CodeBuddy",
     "global_skills_dir": "~/.codebuddy/skills",
-    "project_skills_dir": ".codebuddy/skills"
+    "project_skills_dir": ".codebuddy/skills",
+    "icon": "icons/codebuddy.svg"
   },
   {
     "id": "codearts-agent",
     "display_name": "CodeArts Agent",
     "global_skills_dir": "~/.codeartsdoer/skills",
-    "project_skills_dir": ".codeartsdoer/skills"
+    "project_skills_dir": ".codeartsdoer/skills",
+    "icon": "icons/codearts-agent.png"
   },
   {
     "id": "pi",
     "display_name": "Pi",
     "global_skills_dir": "~/.pi/agent/skills",
-    "project_skills_dir": ".pi/skills"
+    "project_skills_dir": ".pi/skills",
+    "icon": "icons/pi.svg"
   },
   {
     "id": "copilot",
     "display_name": "GitHub Copilot",
     "global_skills_dir": "~/.copilot/skills",
-    "supports_universal_agents_skills": true
+    "supports_universal_agents_skills": true,
+    "icon": "icons/copilot.svg"
   },
   {
     "id": "warp",
     "display_name": "Warp",
     "global_skills_dir": "~/.agents/skills",
-    "supports_universal_agents_skills": true
+    "supports_universal_agents_skills": true,
+    "icon": "icons/warp.png"
   },
   {
     "id": "hermes",
     "display_name": "Hermes",
-    "global_skills_dir": "~/.hermes/skills"
+    "global_skills_dir": "~/.hermes/skills",
+    "icon": "icons/hermes.svg"
   },
   {
     "id": "openclaw",
     "display_name": "OpenClaw",
     "global_skills_dir": "~/.openclaw/skills",
-    "project_skills_dir": "skills"
+    "project_skills_dir": "skills",
+    "icon": "icons/openclaw.svg"
   },
   {
     "id": "workbuddy",
     "display_name": "WorkBuddy",
-    "global_skills_dir": "~/.workbuddy/skills"
+    "global_skills_dir": "~/.workbuddy/skills",
+    "icon": "icons/workbuddy.svg"
   }
 ]

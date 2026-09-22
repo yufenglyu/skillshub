@@ -3,6 +3,7 @@ pub mod config_store;
 pub mod db;
 pub mod path_utils;
 pub mod platforms;
+pub mod platform_icons;
 
 use db::DbPool;
 use std::fs;
@@ -78,6 +79,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::remote_sources::apply_repository_update_item,
+            commands::skills::preview_local_resource_skills,
+            commands::metadata::get_folder_notes, commands::metadata::save_folder_note, commands::metadata::count_skill_tag, commands::metadata::change_skill_tag, commands::metadata::rename_skill_tag,
             // Scanner
             commands::scanner::scan_all_skills,
             // Agents
@@ -87,6 +91,8 @@ pub fn run() {
             commands::agents::update_custom_agent,
             commands::agents::remove_custom_agent,
             commands::agents::set_agent_enabled,
+            platform_icons::get_platform_icons,
+            platform_icons::set_platform_icon,
             // Linker
             commands::linker::install_skill_to_agent,
             commands::linker::add_resource_skill_to_central,

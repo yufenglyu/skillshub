@@ -1,6 +1,6 @@
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { SkillDetailView } from "../components/skill/SkillDetailView";
 import {
@@ -243,6 +243,7 @@ function buildDetailStoreState(overrides = {}) {
     generateExplanation: mockGenerateExplanation,
     generateTags: mockGenerateTags,
     refreshExplanation: mockRefreshExplanation,
+    clearNoteGeneration: vi.fn(),
     installSkill: mockInstallSkill,
     uninstallSkill: mockUninstallSkill,
     refreshInstallations: mockRefreshInstallations,
@@ -897,7 +898,7 @@ describe("SkillDetailView", () => {
     renderView();
     fireEvent.click(screen.getByRole("button", { name: /AI 备注/i }));
     await waitFor(() => {
-      expect(mockGenerateExplanation).toHaveBeenCalledWith("frontend-design", mockContent, "zh");
+      expect(mockRefreshExplanation).toHaveBeenCalledWith("frontend-design", mockContent, "zh");
     });
   });
 
@@ -920,7 +921,7 @@ describe("SkillDetailView", () => {
     fireEvent.click(screen.getByRole("button", { name: /AI 备注/i }));
 
     await waitFor(() => {
-      expect(mockGenerateExplanation).toHaveBeenCalledWith(
+      expect(mockRefreshExplanation).toHaveBeenCalledWith(
         "cursor::frontend-design",
         mockPlatformContent,
         "zh"
@@ -928,7 +929,7 @@ describe("SkillDetailView", () => {
     });
   });
 
-  it("does not regenerate when a cached explanation can fill notes directly", async () => {
+  it("regenerates even when an explanation is cached", async () => {
     applyStoreMocks({ explanation: "这是缓存的技能解释。" });
     render(
       <MemoryRouter>
@@ -938,10 +939,10 @@ describe("SkillDetailView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /AI 备注/i }));
     expect(mockGenerateExplanation).not.toHaveBeenCalled();
-    expect(mockRefreshExplanation).not.toHaveBeenCalled();
+    expect(mockRefreshExplanation).toHaveBeenCalledWith("frontend-design", mockContent, "zh");
   });
 
-  it("keeps syncing streamed AI note content until generation finishes", async () => {
+  it("preserves original notes until generation finishes", async () => {
     let storeState = buildDetailStoreState();
     vi.mocked(useSkillDetailStore).mockImplementation((selector?: unknown) => {
       if (typeof selector === "function") return selector(storeState);
@@ -973,7 +974,7 @@ describe("SkillDetailView", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/记录此技能的用途/i)).toHaveValue("一句");
+      expect(screen.getByPlaceholderText(/记录此技能的用途/i)).not.toHaveValue("一句");
     });
 
     storeState = buildDetailStoreState({
@@ -1066,7 +1067,7 @@ describe("SkillDetailView", () => {
     fireEvent.click(screen.getByRole("button", { name: /AI 备注/i }));
 
     await waitFor(() => {
-      expect(mockGenerateExplanation).toHaveBeenCalledWith("frontend-design", mockContent, "zh");
+      expect(mockRefreshExplanation).toHaveBeenCalledWith("frontend-design", mockContent, "zh");
     });
   });
 
@@ -1375,4 +1376,15 @@ describe("AI tags", () => {
     expect(screen.getByPlaceholderText(/输入标签/)).toHaveValue("原有标签");
     expect(mockUpdateMetadata).not.toHaveBeenCalled();
   });
+  it("clears saved tags and ignores suggestions that arrive after clear", async () => {
+    let finish!: (tags:string[])=>void;
+    mockGenerateTags.mockImplementation(()=>new Promise<string[]>(resolve=>{finish=resolve;}));
+    renderView();
+    fireEvent.click(screen.getByRole("button", {name:"AI 标签"}));
+    fireEvent.click(within(screen.getByRole("region", {name:"技能标签"})).getByRole("button", {name:"清空"}));
+    await waitFor(()=>expect(mockUpdateMetadata).toHaveBeenCalledWith(mockDetail.id,{notes:mockDetail.notes??null,tags:[]}));
+    await act(async()=>finish(["late suggestion"]));
+    expect(screen.getByPlaceholderText(/输入标签/)).toHaveValue("");
+  });
+
 });

@@ -17,6 +17,8 @@ const DEFAULTS_JSON: &str = include_str!("../resources/default-platforms/default
 pub struct PlatformDefinition {
     pub id: String,
     pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     pub global_skills_dir: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_skills_dir: Option<String>,
@@ -69,6 +71,7 @@ fn seed_platform_dir(dir: &Path) -> Result<(), String> {
         crate::config_store::update_path(&catalog_path(dir), |_| Ok(()))?;
     }
     load_from_dir(dir)?;
+    crate::platform_icons::seed(dir.parent().unwrap_or(Path::new(".")))?;
     match fs::remove_file(dir.join("platform.json")) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -184,6 +187,7 @@ fn upsert_definition(platforms: &mut Vec<PlatformDefinition>, agent: &Agent) {
     }
     platforms.push(PlatformDefinition {
         id: agent.id.clone(),
+        icon: None,
         display_name: agent.display_name.clone(),
         global_skills_dir: agent.global_skills_dir.clone(),
         project_skills_dir: agent.project_skills_dir.clone(),
@@ -268,6 +272,7 @@ mod tests {
         fs::create_dir_all(dir.path()).unwrap();
         let custom = PlatformDefinition {
             id: "only-custom".to_string(),
+            icon: None,
             display_name: "Only Custom".to_string(),
             global_skills_dir: "~/.only-custom/skills".to_string(),
             project_skills_dir: None,
@@ -346,4 +351,15 @@ mod tests {
         assert_eq!(config.settings["language"], "en");
         assert!(!platform_dir.join("platform.json").exists());
     }
+}
+
+pub fn persist_platform_rename(old_id: &str, agent: &Agent) -> Result<(), String> {
+    let Some(dir) = platform_dir() else { return Ok(()); };
+    crate::config_store::update_path(&catalog_path(&dir), |config| {
+        if let Some(platform) = config.platforms.iter_mut().find(|p| p.id == old_id) {
+            platform.id = agent.id.clone();
+        }
+        upsert_definition(&mut config.platforms, agent);
+        Ok(())
+    })
 }

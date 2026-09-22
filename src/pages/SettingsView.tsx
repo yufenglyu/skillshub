@@ -865,7 +865,7 @@ export function SettingsView({ onClose }: {onClose?: () => void} = {}) {
   ) {
     setPlatformError(null);
     try {
-      await addCustomAgent({
+      const added = await addCustomAgent({
         id,
         display_name: displayName,
         global_skills_dir: globalSkillsDir,
@@ -873,6 +873,7 @@ export function SettingsView({ onClose }: {onClose?: () => void} = {}) {
       // Refresh agents + rescan to show new platform in sidebar.
       await rescan();
       toast.success(t("platformDialog.add") + " ✓");
+      return added.id;
     } catch (err) {
       setPlatformError(String(err));
       toast.error(String(err));
@@ -884,7 +885,7 @@ export function SettingsView({ onClose }: {onClose?: () => void} = {}) {
     if (!editingPlatform) return;
     setPlatformError(null);
     try {
-      await updateCustomAgent(editingPlatform.id, {
+      const updated = await updateCustomAgent(editingPlatform.id, {
         id,
         display_name: displayName,
         global_skills_dir: globalSkillsDir,
@@ -892,6 +893,7 @@ export function SettingsView({ onClose }: {onClose?: () => void} = {}) {
       // Refresh agents + rescan.
       await rescan();
       toast.success(t("platformDialog.save") + " ✓");
+      return updated.id;
     } catch (err) {
       setPlatformError(String(err));
       toast.error(String(err));

@@ -1,10 +1,12 @@
+import { type ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { openRowActions } from "./rowActions";
-import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
+import { fireEvent, render as testingRender, screen, within, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SkillBrowserWorkspace } from "@/components/skill/SkillBrowserWorkspace";
 import type { FolderTableItem, SkillTableItem } from "@/components/skill/SkillBrowserTable";
 vi.mock("@/components/skill/SkillDetailView", async (importOriginal) => ({ ...await importOriginal<typeof import("@/components/skill/SkillDetailView")>(), SkillDetailView: ({skillId,agentId,rowId,inspectorTab}:{skillId:string;agentId?:string;rowId?:string;inspectorTab:string}) => <div data-testid="inspector">{[skillId,agentId,rowId,inspectorTab].join("|")}</div> }));
+const render = (ui: ReactElement) => ui.type === MemoryRouter ? testingRender(ui) : testingRender(ui, {wrapper: MemoryRouter});
 const remove = vi.fn();
 const skills: SkillTableItem[] = [
   {rowKey:"one",detailRequest:{skillId:"one"},name:"First skill",sourceRepo:"Example/Tools",onRemove:remove},

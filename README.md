@@ -1,246 +1,131 @@
 <div align="center">
 
-[简体中文](README_CN.md) | [English](README.md)
+[简体中文](README_CN.md) · [English](README.md)
 
 # SkillsHub
 
-### A local-first desktop manager for AI agent skills
+### One skill library. Your AI tools and projects, connected.
 
-Collect, update, group, and install `SKILL.md` skills across coding tools and project directories with one shared workflow.
+Import, organize, update and distribute `SKILL.md` skills to Claude Code, Codex CLI, Cursor and other tools from one desktop app.
 
-![Release](https://img.shields.io/github/v/release/yufenglyu/skillshub?style=for-the-badge&label=RELEASE&color=5865f2)
-![Downloads](https://img.shields.io/github/downloads/yufenglyu/skillshub/total?style=for-the-badge&label=DOWNLOADS&color=56b6c2)
-![License](https://img.shields.io/github/license/yufenglyu/skillshub?style=for-the-badge&label=LICENSE&color=57c778)
-![Tauri](https://img.shields.io/badge/TAURI-2-24c8db?style=for-the-badge)
-![Windows](https://img.shields.io/badge/WINDOWS-10%20%7C%2011-3b82f6?style=for-the-badge)
+[![Release](https://img.shields.io/github/v/release/yufenglyu/skillshub)](https://github.com/yufenglyu/skillshub/releases)
+[![License](https://img.shields.io/github/license/yufenglyu/skillshub)](LICENSE)
+![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8db)
+![Local first](https://img.shields.io/badge/Local--first-SKILL.md-5865f2)
 
-[Download Latest](https://github.com/yufenglyu/skillshub/releases) · [Features](#core-capabilities) · [Local Development](#local-development) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/yufenglyu/skillshub/issues)
-
-**Current document: English | App languages: English · Simplified Chinese**
+[Download](https://github.com/yufenglyu/skillshub/releases) · [Get started](#get-started) · [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/yufenglyu/skillshub/issues)
 
 </div>
 
-> **Disclaimer**
-> SkillsHub is an independent, unofficial application. It is not affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, GitHub, skills.sh, MiniMax, or any other supported platform, publisher, or trademark owner.
+![SkillsHub repository with folder browsing, tags and notes](docs/images/en/library.jpg)
 
----
+*Screenshots show the UI from the current v1.0.0 source, using fictional repositories, skills and paths. The example content is not bundled with the app.*
 
-## What Is SkillsHub?
+## Why SkillsHub?
 
-SkillsHub is built for developers who use tools such as Claude Code, Codex CLI, Cursor, Gemini CLI, GitHub Copilot, Warp, Windsurf, or OpenClaw and want one place to manage reusable AI skills.
+Skills end up scattered across tool folders. Starting a new project means copying them again. As your collection grows, keeping track of what each skill does, where it is installed and whether it has changed becomes its own task. SkillsHub brings that work into one place.
 
-It separates three concerns:
+| What you need | How SkillsHub helps |
+| --- | --- |
+| Use a skill across multiple AI tools | Keep it in one repository, install by platform or project, and add everyday skills to Shared Hub. |
+| Keep up with upstream changes | Review added, modified and removed skills, inspect file changes, then apply selected updates. |
+| Find useful skills in a growing library | Combine tags, search names, descriptions and notes, and assign tags with drag and drop. |
+| Prepare a toolkit for each workflow | Build bundles for development, research or writing and install them to multiple targets. |
+| Understand skills and record your judgment | Read their documents, write notes, or edit AI-generated notes and tags before saving. |
+| Keep your library across devices | Use local files, ZIP backups, WebDAV repository sync and portable mode. |
 
-- **Skill Repository** stores the skills you import or add locally.
-- **Skill Bundles** group repository skills for repeatable installation.
-- **Shared Hub** exposes selected repository skills through `~/.agents/skills`.
+## Collect once, use across tools
+
+**The Skill Repository is the primary store; you choose where each skill is used.** Import from GitHub or a local folder, then install to a platform, a project, or Shared Hub.
 
 ```text
-Skill Repository ── install ──► software platforms / project directories
-       │
-       └── add to Shared Hub ──► ~/.agents/skills
+GitHub / Local folders
+        ↓
+  Skill Repository ── Skill Bundles: organize by workflow
+        ├── Software platforms: tool-specific skill directories
+        ├── Project directories: <project>/.agents/skills
+        └── Shared Hub: ~/.agents/skills
 ```
 
----
+- **Shared Hub** links back to repository skills. Removing a skill from the hub removes the link and keeps the original files. Whether a tool can use the shared directory depends on its own support and configuration.
+- **Software platforms** support custom names and skill paths. Right-click in the sidebar to add, edit, disable or remove them. Missing directories automatically disable the corresponding platform; disabled platforms are hidden from the sidebar.
+- **Project directories** keep skill choices scoped to individual projects and can be managed from sidebar context menus.
+- **Visible installation relationships** show where skills are used and distinguish Shared Hub from independent installations. Platform installation prefers links and falls back to copying when needed.
 
-## Core Capabilities
+## Know what changes before you update
 
-### Import And Maintain Skills
+Update Skills combines source checks and update review. Collapse repositories, filter by status and expand a skill to inspect added, modified or removed files.
 
-- Import a GitHub repository with `owner/repo` or a repository URL; SkillsHub reads the GitHub repository snapshot and copies detected `SKILL.md` skills into the repository.
-- Add prepared local skill folders or skill packs.
-- Check source-backed skills for updates, update one skill, update a folder in directory view, or review update statistics by status.
+![Update Skills with selected skills and file changes](docs/images/en/updates.jpg)
 
-### Install Across Tools
+- Select individual skills or entire groups. Upstream deletions are not selected by default.
+- Ignore a detected version; a later upstream change makes it eligible for review again.
+- Recheck selected repositories from the footer without losing other results. Retry failures checks selected failed repositories, or all currently visible failures if none are selected.
+- Review replacements under remote deletions and use Delete and reimport; ambiguous matches require manual pairing.
+- Resize the dialog as needed; filtering keeps its height unchanged.
+- Imports, update checks, applied updates and AI generation run through a background queue with progress, results and retries.
+- Navigating away or closing a dialog does not interrupt a task. Tasks run while the app is open; interrupted tasks can be retried after restarting.
 
-- Install repository skills directly to enabled software platforms or named project directories.
-- Add a skill to Shared Hub with a symlink into the repository, then remove only the link when you take it out.
-- Keep flat and folder views consistent across Skill Repository, Shared Hub, platforms, projects, and bundles.
+## Build your own skill toolkit
 
-- Installation statistics follow Shared Hub membership: members show detected and enabled software platform and project directory counts, irrespective of paths or compatibility; other skills show manually installed platform/project counts. Platform and project views display source names only; mixed folders show both Shared Hub and independent installation without counts.
-- Search aligns with the table content edge. Resize columns without horizontal overflow and drag headers to reorder them.
+**Tags help you find skills; bundles help you reuse them.** Label skills by purpose, group the ones you use together, and install a bundle when starting a project.
 
-### Organize And Automate
+![Skill Bundles with their included skills](docs/images/en/collections.jpg)
 
-- Create Skill Bundles, then batch-install a bundle to multiple targets.
-- Configure keyboard shortcuts for the command palette, sidebar toggle, flat/folder view toggle, and page navigation.
-- Manage projects from sidebar context menus; manage platform definitions, paths, GitHub PAT, AI notes, update checks, local ZIP backup, and WebDAV backup in Settings.
-- Update checks continue in the background after navigating away and always stop at a reviewable preview. Applying updates stages and validates every skill first, then restores previous files if a file swap or database write fails.
-- WebDAV sync transfers only Skill Repository files and Skill Bundles. Restore uses this device's library path and preserves local settings and installation targets. Update previews and their options survive app restarts and can be reopened from the status bar until the next successful check.
+- Click a tag to filter, then click it again to clear. Use `Ctrl / Cmd` to select multiple tags and match their intersection.
+- Drag selected skills onto a tag to add it. Hold `Shift` while dropping to remove only that tag.
+- The filter button inside the search field lets you search repository names, skill names, descriptions and notes. Repository folders can have their own notes.
+- The detail pane provides overview, documents and installation information. Tables support sorting, column visibility, reordering and resizing.
+- Skill notes and tags use **AI / Save / Clear** controls. Each AI request produces an editable suggestion; it is written only when saved. Configure your own AI service and prompts.
 
----
+## Get started
 
-## Concepts
+1. Download an installer or portable archive for your system from [Releases](https://github.com/yufenglyu/skillshub/releases), then launch SkillsHub.
+2. Check platform directories in Settings, or add your own platforms and projects from the sidebar.
+3. In Skill Repository, choose **Add skills** and enter a GitHub `owner/repo`, repository URL, or local skill folder.
+4. Read the skill, add tags or notes, organize it into a bundle, then install it to the platforms, projects or Shared Hub you need.
+5. Use **Update center** to review upstream changes and **Background tasks** to follow execution.
 
-| Concept | Purpose | Default location |
-|---------|---------|------------------|
-| **Skill Repository** | Primary store for imported and local skills | `~/.skillshub/library` |
-| **Skill Bundles** | Reusable groups of repository skills | App database |
-| **Shared Hub** | Shared compatibility folder backed by repository symlinks | `~/.agents/skills` |
-| **Software platforms** | Tool-specific skill folders | Platform config |
-| **Project directories** | Named project-scoped install targets | `<project>/.agents/skills` |
-| **Config folder** | Database, repository, platform manifest, and settings | `~/.skillshub` or portable `.skillshub` |
+The toolbar uses distinct icons: a package with a plus for adding skills, a download arrow for updating, and circular arrows for refreshing the list. Hover for labels. GitHub imports only flag overwrites at the actual destination; matching IDs in different repositories remain independent.
 
-Configuration is separate from business data: `config.json` stores general preferences, AI/GitHub/WebDAV settings, project directories, and software platform definitions in its `platforms` field. Icons remain in `platform/icons/`; `platform/platform.json` is no longer used. `db.sqlite` stores skills, bundles, installations, scan results, and related business data. The new format does not import settings or project directory configuration from legacy databases.
+![Add skills from GitHub or a local folder](docs/images/en/import.jpg)
 
-If a platform's skills path resolves to `~/.agents/skills`, installing to that platform is equivalent to adding the skill to Shared Hub. Other platforms use their own independent folders.
+## Your data and backups
 
----
+Skills stay on your machine. The default repository is `~/.skillshub/library`; portable mode keeps `.skillshub` next to the executable so the application and its data can travel together.
 
-## v0.92.0 workflow notes
+| Option | Purpose |
+| --- | --- |
+| Local ZIP backup | Export and restore data according to the selected backup scope. |
+| WebDAV repository sync | Transfer repository content and bundles, using the receiving device's paths and preserving its settings and installation targets. |
+| Bundle import / export | Reuse a collection of skills. |
 
-- Right-click rows for installation, update, uninstall and delete actions. Ctrl-click toggles selection and Shift-click selects a range. Batch actions share one confirmation and deduplicate folders and child skills.
-- Drag column headers to reorder or column edges to resize. Use `+` / `-` in a focused list to expand or collapse. Each bundle occupies one table row.
-- Overview metadata and skill lists are collapsible. Select a skill for the Documents tab: the file tree and preview initially share the height equally, with a draggable divider. Expand reading into a half-width, full-height view and close it to restore the previous layout.
-- Shared Hub counts require both detection and enablement. Click installation entries to open platform or project pages; remove shared skills through Shared Hub.
-- Right-click the Project directories heading to add a project, or a project row to edit or remove it. Settings manages software platforms; closing Settings restores the previous view.
-- Update preview shows changed or failed repositories only. Apply or recheck each entry, and keep updates running after closing the dialog. Only changed entries are applied.
-- AI Service separates connection configuration from prompts. Edit and save generated notes/tags; tags appear in the editor without duplicate pills.
+GitHub import and updates, WebDAV, and optional AI features connect to their respective services. AI generation sends the relevant skill content to your configured provider. Treat the configuration directory as private local data; backups exclude API keys, tokens and passwords.
 
-## Screenshots
+## Download and development
 
-Captured from v0.92.0 using demonstration skills and fictional paths.
+See [Releases](https://github.com/yufenglyu/skillshub/releases) for the artifacts actually available for each release. The repository includes Windows, macOS and Linux packaging scripts; Windows packaging produces an MSI and a portable ZIP.
 
-### Skill Repository
-
-![Skill Repository](docs/images/en/01.png)
-
-### Shared Hub
-
-![Shared Hub](docs/images/en/02.png)
-
-### Skill Bundles
-
-![Skill Bundles](docs/images/en/03.png)
-
-### Settings
-
-![Settings](docs/images/en/04.png)
-
-### Software Platforms And Project Directories
-
-![Software Platforms And Project Directories](docs/images/en/05.png)
-
-### Update Preview
-
-Review changes before applying them. Preview contents and options survive app restarts and remain available from the status bar until the next successful check.
-
-![Update Preview](docs/images/en/06.png)
-
-### WebDAV Repository Sync
-
-Sync repository files and bundles while keeping installation locations and application settings local.
-
-![WebDAV Repository Sync](docs/images/en/07.png)
-
-### Installation Sources In Project Folders
-
-Folders containing both independently installed and Shared Hub skills show both sources.
-
-![Installation Sources In Project Folders](docs/images/en/08.png)
-
-### AI notes and tags
-
-![AI notes and tags](docs/images/en/09.png)
-
-### Configurable AI prompts
-
-![Configurable AI prompts](docs/images/en/10.png)
-
-### Simplified skill import
-
-![Simplified skill import](docs/images/en/11.png)
-
-### Import statistics and skill details
-
-![Import statistics and skill details](docs/images/en/12.png)
-
----
-
-## Download
-
-Download installers and portable archives from [GitHub Releases](https://github.com/yufenglyu/skillshub/releases).
-
-| OS | Typical artifacts |
-|----|-------------------|
-| Windows | MSI, `skillshub_*_windows_x64.zip` |
-| macOS | DMG, `skillshub_*_macos_universal.zip`, `.tar.gz` |
-| Linux | deb, rpm, `skillshub-v*_Linux-*.tar.gz` |
-
-Installers and first launch create `.skillshub` with platform definitions, an empty repository, and SQLite. Portable archives place `.skillshub` next to the executable.
-
----
-
-## Local Development
-
-### Requirements
-
-- Node.js LTS
-- pnpm
-- Rust stable
-- Tauri v2 prerequisites: <https://v2.tauri.app/start/prerequisites/>
-
-### Commands
+Development requires Node.js, pnpm, Rust and the system dependencies for Tauri v2.
 
 ```bash
 pnpm install
-pnpm tauri dev
+pnpm tauri dev       # Full desktop application
+pnpm dev             # Browser frontend preview
+pnpm build           # Type checking and frontend build
 pnpm test
-pnpm typecheck
 pnpm lint
 cd src-tauri && cargo test
 ```
 
-### Project Layout
+Packaging commands: `pnpm package:release:windows`, `pnpm package:release:macos`, `pnpm package:release:linux`. Distribution artifacts are written to `release-assets/`.
 
-```text
-skillshub/
-├── src/           # React frontend
-├── src-tauri/     # Rust / Tauri backend
-├── docs/images/zh/ # Simplified Chinese README screenshots
-├── docs/images/en/ # English README screenshots
-├── scripts/       # Packaging helpers
-├── CHANGELOG.md
-└── CHANGELOG.zh.md
-```
+Built with **Tauri 2 · Rust · SQLite · React · TypeScript**. The interface supports English, Simplified Chinese, light/dark themes and configurable accent colors.
 
-Local packaging commands:
+## Contributing and license
 
-```bash
-pnpm package:release:windows
-pnpm package:release:macos
-pnpm package:release:linux
-```
+Issues and focused improvements are welcome. Include your version, operating system and reproduction steps, and use screenshots without private information.
 
-The scripts directory contains only these three standalone packaging entry points, including config preparation and portable archive creation. To clean build artifacts, use `-Clean` on Windows or `--clean` on macOS/Linux. Cleanup previews by default; add `-Run` / `--run` to execute and `-All` / `--all` to include release builds and node_modules.
-
----
-
-## Tech Stack
-
-- React 18, TypeScript, React Router, Zustand
-- Tailwind CSS 4 and shadcn/ui style primitives
-- Tauri v2, Rust, SQLite, SQLx
-- GitHub API, WebDAV, optional AI note providers
-
----
-
-## Data And Privacy
-
-- Local-first; no telemetry.
-- Network requests are limited to skill import/update, GitHub requests, WebDAV, update checks, and optional AI notes.
-- Full backups include Skill Repository, Skill Bundles, platform/project install state, and ordinary settings.
-- Backups do not include Shared Hub links or API keys, tokens, and passwords.
-- Credentials are stored on disk unencrypted at rest.
-
----
-
-## Contributing
-
-Bug reports and focused pull requests are welcome. Do not include private paths, real tokens, proprietary skills, or sensitive screenshots in public issues or logs.
-
----
-
-## License
+SkillsHub is an independent, unofficial project and is not affiliated with or endorsed by the vendors of supported tools.
 
 [Apache License 2.0](LICENSE)

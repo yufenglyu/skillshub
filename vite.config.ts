@@ -8,7 +8,15 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [tailwindcss(), react()],
+  plugins: [tailwindcss(), react(), {
+    name: "reject-screenshot-demo-in-release",
+    apply: "build",
+    moduleParsed(info) {
+      if (/(?:readme|screenshot)-demo\.[cm]?[jt]sx?(?:\?|$)/i.test(info.id)) {
+        this.error("Screenshot demo modules must never be included in a production build.");
+      }
+    },
+  }],
 
   resolve: {
     alias: {

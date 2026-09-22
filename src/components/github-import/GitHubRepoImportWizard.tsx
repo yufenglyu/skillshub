@@ -1,11 +1,10 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
   ExternalLink,
   FileQuestion,
-  GitBranch,
   Loader2,
   PartyPopper,
   RefreshCw,
@@ -328,10 +327,6 @@ export function GitHubRepoImportWizard({
     }
     return importProgress.phase === "finalizing" ? 100 : 0;
   }, [importProgress]);
-  const importSourceLabel =
-    importSource === "skillsSh"
-      ? t("githubImport.skillsShSourceLabel")
-      : t("githubImport.githubSourceLabel");
   const importTitle =
     importSource === "skillsSh"
       ? t("githubImport.skillsShImportTitle")
@@ -717,15 +712,12 @@ export function GitHubRepoImportWizard({
   function renderPreviewToolbar(currentPreview: GitHubRepoPreview) {
     return (
       <div
-        className="mt-2 rounded-xl border border-border/60 bg-muted/10 px-4 py-2.5"
+        className="mt-3 text-sm"
         data-testid="github-import-repo-toolbar"
       >
         <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
           <div className="min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-                {t("githubImport.githubImportToolbarLabel")}
-              </span>
               <span className="truncate text-sm font-semibold">
                 {currentPreview.repo.owner}/{currentPreview.repo.repo}
               </span>
@@ -746,9 +738,7 @@ export function GitHubRepoImportWizard({
                   count: selectedSkills.length,
                 })}
               </span>
-              <span className="truncate text-muted-foreground/90">
-                {currentPreview.repo.normalizedUrl}
-              </span>
+
             </div>
           </div>
 
@@ -1022,82 +1012,10 @@ export function GitHubRepoImportWizard({
           className="shrink-0 border-b border-border/70 px-6 pb-2.5 pt-4"
           data-testid="github-import-compact-header"
         >
-          <DialogHeader>
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 pr-10">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
-                <DialogTitle className="flex items-center gap-2 text-[1.05rem]">
-                  <GitBranch className="size-5" />
-                  <span>{importTitle}</span>
-                </DialogTitle>
-                <DialogDescription className="text-xs leading-5 text-muted-foreground">
-                  {importDescription}
-                </DialogDescription>
-              </div>
-              <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
-                <span className="rounded-full border border-border/70 bg-muted/20 px-2.5 py-1 font-medium">
-                  {t("githubImport.githubImportHeaderLauncher", {
-                    launcher: launcherLabel,
-                  })}
-                </span>
-                <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 font-medium text-primary">
-                  {importSourceLabel}
-                </span>
-              </div>
-            </div>
+          <DialogHeader className="pr-8">
+            <DialogTitle>{importTitle}</DialogTitle>
+            <DialogDescription className="sr-only">{importDescription}</DialogDescription>
           </DialogHeader>
-
-          <div
-            className="mt-2 flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] text-muted-foreground"
-            data-testid="github-import-flat-stepper"
-          >
-            {(["input", "preview", "confirm", "result"] as WizardStep[]).map(
-              (item, index) => {
-                const isActive =
-                  step === item || (item === "preview" && step === "confirm");
-                const isComplete =
-                  (
-                    ["input", "preview", "confirm", "result"] as WizardStep[]
-                  ).indexOf(step) > index;
-
-                return (
-                  <Fragment key={item}>
-                    <div
-                      className={cn(
-                        "flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 shadow-sm",
-                        isActive
-                          ? "border-primary/40 bg-primary/10 text-primary"
-                          : isComplete
-                            ? "border-primary/20 bg-primary/5 text-primary/80"
-                            : "border-border/70 bg-muted/20 text-muted-foreground",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex size-4 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold",
-                          isActive || isComplete
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-background text-muted-foreground",
-                        )}
-                      >
-                        {index + 1}
-                      </span>
-                      <span className="font-medium">
-                        {t(`githubImport.githubImportStep.${item}`)}
-                      </span>
-                    </div>
-                    {index < 3 ? (
-                      <div
-                        className={cn(
-                          "h-px min-w-4 flex-1",
-                          isComplete ? "bg-primary/40" : "bg-border/80",
-                        )}
-                      />
-                    ) : null}
-                  </Fragment>
-                );
-              },
-            )}
-          </div>
 
           {showRepoToolbar && preview
             ? renderPreviewToolbar(preview)

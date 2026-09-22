@@ -1,3 +1,4 @@
+vi.mock("@/stores/platformIconStore", () => ({usePlatformIconStore:{getState:()=>({load:vi.fn().mockResolvedValue(undefined)})}}));
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentWithStatus, ScanDirectory, ScanResult } from "../types";
 

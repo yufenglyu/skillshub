@@ -1,246 +1,131 @@
 <div align="center">
 
-[简体中文](README_CN.md) | [English](README.md)
+[简体中文](README_CN.md) · [English](README.md)
 
 # SkillsHub
 
-### 本地优先的 AI Agent Skills 管理桌面应用
+### 一份技能库，连接你的 AI 工具与项目
 
-收集、更新、分组和安装 `SKILL.md` 技能，让多个编程工具和项目目录共用同一套技能管理流程。
+集中导入、整理和更新 `SKILL.md` 技能，按需分发给 Claude Code、Codex CLI、Cursor 等工具。
 
-![Release](https://img.shields.io/github/v/release/yufenglyu/skillshub?style=for-the-badge&label=RELEASE&color=5865f2)
-![Downloads](https://img.shields.io/github/downloads/yufenglyu/skillshub/total?style=for-the-badge&label=DOWNLOADS&color=56b6c2)
-![License](https://img.shields.io/github/license/yufenglyu/skillshub?style=for-the-badge&label=LICENSE&color=57c778)
-![Tauri](https://img.shields.io/badge/TAURI-2-24c8db?style=for-the-badge)
-![Windows](https://img.shields.io/badge/WINDOWS-10%20%7C%2011-3b82f6?style=for-the-badge)
+[![Release](https://img.shields.io/github/v/release/yufenglyu/skillshub)](https://github.com/yufenglyu/skillshub/releases)
+[![License](https://img.shields.io/github/license/yufenglyu/skillshub)](LICENSE)
+![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8db)
+![Local first](https://img.shields.io/badge/Local--first-SKILL.md-5865f2)
 
-[下载最新版](https://github.com/yufenglyu/skillshub/releases) · [查看功能](#核心能力) · [本地开发](#本地开发) · [更新日志](CHANGELOG.zh.md) · [反馈问题](https://github.com/yufenglyu/skillshub/issues)
-
-**当前文档：简体中文｜应用界面：简体中文 · English**
+[下载安装](https://github.com/yufenglyu/skillshub/releases) · [快速开始](#快速开始) · [更新日志](CHANGELOG.zh.md) · [反馈问题](https://github.com/yufenglyu/skillshub/issues)
 
 </div>
 
-> **免责声明**<br>
-> SkillsHub 是独立的非官方应用，与 Anthropic、OpenAI、GitHub、skills.sh、MiniMax 或其他受支持平台、发布方、商标所有者均无隶属、背书或赞助关系。
+![SkillsHub 技能仓库：目录浏览、标签与备注](docs/images/zh/library.jpg)
 
----
+*截图来自当前 v1.0.0 代码的界面，使用虚构仓库、技能和路径演示；不代表预装内容。*
 
-## SkillsHub 是什么？
+## 为什么使用 SkillsHub
 
-如果你同时使用 Claude Code、Codex CLI、Cursor、Gemini CLI、GitHub Copilot、Warp、Windsurf、OpenClaw 等工具，SkillsHub 可以作为统一的技能管理入口。
+常用技能散落在不同工具的目录里，换一个项目就要重新复制；收藏的仓库越来越多，却很难记住技能的用途、安装位置和更新情况。SkillsHub 把这些工作集中到一个桌面应用中。
 
-它把三个核心概念分开：
+| 你要做的事 | SkillsHub 提供的方式 |
+| --- | --- |
+| 让多个 AI 工具使用同一套技能 | 仓库集中保存，按平台或项目安装；常用技能可加入共享中心。 |
+| 跟进上游变化，又保留选择权 | 更新技能按仓库汇总新增、修改和远程删除，先看文件变更，再应用所选项。 |
+| 从大量技能中找到合适的工具 | 标签交集筛选，按名称、描述、备注搜索；拖拽即可批量增删标签。 |
+| 为不同工作准备技能组合 | 将技能组织成开发、研究、写作等合集，批量安装到目标。 |
+| 理解技能并留下自己的判断 | 阅读文档，手写备注，或让 AI 生成备注与标签建议，修改后再保存。 |
+| 在设备间保留自己的技能资产 | 本地文件存储、ZIP 备份、WebDAV 仓库同步与便携模式。 |
 
-- **技能仓库**：保存导入或本地添加的技能。
-- **技能合集**：把仓库技能组织成可重复安装的分组。
-- **共享中心**：把选中的仓库技能暴露到 `~/.agents/skills`。
+## 一次收集，多处使用
+
+**技能仓库是主存储，安装目标按需选择。** 从 GitHub 或本地文件夹导入后，可以直接安装到软件平台、指定项目，也可以把常用技能加入共享中心。
 
 ```text
-技能仓库 ──安装──► 软件平台 / 项目目录
-      │
-      └──加入共享中心──► ~/.agents/skills
+GitHub / 本地文件夹
+        ↓
+     技能仓库 ── 技能合集：按工作场景组合
+        ├── 软件平台：工具自己的技能目录
+        ├── 项目目录：<项目>/.agents/skills
+        └── 共享中心：~/.agents/skills
 ```
 
----
+- **共享中心**通过符号链接引用仓库技能，移出时只删除链接，保留仓库原文件。工具能否使用共享目录取决于其自身支持与配置。
+- **软件平台**支持自定义名称和技能路径，可从侧栏右键添加、编辑、停用或删除；未检测到目录时自动取消启用，停用项从侧栏隐藏。
+- **项目目录**为不同项目保留各自的技能选择，可从侧栏右键管理。
+- **安装关系可见**：在仓库查看安装统计，在平台和项目页区分共享中心与独立安装来源。平台安装优先使用链接，必要时回退复制。
 
-## 核心能力
+## 更新前，看清楚改了什么
 
-### 导入和维护技能
+更新技能把来源检查和更新操作放在一起：按仓库折叠浏览，按状态筛选，展开查看文件增删改。
 
-- 填写 GitHub `owner/repo` 或仓库 URL 导入仓库；SkillsHub 会读取 GitHub 仓库快照，识别其中的 `SKILL.md` 技能并复制到技能仓库。
-- 添加本机已有的单个技能文件夹或技能包。
-- 对有来源标记的技能检查更新，支持单个技能更新、目录视图按文件夹更新，以及按状态筛选更新统计。
+![更新技能：按技能选择，审阅文件变更](docs/images/zh/updates.jpg)
 
-### 安装到多个目标
+- 按技能或整组选择，只应用需要的更新；远程删除默认不选中。
+- 忽略针对当前检测版本，上游再次变化后重新提示。
+- 底部“重查所选”仅检查勾选项所属仓库；“重试失败项”重查选中的失败仓库，未勾选时重查当前显示的失败仓库。
+- 新旧技能替换在“远程删除”中选择对应项，使用“删除并重新导入”；无法确定对应关系时需手动配对。
+- 弹窗可调整大小，切换筛选不会改变高度。
+- 导入、检查更新、应用更新和 AI 生成进入后台任务队列，可查看进度、结果并重试失败任务。
+- 切换页面或关闭弹窗不打断后台任务。任务仅在应用运行时执行，重启后中断任务可手动重试。
 
-- 将仓库技能直接安装到已启用的软件平台或命名项目目录。
-- 加入共享中心时创建指向仓库的符号链接；移出共享中心时只删除链接，不删除仓库原文件。
-- 技能仓库、共享中心、软件平台、项目目录和合集共用一致的平铺 / 目录视图。
+## 整理成自己的技能工具箱
 
-- 安装统计按共享中心成员状态分类：已加入共享中心的技能显示同时已检测到且已启用的软件平台数、项目目录数，不依赖目录路径或兼容性；未加入的技能显示手动独立安装到的平台数、项目数。软件平台和项目目录的安装来源只显示来源名称，混合目录显示“共享中心、独立安装”，不显示数量。
-- 搜索框与表格内容右边缘对齐；列宽调整不产生横向滚动条，表头可左右拖动改变列顺序。
+**标签适合查找，合集适合复用。** 给技能添加用途标签，将经常一起使用的技能放进合集，新项目即可批量安装。
 
-### 组织和自动化
+![技能合集：将常用技能组合起来](docs/images/zh/collections.jpg)
 
-- 创建技能合集，并批量安装到多个目标。
-- 在设置页配置命令面板、侧边栏展开 / 收起、平铺 / 目录视图切换和页面跳转快捷键。
-- 在侧栏项目目录标题行右键新增，项目行右键编辑或删除；在设置页管理平台定义、路径、GitHub PAT、AI 解释、检查更新、本地 ZIP 备份和 WebDAV 备份。
-- 更新检查在切换页面后继续后台运行，完成后先显示更新预览。应用更新前会暂存并校验全部技能文件；文件替换或数据库写入失败时恢复原文件。
-- WebDAV 仅同步技能仓库文件和技能合集；恢复使用本机仓库路径，保留本机配置和安装目标。关闭更新预览或重启软件后，可从状态栏再次打开；未应用的内容及勾选项保留至下一次成功检查更新；应用后隐藏状态栏入口。
+- 单击标签筛选，再次单击取消；`Ctrl / Cmd` 多选标签，取交集。
+- 多选技能拖到标签上即可添加关联；按住 `Shift` 拖拽仅移除目标标签，不影响其他标签。
+- 搜索框内的筛选按钮可选择仓库名称、技能名称、描述和备注范围；目录也可以记录备注。
+- 右侧预览支持概览、文档和安装信息；表格支持列显隐、排序、拖动列顺序和调整列宽。
+- 技能备注和标签使用 **AI / 保存 / 清空**：AI 每次生成可编辑建议，保存后才写入。AI 服务与提示词可自行配置。
 
----
+## 快速开始
 
-## v0.92.0 使用要点
+1. 从 [Releases](https://github.com/yufenglyu/skillshub/releases) 下载适合系统的安装包或便携包，启动 SkillsHub。
+2. 在设置中检查软件平台的目录，或在侧栏添加自己的平台和项目。
+3. 在技能仓库点击 **添加技能**，填写 GitHub `owner/repo`、仓库 URL，或选择本地技能文件夹。
+4. 阅读技能内容，按需添加标签、备注或加入合集，再安装到所需平台、项目或共享中心。
+5. 后续通过 **更新技能**审阅来源变化，通过 **后台任务**查看执行状态。
 
-- 表格右键提供安装、更新、卸载、删除等操作。Ctrl 点击增减选中项，Shift 点击连续选择；批量操作统一确认，目录与子技能重复选择会去重。
-- 表头可拖动调整顺序，列边界可调整宽度；聚焦列表后用 `+` / `-` 展开或折叠。合集也使用表格，每行对应一个合集。
-- 右侧概览中的基本信息、技能清单可折叠。选择技能后显示文档页；文件树与预览默认各占一半高度，可拖动分隔线调整，展开阅读按钮打开半屏全高阅读视图，关闭后恢复。
-- 安装统计中的共享目标须同时已检测到且已启用；安装页中的名称可点击跳转。共享技能的卸载在共享中心处理。
-- 侧栏项目目录标题行右键新增，项目行右键编辑或删除。设置页只管理软件平台，关闭设置恢复原页面。
-- 更新预览只显示有变化或检查出错的仓库；每项可应用更新或重新检查，应用只处理有变化项。关闭预览后更新继续运行，可从状态栏查看。
-- AI 服务分为连接配置和提示词；生成备注、标签后可编辑并保存。标签只在编辑栏显示，侧栏标签不带 `#`。
+工具栏采用纯图标：包裹加号添加技能，向下下载箭头更新技能，循环箭头刷新列表；悬停可查看名称。GitHub 导入只对实际目标目录提示覆盖，不同仓库的同 ID 技能独立保存。
 
-## 核心概念
+![添加技能：GitHub 和本地文件夹两个入口](docs/images/zh/import.jpg)
 
-| 概念 | 用途 | 默认位置 |
-|------|------|----------|
-| **技能仓库** | 导入和本地添加技能的主存储 | `~/.skillshub/library` |
-| **技能合集** | 可复用的仓库技能分组 | 应用数据库 |
-| **共享中心** | 由仓库符号链接支撑的共享兼容目录 | `~/.agents/skills` |
-| **软件平台** | 各工具自己的技能目录 | 按平台配置 |
-| **项目目录** | 命名的项目级安装目标 | `<项目>/.agents/skills` |
-| **配置目录** | 数据库、仓库、平台清单和设置 | `~/.skillshub` 或便携版 `.skillshub` |
+## 数据与备份
 
-配置与业务数据分开保存：`config.json` 统一存储通用设置、AI/GitHub/WebDAV 配置、项目目录和软件平台定义（`platforms` 字段），平台图标保留在 `platform/icons/`，不再使用 `platform/platform.json`；`db.sqlite` 保存技能、合集、安装记录、扫描结果等业务数据。新格式不导入旧数据库中的设置和项目目录配置。
+技能保存在本机，默认仓库为 `~/.skillshub/library`。便携模式将 `.skillshub` 放在可执行文件同级，便于一起携带。
 
-如果某个平台的 skills 路径解析为 `~/.agents/skills`，向该平台安装等价于加入共享中心；其他平台使用自己的独立目录。
+| 方式 | 用途 |
+| --- | --- |
+| 本地 ZIP 备份 | 按设置中的备份范围导出和恢复数据。 |
+| WebDAV 仓库同步 | 传输技能仓库与合集，恢复时沿用本机路径，保留本机设置和安装目标。 |
+| 合集导入 / 导出 | 复用技能组合。 |
 
----
+GitHub 导入与更新、WebDAV 和可选 AI 功能会连接对应服务。使用 AI 生成时，相关技能内容会发送给配置的 AI 服务。配置目录应作为本地私有数据保管；备份会排除 API Key、Token 和密码。
 
-## 界面截图
+## 下载与开发
 
-以下截图来自 v0.92.0 界面，使用演示技能和虚构路径。
+发布包以 [Releases 页面](https://github.com/yufenglyu/skillshub/releases) 中实际提供的文件为准。仓库包含 Windows、macOS 和 Linux 打包脚本；Windows 提供 MSI 和便携 ZIP。
 
-### 技能仓库
-
-![技能仓库](docs/images/zh/01.png)
-
-### 共享中心
-
-![共享中心](docs/images/zh/02.png)
-
-### 技能合集
-
-![技能合集](docs/images/zh/03.png)
-
-### 设置
-
-![设置](docs/images/zh/04.png)
-
-### 软件平台与项目目录
-
-![软件平台与项目目录](docs/images/zh/05.png)
-
-### 更新预览
-
-检查完成后先审阅变更，再决定是否应用；关闭后可从状态栏恢复。
-
-![更新预览](docs/images/zh/06.png)
-
-### WebDAV 仓库同步
-
-仅同步技能仓库与技能合集，安装位置和应用配置由本机管理。
-
-![WebDAV 仓库同步](docs/images/zh/07.png)
-
-### 项目目录的安装来源
-
-目录中同时存在独立安装和共享中心技能时，显示两种来源。
-
-![项目目录的安装来源](docs/images/zh/08.png)
-
-### AI 备注与标签
-
-![AI 备注与标签](docs/images/zh/09.png)
-
-### 可配置的 AI 提示词
-
-![可配置的 AI 提示词](docs/images/zh/10.png)
-
-### 简化的技能导入
-
-![简化的技能导入](docs/images/zh/11.png)
-
-### 导入统计与技能明细
-
-![导入统计与技能明细](docs/images/zh/12.png)
-
----
-
-## 下载与安装
-
-从 [GitHub Releases](https://github.com/yufenglyu/skillshub/releases) 下载安装包或便携包。
-
-| 系统 | 常见产物 |
-|------|----------|
-| Windows | MSI、`skillshub_*_windows_x64.zip` |
-| macOS | DMG、`skillshub_*_macos_universal.zip`、`.tar.gz` |
-| Linux | deb、rpm、`skillshub-v*_Linux-*.tar.gz` |
-
-安装器或首次启动会创建 `.skillshub`，其中包含平台定义、空技能仓库和 SQLite。便携包会把 `.skillshub` 放在可执行文件同级。
-
----
-
-## 本地开发
-
-### 环境要求
-
-- Node.js LTS
-- pnpm
-- Rust stable
-- Tauri v2 系统依赖：<https://v2.tauri.app/start/prerequisites/>
-
-### 常用命令
+开发环境需要 Node.js、pnpm、Rust 与 Tauri v2 对应系统依赖。
 
 ```bash
 pnpm install
-pnpm tauri dev
+pnpm tauri dev       # 完整桌面应用
+pnpm dev             # 浏览器前端预览
+pnpm build           # 类型检查与前端构建
 pnpm test
-pnpm typecheck
 pnpm lint
 cd src-tauri && cargo test
 ```
 
-### 项目结构
+打包入口：`pnpm package:release:windows`、`pnpm package:release:macos`、`pnpm package:release:linux`。供分发的文件输出到 `release-assets/`。
 
-```text
-skillshub/
-├── src/           # React 前端
-├── src-tauri/     # Rust / Tauri 后端
-├── docs/images/zh/ # 中文 README 截图
-├── docs/images/en/ # 英文 README 截图
-├── scripts/       # 打包脚本
-├── CHANGELOG.md
-└── CHANGELOG.zh.md
-```
+技术栈：**Tauri 2 · Rust · SQLite · React · TypeScript**。界面支持简体中文、English、明暗主题与强调色配置。
 
-本地打包命令：
+## 参与与许可
 
-```bash
-pnpm package:release:windows
-pnpm package:release:macos
-pnpm package:release:linux
-```
+欢迎提交问题和改进建议。报告问题时请附上版本、系统和复现步骤，并使用不含私人信息的截图。
 
-scripts 目录仅保留上述三个独立打包入口，配置准备和便携包生成逻辑均已内置。清理构建产物可使用 Windows 的 `-Clean` 或 macOS/Linux 的 `--clean`，默认仅预览；追加 `-Run` / `--run` 才执行，追加 `-All` / `--all` 可包含 release 构建和 node_modules。
-
----
-
-## 技术栈
-
-- React 18、TypeScript、React Router、Zustand
-- Tailwind CSS 4 和 shadcn/ui 风格组件
-- Tauri v2、Rust、SQLite、SQLx
-- GitHub API、WebDAV、可选 AI 解释服务
-
----
-
-## 数据与隐私
-
-- 本地优先，不含遥测。
-- 网络请求仅用于技能导入 / 更新、GitHub 请求、WebDAV、检查更新和可选 AI 解释。
-- 完整备份包含技能仓库、技能合集、平台 / 项目安装关系和普通设置。
-- 备份不包含共享中心链接，也不包含 API Key、Token 和密码。
-- 凭证静态保存在本机磁盘上，未加密。
-
----
-
-## 参与贡献
-
-欢迎提交问题报告和聚焦的 Pull Request。请勿在公开 Issue、PR 或日志中包含私有路径、真实令牌、未公开技能或敏感截图。
-
----
-
-## 许可
+SkillsHub 是独立的非官方项目，与所支持工具的厂商无隶属或背书关系。
 
 [Apache License 2.0](LICENSE)

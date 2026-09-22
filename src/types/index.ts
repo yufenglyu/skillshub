@@ -419,6 +419,9 @@ export interface SkillSourceUpdateReport {
 }
 
 export interface RepositorySyncPreviewItem {
+  sourcePath?: string | null;
+  version?: string;
+  files?: {path:string;status:"added"|"modified"|"deleted"}[];
   skillId: string;
   name: string;
 }

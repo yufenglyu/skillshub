@@ -1,3 +1,5 @@
+import { browserStats } from "@/lib/browserStats";
+import { useBrowserStatusStore } from "@/stores/browserStatusStore";
 import { shouldIgnoreShortcutTarget } from "@/lib/shortcutKeys";
 import { BatchSkillActionDialog, type BatchAction, type BatchEntry, type BatchOperations } from "./BatchSkillActionDialog";
 import { createPortal } from "react-dom";
@@ -71,6 +73,7 @@ export interface FolderTableItem {
   onEdit?: () => void;
   onAddSkills?: () => void;
   metadata?: ReactNode;
+  notesEditor?: ReactNode;
   skillListLoading?: boolean;
   skillKeys?: string[];
   children?: SkillTableItem[];
@@ -142,6 +145,8 @@ export interface SkillTableItem extends UnifiedSkillCardProps {
 }
 
 export interface SkillBrowserTableProps {
+  statusPath?: string;
+  statusCollections?: boolean;
   compactList?: boolean;
   tree?: boolean;
   showInstallationSource?: boolean;
@@ -683,6 +688,8 @@ function sortHeaderLabel(
 }
 
 export function SkillBrowserTable({
+  statusPath,
+  statusCollections = false,
   tree = false,
   compactList = false,
   kind,
@@ -724,6 +731,10 @@ export function SkillBrowserTable({
     if (scrollTargetKey) rowNodes.current.get(scrollTargetKey)?.scrollIntoView?.({block:"center"});
   }, [scrollTargetKey]);
   const effectiveSelection = new Set([...selectedRows].filter(key=>visibleKeys.includes(key)));
+  const statusPayload = statusPath === undefined ? null : JSON.stringify({path:statusPath,collections:statusCollections,...browserStats(visibleRows,effectiveSelection)});
+  useEffect(() => {
+    if (statusPayload) useBrowserStatusStore.getState().setStats(JSON.parse(statusPayload));
+  }, [statusPayload]);
   function preventModifiedTextSelection(event: ReactMouseEvent) {
     if (event.button === 0 && (event.shiftKey || event.ctrlKey || event.metaKey)
       && !(event.target as HTMLElement).closest("input,textarea,[contenteditable=true]")) {
@@ -986,7 +997,17 @@ export function SkillBrowserTable({
   }
 
   const renderSkillRow = (skill: SkillTableItem, skillIndex: number, nested = false, parentIndex = 0, lastChild = false) => (
-                  <tr onMouseDownCapture={preventModifiedTextSelection} aria-selected={effectiveSelection.has(`skill:${skill.rowKey ?? skill.name}`)} onClickCapture={event=>selectRow(event,`skill:${skill.rowKey ?? skill.name}`)} tabIndex={0} onContextMenu={event => openRowMenu(event, "skill", skill.rowKey ?? skill.name)} onKeyDown={event => { if(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); if(!effectiveSelection.has(`skill:${skill.rowKey ?? skill.name}`))setSelectedRows(new Set([`skill:${skill.rowKey ?? skill.name}`])); menuReturnFocus.current = event.currentTarget; const rect=event.currentTarget.getBoundingClientRect(); setRowMenu({kind:"skill",key:skill.rowKey ?? skill.name,x:rect.left+40,y:rect.top+20}); } }} onClick={(event) => { if (tree && !(event.target as HTMLElement).closest("button,input,a")) skill.onDetail?.(event as unknown as ReactMouseEvent<HTMLButtonElement>); }} key={skill.rowKey ?? skill.name} ref={node => { const key = `skill:${skill.rowKey ?? skill.name}`; if (node) rowNodes.current.set(key, node); else rowNodes.current.delete(key); }} className={cn("align-middle select-none", !selectionClass(`skill:${skill.rowKey ?? skill.name}`,skill.highlighted) && "hover:bg-muted/25", selectionClass(`skill:${skill.rowKey ?? skill.name}`,skill.highlighted) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}>
+                  <tr draggable onDragStart={event => {
+                    const key = `skill:${skill.rowKey ?? skill.name}`;
+                    const rows = effectiveSelection.has(key) ? visibleRows.filter(row => effectiveSelection.has(row.key)) : [{skill}];
+                    const ids = rows.flatMap(row => row.skill && !row.skill.isReadOnly ? [row.skill.detailRequest?.skillId ?? row.skill.rowKey ?? row.skill.name] : []);
+                    if (!ids.length) {event.preventDefault();return;}
+                    // Dragging does not dispatch the click that normally transfers title focus to the row.
+                    event.currentTarget.focus({preventScroll:true});
+                    window.getSelection()?.removeAllRanges();
+                    event.dataTransfer.setData("application/skillshub-skills",JSON.stringify(ids));
+                    event.dataTransfer.effectAllowed="copyMove";
+                  }} onMouseDownCapture={preventModifiedTextSelection} aria-selected={effectiveSelection.has(`skill:${skill.rowKey ?? skill.name}`)} onClickCapture={event=>selectRow(event,`skill:${skill.rowKey ?? skill.name}`)} tabIndex={0} onContextMenu={event => openRowMenu(event, "skill", skill.rowKey ?? skill.name)} onKeyDown={event => { if(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); if(!effectiveSelection.has(`skill:${skill.rowKey ?? skill.name}`))setSelectedRows(new Set([`skill:${skill.rowKey ?? skill.name}`])); menuReturnFocus.current = event.currentTarget; const rect=event.currentTarget.getBoundingClientRect(); setRowMenu({kind:"skill",key:skill.rowKey ?? skill.name,x:rect.left+40,y:rect.top+20}); } }} onClick={(event) => { if (tree && !(event.target as HTMLElement).closest("button,input,a")) skill.onDetail?.(event as unknown as ReactMouseEvent<HTMLButtonElement>); }} key={skill.rowKey ?? skill.name} ref={node => { const key = `skill:${skill.rowKey ?? skill.name}`; if (node) rowNodes.current.set(key, node); else rowNodes.current.delete(key); }} className={cn("align-middle select-none", !selectionClass(`skill:${skill.rowKey ?? skill.name}`,skill.highlighted) && "hover:bg-muted/25", selectionClass(`skill:${skill.rowKey ?? skill.name}`,skill.highlighted) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}>
                     {activeColumns.map((column) => {
                       if (column === "index") {
                         return (
@@ -1139,7 +1160,7 @@ export function SkillBrowserTable({
               />
             ))}
           </colgroup>
-          <thead className="sticky top-[var(--skill-table-sticky-top)] z-20 bg-muted text-xs font-medium text-muted-foreground shadow-[0_2px_0_0_var(--border)]">
+          <thead className={cn("sticky top-[var(--skill-table-sticky-top)] z-20 bg-muted text-xs font-medium text-muted-foreground", compactList ? "shadow-[0_1px_0_0_var(--border)]" : "shadow-[0_2px_0_0_var(--border)]")}>
             <tr>
               {activeColumns.map((column) => (
                 <th

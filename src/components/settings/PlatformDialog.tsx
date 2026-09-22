@@ -1,3 +1,5 @@
+import { usePlatformIconStore } from "@/stores/platformIconStore";
+import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { useState, useEffect, useMemo } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -24,8 +26,8 @@ interface PlatformDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Pass a platform to edit it; null for create mode. */
   platform: AgentWithStatus | null;
-  onAdd?: (id: string | undefined, displayName: string, globalSkillsDir: string) => Promise<void>;
-  onEdit?: (id: string, displayName: string, globalSkillsDir: string) => Promise<void>;
+  onAdd?: (id: string | undefined, displayName: string, globalSkillsDir: string) => Promise<string | void>;
+  onEdit?: (id: string, displayName: string, globalSkillsDir: string) => Promise<string | void>;
 }
 
 // ─── PlatformDialog ───────────────────────────────────────────────────────────
@@ -52,6 +54,8 @@ export function PlatformDialog({
       .find((candidate): candidate is string => Boolean(candidate));
   }, [agents, platform]);
 
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [iconDraft, setIconDraft] = useState<string | null | undefined>(undefined);
   const [displayName, setDisplayName] = useState("");
   const [platformId, setPlatformId] = useState("");
   const [globalSkillsDir, setGlobalSkillsDir] = useState("");
@@ -66,6 +70,8 @@ export function PlatformDialog({
   // Reset form when dialog opens.
   useEffect(() => {
     if (open) {
+      setSavedId(null);
+      setIconDraft(undefined);
       setDisplayName(platform?.display_name ?? "");
       setPlatformId(platform?.id ?? "");
       setGlobalSkillsDir(platform ? formatPathForDisplay(platform.global_skills_dir) : "");
@@ -120,10 +126,17 @@ export function PlatformDialog({
     setError(null);
 
     try {
-      if (isEditMode && onEdit) {
-        await onEdit(trimmedId, trimmedName, trimmedDir);
-      } else if (!isEditMode && onAdd) {
-        await onAdd(trimmedId || undefined, trimmedName, trimmedDir);
+      let effectiveId = savedId;
+      if (!effectiveId) {
+        const returnedId = isEditMode && onEdit ? await onEdit(trimmedId, trimmedName, trimmedDir) : await onAdd?.(trimmedId || undefined, trimmedName, trimmedDir);
+        effectiveId = returnedId || trimmedId || null;
+        setSavedId(effectiveId);
+      }
+      if (iconDraft !== undefined) {
+        if (!effectiveId) throw new Error(t("platformDialog.iconSaveFailed"));
+        await usePlatformIconStore.getState().save(effectiveId, iconDraft);
+      } else if (platform && effectiveId !== platform.id) {
+        await usePlatformIconStore.getState().load();
       }
       onOpenChange(false);
     } catch (err) {
@@ -152,6 +165,25 @@ export function PlatformDialog({
               : t("platformDialog.addDesc")}
           </DialogDescription>
 
+          <div className="space-y-2">
+            <label htmlFor="platform-icon" className="text-sm font-medium">{t("platformDialog.iconLabel")}</label>
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-lg border bg-muted/30">
+                {iconDraft ? <img src={iconDraft} alt="" className="size-7 object-contain"/> : iconDraft === null ? <span>—</span> : <PlatformIcon agentId={platform?.id ?? platformId} brand size={28}/>}
+              </div>
+              <Input id="platform-icon" type="file" accept="image/png,image/svg+xml,image/webp" disabled={isSubmitting} onChange={event => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                if (file.size > 2 * 1024 * 1024) { setError(t("platformDialog.iconTooLarge")); return; }
+                const reader = new FileReader();
+                reader.onload = () => { setIconDraft(String(reader.result)); setError(null); };
+                reader.onerror = () => setError(t("platformDialog.iconSaveFailed"));
+                reader.readAsDataURL(file);
+              }}/>
+              <Button variant="outline" disabled={isSubmitting} onClick={() => setIconDraft(null)}>{t("platformDialog.resetIcon")}</Button>
+            </div>
+            <p className="text-xs text-muted-foreground">{t("platformDialog.iconHint")}</p>
+          </div>
           {/* Display name field */}
           <div className="space-y-1.5">
             <label htmlFor="platform-name" className="text-sm font-medium">
@@ -181,7 +213,7 @@ export function PlatformDialog({
                   );
                 }
               }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || savedId !== null}
               autoFocus
             />
             {nameError && (
@@ -205,7 +237,7 @@ export function PlatformDialog({
                 setIdManuallyEdited(true);
                 if (idError) setIdError(null);
               }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || savedId !== null}
             />
             {idError ? (
               <p className="text-xs text-destructive" role="alert">
@@ -232,7 +264,7 @@ export function PlatformDialog({
                 setDirManuallyEdited(true);
                 if (dirError) setDirError(null);
               }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || savedId !== null}
             />
             {dirError && (
               <p className="text-xs text-destructive" role="alert">

@@ -1,3 +1,4 @@
+import { PlatformMenu } from "./PlatformMenu";
 import { ProjectDirectoryMenu } from "./ProjectDirectoryMenu";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useExpansionShortcuts } from "@/hooks/useExpansionShortcuts";
@@ -12,8 +13,6 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   Loader2,
   Layers,
-  Eye,
-  EyeOff,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -35,7 +34,7 @@ import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import { useCentralSkillsStore } from "@/stores/centralSkillsStore";
 import { useThemeStore } from "@/stores/themeStore";
 import { cn } from "@/lib/utils";
-import { isEnabledInstallTargetAgent } from "@/lib/agents";
+import { isInstallTargetAgent } from "@/lib/agents";
 import { isProjectAgentId } from "@/lib/projectTargets";
 import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import { SharedHubIcon, SkillRepositoryIcon } from "@/components/skill/SkillActionIcons";
@@ -103,9 +102,9 @@ function NavItem({
                 aria-hidden="true"
               />
             )}
-            {count !== undefined && count > 0 && (
+            {count !== undefined && (
               <span className={cn(
-                "text-xs font-medium tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
+                "min-w-7 text-center text-xs font-medium tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
                 isActive
                   ? "bg-white/20 text-white"
                   : "bg-muted/60 text-muted-foreground"
@@ -129,8 +128,6 @@ function NavItem({
 // ─── Sidebar ────────────────────────────────────────────────────────────────
 
 export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {}) {
-  const SHOW_ALL_PLATFORMS_KEY = "skills-manage:show-all-platforms";
-  const SHOW_EMPTY_PROJECTS_KEY = "skills-manage:show-empty-project-directories";
   const SOFTWARE_COLLAPSED_KEY = "skills-manage:sidebar-software-platforms-collapsed";
   const PROJECTS_COLLAPSED_KEY = "skills-manage:sidebar-project-directories-collapsed";
   const navigate = useNavigate();
@@ -155,20 +152,6 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
 
   const expanded = useSidebarStore((s) => s.expanded);
   const setExpanded = useSidebarStore((s) => s.setExpanded);
-  const [showAllPlatforms, setShowAllPlatforms] = useState(() => {
-    try {
-      return window.localStorage.getItem(SHOW_ALL_PLATFORMS_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  const [showEmptyProjects, setShowEmptyProjects] = useState(() => {
-    try {
-      return window.localStorage.getItem(SHOW_EMPTY_PROJECTS_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
   const [softwareCollapsed, setSoftwareCollapsed] = usePersistentBoolean(
     SOFTWARE_COLLAPSED_KEY,
     false
@@ -206,30 +189,6 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
     };
   }, [expanded, sidebarWidth.width]);
 
-  function toggleShowAllPlatforms() {
-    setShowAllPlatforms((previous) => {
-      const next = !previous;
-      try {
-        window.localStorage.setItem(SHOW_ALL_PLATFORMS_KEY, String(next));
-      } catch {
-        // Ignore storage failures and keep the in-memory preference.
-      }
-      return next;
-    });
-  }
-
-  function toggleShowEmptyProjects() {
-    setShowEmptyProjects((previous) => {
-      const next = !previous;
-      try {
-        window.localStorage.setItem(SHOW_EMPTY_PROJECTS_KEY, String(next));
-      } catch {
-        // Ignore storage failures and keep the in-memory preference.
-      }
-      return next;
-    });
-  }
-
   function handleResizePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
     event.preventDefault();
     dragState.current = {
@@ -255,15 +214,13 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
 
   const platformAgents = agents.filter(
     (a) =>
-      isEnabledInstallTargetAgent(a) &&
+      isInstallTargetAgent(a) &&
       !isProjectAgentId(a.id) &&
-      a.is_detected &&
-      (showAllPlatforms || (skillsByAgent[a.id] ?? 0) > 0)
+      a.is_enabled
   );
   const projectAgents = agents.filter(
     (a) =>
-      isProjectAgentId(a.id) &&
-      (showEmptyProjects || (skillsByAgent[a.id] ?? 0) > 0)
+      isProjectAgentId(a.id) && a.is_enabled
   );
 
   const isCollectionActive = pathname === "/collections";
@@ -392,7 +349,7 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
               {centralSkillsCount > 0 && (
                 <span
                   className={cn(
-                    "text-xs font-medium tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
+                    "min-w-7 text-center text-xs font-medium tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
                     pathname === "/central"
                       ? "bg-white/20 text-white"
                       : "bg-muted/60 text-muted-foreground"
@@ -416,7 +373,7 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
 
         {/* Software platforms */}
         {expanded ? (
-          <div
+          <PlatformMenu onAdded={()=>{setSoftwareCollapsed(false);}}><div
             onKeyDown={softwareExpansionKeys}
             data-testid="software-platform-heading"
             className="flex items-center justify-between gap-1 rounded-lg border border-sidebar-border/60 bg-background/35 px-1 py-1"
@@ -433,19 +390,9 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
               />
               <span className="truncate text-left text-sm font-medium">
                 {t("sidebar.softwarePlatforms")}
-              </span>
+              </span><span className="ml-auto min-w-7 text-center text-xs tabular-nums">{platformAgents.length}</span>
             </button>
-            {!isLoading && (
-              <button
-                onClick={toggleShowAllPlatforms}
-                title={showAllPlatforms ? t("sidebar.hideEmptyPlatforms") : t("sidebar.showAllPlatforms")}
-                aria-label={showAllPlatforms ? t("sidebar.hideEmptyPlatforms") : t("sidebar.showAllPlatforms")}
-                className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-              >
-                {showAllPlatforms ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-              </button>
-            )}
-          </div>
+          </div></PlatformMenu>
         ) : (
           <div className="border-t border-sidebar-border/40 my-1.5" />
         )}
@@ -463,14 +410,13 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
             {!softwareCollapsed && platformAgents.length > 0 && (
               <div onKeyDown={softwareExpansionKeys} className={expanded ? "ml-3 border-l border-sidebar-border/70 pl-2" : ""}>
                 {platformAgents.map((agent) => (
-                  <NavItem
-                    key={agent.id}
+                  <PlatformMenu key={agent.id} platform={agent}><NavItem
                     label={agent.display_name}
                     isActive={pathname === `/platform/${encodeURIComponent(agent.id)}`}
                     onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
-                    icon={<PlatformIcon agentId={agent.id} brand={!expanded} displayName={agent.display_name} className={expanded ? "size-4" : "size-5"} size={expanded ? 16 : 20} />}
+                    icon={<PlatformIcon agentId={agent.id} brand displayName={agent.display_name} className={expanded ? "size-4" : "size-5"} size={expanded ? 16 : 20} />}
                     expanded={expanded}
-                    count={skillsByAgent[agent.id]}
+                    count={skillsByAgent[agent.id] ?? 0}
                     status={{
                       label: agent.shares_central_skills
                         ? t("sidebar.sharedDir")
@@ -480,13 +426,13 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
                         : t("sidebar.independentDirHint"),
                       shared: !!agent.shares_central_skills,
                     }}
-                  />
+                  /></PlatformMenu>
                 ))}
               </div>
             )}
 
             {expanded ? (
-              <ProjectDirectoryMenu onAdded={() => { setShowEmptyProjects(true); setProjectsCollapsed(false); }}><div
+              <ProjectDirectoryMenu onAdded={() => { setProjectsCollapsed(false); }}><div
                 onKeyDown={projectExpansionKeys}
                 data-testid="project-directories-heading"
                 className="flex items-center justify-between gap-1 rounded-lg border border-sidebar-border/60 bg-background/35 px-1 py-1"
@@ -500,30 +446,8 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
                   <FolderTree className="size-4 shrink-0" />
                   <span className="truncate text-left text-sm font-medium">
                     {t("sidebar.projectDirectories")}
-                  </span>
+                  </span><span className="ml-auto min-w-7 text-center text-xs tabular-nums">{projectAgents.length}</span>
                 </button>
-                {!isLoading && (
-                  <button
-                    onClick={toggleShowEmptyProjects}
-                    title={
-                      showEmptyProjects
-                        ? t("sidebar.hideEmptyProjectDirectories")
-                        : t("sidebar.showEmptyProjectDirectories")
-                    }
-                    aria-label={
-                      showEmptyProjects
-                        ? t("sidebar.hideEmptyProjectDirectories")
-                        : t("sidebar.showEmptyProjectDirectories")
-                    }
-                    className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                  >
-                    {showEmptyProjects ? (
-                      <EyeOff className="size-4" />
-                    ) : (
-                      <Eye className="size-4" />
-                    )}
-                  </button>
-                )}
               </div></ProjectDirectoryMenu>
             ) : (
               <div className="border-t border-sidebar-border/40 my-1.5" />
@@ -538,7 +462,7 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
                     onClick={() => navigate(`/platform/${encodeURIComponent(agent.id)}`)}
                     icon={<FolderOpen className="size-4" />}
                     expanded={expanded}
-                    count={skillsByAgent[agent.id]}
+                    count={skillsByAgent[agent.id] ?? 0}
                   /></ProjectDirectoryMenu>
                 ))}
               </div>

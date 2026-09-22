@@ -91,6 +91,15 @@ fn agent_to_with_status(agent: Agent, central_root: Option<&str>) -> AgentWithSt
     }
 }
 
+async fn refresh_agent_status(pool: &DbPool, agent: Agent, central_root: Option<&str>) -> Result<AgentWithStatus, String> {
+    let mut status = agent_to_with_status(agent, central_root);
+    if !status.is_detected && status.is_enabled && status.id != "central" && !status.id.starts_with("project:") {
+        db::set_agent_enabled(pool, &status.id, false).await?;
+        status.is_enabled = false;
+    }
+    Ok(status)
+}
+
 // ─── Core Logic ───────────────────────────────────────────────────────────────
 
 /// Return all agents from the DB with live detection status.
@@ -100,10 +109,11 @@ pub async fn get_agents_impl(pool: &DbPool) -> Result<Vec<AgentWithStatus>, Stri
         .iter()
         .find(|agent| agent.id == "central")
         .map(|agent| agent.global_skills_dir.clone());
-    Ok(agents
-        .into_iter()
-        .map(|agent| agent_to_with_status(agent, central_root.as_deref()))
-        .collect())
+    let mut result = Vec::with_capacity(agents.len());
+    for agent in agents {
+        result.push(refresh_agent_status(pool, agent, central_root.as_deref()).await?);
+    }
+    Ok(result)
 }
 
 /// Scan the filesystem to update each agent's `is_detected` flag, then return
@@ -120,7 +130,7 @@ pub async fn detect_agents_impl(pool: &DbPool) -> Result<Vec<AgentWithStatus>, S
         let is_detected = is_agent_detected(&agent.global_skills_dir);
         // Best-effort update; ignore errors (e.g., read-only DB in tests).
         let _ = db::update_agent_detected(pool, &agent.id, is_detected).await;
-        result.push(agent_to_with_status(agent, central_root.as_deref()));
+        result.push(refresh_agent_status(pool, agent, central_root.as_deref()).await?);
     }
 
     Ok(result)
@@ -288,7 +298,7 @@ pub async fn set_agent_enabled(
     let central_root = db::get_agent_by_id(&state.db, "central")
         .await?
         .map(|agent| agent.global_skills_dir);
-    Ok(agent_to_with_status(updated, central_root.as_deref()))
+    refresh_agent_status(&state.db, updated, central_root.as_deref()).await
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -387,6 +397,9 @@ mod tests {
             !claude.is_detected,
             "claude-code should not be detected when dir and parent both missing"
         );
+        assert!(!claude.is_enabled);
+        assert!(!db::get_agent_by_id(&pool, "claude-code").await.unwrap().unwrap().is_enabled);
+
     }
 
     #[tokio::test]

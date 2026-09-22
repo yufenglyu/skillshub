@@ -1,3 +1,4 @@
+import { focusPageSearch } from "@/lib/focusPageSearch";
 import { SettingsView } from "@/pages/SettingsView";
 import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -55,6 +56,7 @@ export function AppShell({ settingsOpen = false, onCloseSettings }: {settingsOpe
     };
   }, []);
 
+  useConfiguredHotkey("focusPageSearch", () => focusPageSearch(mainRef.current), {allowInEditable: true});
   useConfiguredHotkey("toggleSidebar", toggleSidebar);
   useConfiguredHotkey("goResources", () => navigate("/resources"));
   useConfiguredHotkey("goCollections", () => navigate("/collections"));
@@ -69,7 +71,7 @@ export function AppShell({ settingsOpen = false, onCloseSettings }: {settingsOpe
           <div className="h-full" hidden={settingsOpen}><Outlet /></div>
           {settingsOpen && <SettingsView onClose={onCloseSettings} />}
         </main>
-        <AppStatusBar />
+        <AppStatusBar settingsOpen={settingsOpen} />
       </div>
       <GlobalSearchDialog
         open={isSearchOpen}

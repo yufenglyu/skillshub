@@ -799,17 +799,17 @@ describe("skillDetailStore", () => {
   });
 
   it("refreshes explanations with a row-aware Claude key", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+    vi.mocked(invoke).mockResolvedValueOnce("fresh suggestion");
 
     await useSkillDetailStore
       .getState()
       .refreshExplanation("claude-code::user::frontend-design", mockContent, "zh");
 
-    expect(invoke).toHaveBeenCalledWith("refresh_skill_explanation", {
-      skillId: "claude-code::user::frontend-design",
+    expect(invoke).toHaveBeenCalledWith("explain_skill", {
       content: mockContent,
       lang: "zh",
     });
+    expect(useSkillDetailStore.getState().explanation).toBe("fresh suggestion");
   });
 
   it("enters loading state immediately for cached explanation lookup and ignores stale responses", async () => {
@@ -902,7 +902,7 @@ describe("skillDetailStore", () => {
       .generateExplanation("frontend-design", mockContent, "zh");
     await useSkillDetailStore
       .getState()
-      .refreshExplanation("frontend-design", mockContent, "zh");
+      .generateExplanation("frontend-design", mockContent, "zh");
 
     secondChunkHandler({ payload: { skill_id: "frontend-design", text: "新请求" } });
     firstChunkHandler({ payload: { skill_id: "frontend-design", text: "旧请求" } });

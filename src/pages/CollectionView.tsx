@@ -1,3 +1,8 @@
+import { SearchInput } from "@/components/ui/search-input";
+import { SearchScopes } from "@/components/skill/SearchScopes";
+import { useSearchScopes, matchesSearch, matchesTags } from "@/lib/skillFilters";
+import { TagFilters } from "@/components/skill/TagFilters";
+import { SidebarTagFilter } from "@/components/layout/SidebarTagFilter";
 import { SkillBrowserWorkspace } from "@/components/skill/SkillBrowserWorkspace";
 import { repositoryLocationUrl } from "@/lib/skillNavigation";
 import {
@@ -77,6 +82,9 @@ export function CollectionView() {
   const [sortField, setSortField] = useState<SkillSortField>("name");
   const [sortDirection, setSortDirection] = useState<SkillSortDirection>("asc");
 
+  const [search,setSearch]=useState("");
+  const [searchScopes,setSearchScopes]=useSearchScopes();
+  const [selectedTags,setSelectedTags]=useState<string[]>([]);
   const skillsContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Restoration state carried through navigation when returning from a skill
@@ -154,8 +162,8 @@ export function CollectionView() {
           source_author: skill.source_author ?? resourceSkill?.source_author,
           source_repo: skill.source_repo ?? resourceSkill?.source_repo,
           source_path: skill.source_path ?? resourceSkill?.source_path,
-          notes: skill.notes ?? resourceSkill?.notes,
-          tags: skill.tags ?? resourceSkill?.tags,
+          notes: resourceSkill ? resourceSkill.notes : skill.notes,
+          tags: resourceSkill ? resourceSkill.tags : skill.tags,
           is_central: resourceSkill?.is_central ?? skill.is_central,
           linked_agents: resourceSkill?.linked_agents ?? [],
           read_only_agents: resourceSkill?.read_only_agents ?? [],
@@ -164,8 +172,8 @@ export function CollectionView() {
     [currentDetail?.skills, resourceSkills]
   );
   const sortedCollectionSkills = useMemo(
-    () => sortBySkillBrowserOrder(collectionSkillsWithLinks, sortField, sortDirection),
-    [collectionSkillsWithLinks, sortDirection, sortField]
+    () => sortBySkillBrowserOrder(collectionSkillsWithLinks.filter(skill=>matchesTags(skill.tags,selectedTags)&&matchesSearch(skill,search,searchScopes,skill.source_repo??"")), sortField, sortDirection),
+    [collectionSkillsWithLinks, sortDirection, sortField, selectedTags, search, searchScopes]
   );
 
   function handleInstallSingleSkillClick(skillId: string) {
@@ -310,6 +318,8 @@ export function CollectionView() {
 
   return (
     <div className="flex flex-col h-full">
+      <SidebarTagFilter hasSelection={selectedTags.length > 0} onClear={() => setSelectedTags([])}><TagFilters tags={[...new Map(collectionSkillsWithLinks.flatMap(s=>(s.tags??[]).map(tag=>[tag.toLowerCase(),tag])))] .map(([key,label])=>({key,label}))} selected={selectedTags} onChange={setSelectedTags}/></SidebarTagFilter>
+      <div className="flex justify-end p-3"><div className="flex min-w-0 w-full max-w-xl items-center gap-2"><SearchInput containerClassName="min-w-0 flex-1" value={search} onValueChange={setSearch} placeholder={t("resource.searchPlaceholder")} trailing={<SearchScopes value={searchScopes} onChange={setSearchScopes}/>} /></div></div>
       {/* Header */}
       <div className="border-b border-border px-6 py-4">
         <div className="flex items-start justify-between gap-4">

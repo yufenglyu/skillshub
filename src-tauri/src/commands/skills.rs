@@ -212,6 +212,7 @@ pub struct CreateManualResourceSkillRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddLocalResourceSkillsRequest {
+    pub selected_skill_ids: Option<Vec<String>>,
     pub source_dir: String,
     pub overwrite: bool,
 }
@@ -2278,7 +2279,9 @@ async fn add_resource_skills_from_local_dir_impl(
     }
 
     let (import_kind, collection_name, candidates) = discover_local_skill_candidates(&source_dir)?;
-    let mut copied_targets = Vec::new();
+    let candidates=candidates.into_iter().filter(|candidate|input.selected_skill_ids.as_ref().is_none_or(|ids|ids.contains(&candidate.skill_id))).collect::<Vec<_>>();
+    if candidates.is_empty(){return Err("No importable skills were selected".into());}
+    let mut files_transaction=super::github_import::ImportDirectoryTransaction::new(&resource_root)?;
     let mut skipped_skills = Vec::new();
 
     for candidate in &candidates {
@@ -2291,27 +2294,14 @@ async fn add_resource_skills_from_local_dir_impl(
             target_collection_name,
             &candidate.relative_dir,
         )?;
-        if target_dir.exists() {
-            if input.overwrite {
-                std::fs::remove_dir_all(&target_dir).map_err(|e| {
-                    format!(
-                        "Failed to replace existing local skill '{}': {}",
-                        target_dir.display(),
-                        e
-                    )
-                })?;
-            } else {
-                skipped_skills.push(candidate.skill_id.clone());
-                continue;
-            }
+        if target_dir.exists() && !input.overwrite {
+            skipped_skills.push(candidate.skill_id.clone());continue;
         }
-        if let Err(error) = copy_dir_all(&candidate.source_dir, &target_dir) {
-            for copied in copied_targets {
-                let _ = std::fs::remove_dir_all(copied);
-            }
-            return Err(error);
-        }
-        copied_targets.push(target_dir);
+        let staged=files_transaction.root.join(format!("new-{}",candidate.skill_id));
+        copy_dir_all(&candidate.source_dir,&staged)?;
+        if parse_skill_md(&staged.join("SKILL.md")).is_none(){return Err("Invalid local SKILL.md; existing files were preserved".into());}
+        files_transaction.install(&staged,&target_dir,input.overwrite)?;
+
     }
 
     let now = Utc::now().to_rfc3339();
@@ -2364,6 +2354,7 @@ async fn add_resource_skills_from_local_dir_impl(
         added_skills.push(skill_with_links(pool, skill).await?);
     }
 
+    files_transaction.commit();
     Ok(AddLocalResourceSkillsResult {
         source_dir: source_dir.to_string_lossy().into_owned(),
         import_kind,
@@ -2371,6 +2362,24 @@ async fn add_resource_skills_from_local_dir_impl(
         added_skills,
         skipped_skills,
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+pub struct LocalImportPreviewItem {skill_id:String,name:String,conflict:bool}
+#[tauri::command]
+pub async fn preview_local_resource_skills(state:State<'_,AppState>,source_dir:String)->Result<Vec<LocalImportPreviewItem>,String>{
+    let source=PathBuf::from(source_dir).canonicalize().map_err(|e|e.to_string())?;
+    let root=resource_root_path(&state.db).await?;
+    if source.starts_with(&root){return Err("Local source is already in the library".into());}
+    let (_,collection,candidates)=discover_local_skill_candidates(&source)?;
+    let mut result=Vec::new();
+    for candidate in candidates {
+        let info=parse_skill_md(&candidate.source_dir.join("SKILL.md")).ok_or("Invalid SKILL.md")?;
+        let target=resource_target_dir(&root,&["local".into()],collection.as_deref(),&candidate.relative_dir)?;
+        result.push(LocalImportPreviewItem{skill_id:candidate.skill_id,name:info.name,conflict:target.exists()});
+    }
+    Ok(result)
 }
 
 pub async fn add_local_resource_skills_impl(
@@ -5589,6 +5598,7 @@ mod tests {
         let result = add_local_resource_skills_impl(
             &pool,
             AddLocalResourceSkillsRequest {
+                selected_skill_ids: None,
                 source_dir: source_dir.to_string_lossy().into_owned(),
                 overwrite: false,
             },
@@ -5648,6 +5658,7 @@ mod tests {
         let result = add_local_resource_skills_impl(
             &pool,
             AddLocalResourceSkillsRequest {
+                selected_skill_ids: None,
                 source_dir: source_dir.to_string_lossy().into_owned(),
                 overwrite: false,
             },
@@ -5708,6 +5719,7 @@ mod tests {
         let result = add_repo_resource_skills_impl(
             &pool,
             AddLocalResourceSkillsRequest {
+                selected_skill_ids: None,
                 source_dir: source_dir.to_string_lossy().into_owned(),
                 overwrite: false,
             },

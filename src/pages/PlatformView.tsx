@@ -1,3 +1,7 @@
+import { SearchScopes } from "@/components/skill/SearchScopes";
+import { useSearchScopes, matchesSearch } from "@/lib/skillFilters";
+import { TagFilters } from "@/components/skill/TagFilters";
+import { matchesTags } from "@/lib/skillFilters";
 import { cn } from "@/lib/utils";
 import { SidebarTagFilter } from "@/components/layout/SidebarTagFilter";
 import { SkillBrowserHeader } from "@/components/skill/SkillBrowserHeader";
@@ -190,7 +194,8 @@ export function PlatformView() {
   const refreshCounts = usePlatformStore((state) => state.refreshCounts);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [searchScopes, setSearchScopes] = useSearchScopes();
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
 
 
@@ -223,7 +228,7 @@ export function PlatformView() {
   }, [agentId]);
 
   useEffect(() => {
-    setSelectedTag(null);
+    setSelectedTags([]);
   }, [agentId]);
 
   // Ensure central skills are loaded so we can resolve SkillWithLinks for InstallDialog.
@@ -275,9 +280,6 @@ export function PlatformView() {
     }
     return [...tags].map(([key, label]) => ({key, label})).sort((a,b) => a.label.localeCompare(b.label));
   }, [tagsBySkillId]);
-  useEffect(() => {
-    if (selectedTag && !availableTags.some(tag => tag.key === selectedTag)) setSelectedTag(null);
-  }, [availableTags, selectedTag]);
   const platformFolderSplit = useMemo(
     () =>
       splitSkillsByTopLevel({
@@ -309,46 +311,13 @@ export function PlatformView() {
     [agentId, platformFolderSplit.groups, skills]
   );
 
-  const visibleSkills = useMemo(
-    () =>
-      skills.filter(skill => !selectedTag || tagsBySkillId.get(skill.id)?.some(tag => tag.trim().toLowerCase() === selectedTag)),
-    [skills, selectedTag, tagsBySkillId]
-  );
-
-  // Filter skills by search query using useMemo
-  const filteredSkills = useMemo(() => {
-    if (!searchQuery.trim()) return visibleSkills;
-    const q = searchQuery.toLowerCase();
-    return visibleSkills.filter(
-      (skill) =>
-        skill.id.toLowerCase().includes(q) ||
-        skill.name.toLowerCase().includes(q) ||
-        skill.description?.toLowerCase().includes(q)
-    );
-  }, [visibleSkills, searchQuery]);
-
-  const sortedSkills = useMemo(() => {
-    return sortBySkillBrowserOrder(filteredSkills, sortField, sortDirection);
-  }, [filteredSkills, sortDirection, sortField]);
-
-  const filteredFolderGroups = useMemo(() => {
-
-    const folderGroups = [...platformFolderGroupsByPath.values()].filter(group => !selectedTag || group.skills.some(skill =>
-      tagsBySkillId.get(skill.id)?.some(tag => tag.trim().toLowerCase() === selectedTag)));
-    if (!searchQuery.trim()) return folderGroups;
-    const q = searchQuery.toLowerCase();
-    return folderGroups.filter(
-      (group) =>
-        group.name.toLowerCase().includes(q) ||
-        group.path.toLowerCase().includes(q) ||
-        group.skills.some(
-          (skill) =>
-            skill.id.toLowerCase().includes(q) ||
-            skill.name.toLowerCase().includes(q) ||
-            skill.description?.toLowerCase().includes(q)
-        )
-    );
-  }, [platformFolderGroupsByPath, searchQuery, selectedTag, tagsBySkillId]);
+  const filteredSkills = useMemo(() => skills.filter(skill=>{
+    const group=[...platformFolderGroupsByPath.values()].find(group=>group.skills.some(item=>item.id===skill.id));
+    const metadata=resourceSkills.find(item=>item.id===skill.id) ?? centralSkillsById.get(skill.id);
+    return matchesTags(tagsBySkillId.get(skill.id),selectedTags) && matchesSearch({...skill,notes:metadata?.notes},searchQuery,searchScopes,group?.name);
+  }),[skills,platformFolderGroupsByPath,resourceSkills,centralSkillsById,tagsBySkillId,selectedTags,searchQuery,searchScopes]);
+  const sortedSkills = useMemo(() => sortBySkillBrowserOrder(filteredSkills,sortField,sortDirection),[filteredSkills,sortField,sortDirection]);
+  const filteredFolderGroups = useMemo(()=>[...platformFolderGroupsByPath.values()].filter(group=>group.skills.some(skill=>filteredSkills.some(match=>match.id===skill.id))),[platformFolderGroupsByPath,filteredSkills]);
 
   const sortedFolderGroups = useMemo(() => {
     return sortFoldersBySkillBrowserOrder(filteredFolderGroups, sortField, sortDirection);
@@ -442,15 +411,7 @@ export function PlatformView() {
 
   return (
     <div className="flex flex-col h-full">
-      <SidebarTagFilter>
-        <div role="group" aria-label={t("central.tagFilter")} className="flex flex-wrap items-center gap-1.5">
-          {availableTags.map(tag => <button key={tag.key} type="button" aria-pressed={selectedTag === tag.key}
-            onClick={() => setSelectedTag(selectedTag === tag.key ? null : tag.key)}
-            className={cn("h-7 rounded-lg px-2.5 text-xs font-medium transition-colors",
-              selectedTag === tag.key ? "bg-primary/15 text-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground")}
-          >{tag.label}</button>)}
-        </div>
-      </SidebarTagFilter>
+      <SidebarTagFilter hasSelection={selectedTags.length > 0} onClear={() => setSelectedTags([])}><TagFilters tags={availableTags} selected={selectedTags} onChange={setSelectedTags}/></SidebarTagFilter>
       {/* Header */}
 
 
@@ -464,12 +425,12 @@ export function PlatformView() {
           <h1 className="text-xl font-semibold">{agent.display_name}</h1>
         </div>
         <OpenableDirectoryPath iconOnly path={agent.global_skills_dir} />
-        </div>} search={<SearchInput
+        </div>} search={<div className="flex items-center gap-2"><SearchInput
             placeholder={t("platform.searchPlaceholder")}
             value={searchQuery}
             onValueChange={setSearchQuery}
-            containerClassName="w-64 min-w-32 max-w-sm flex-1"
-          />} />} loading={isLoading} folders={sortedFolderGroups.map(
+            containerClassName="min-w-0 flex-1"
+          trailing={<SearchScopes value={searchScopes} onChange={setSearchScopes}/>} /></div>} />} loading={isLoading} folders={sortedFolderGroups.map(
                     (group): FolderTableItem => ({
                       key: group.relativePath,
                       onLocate: () => navigate(repositoryLocationUrl(group.skills[0], true)),
@@ -495,7 +456,7 @@ export function PlatformView() {
                         isFolderUninstalling &&
                         folderUninstallGroupPath === group.relativePath,
                     })
-                  )} storageKey="PlatformView" agentId={agentId} searchActive={Boolean(searchQuery.trim() || selectedTag)}
+                  )} storageKey="PlatformView" agentId={agentId} searchActive={Boolean(searchQuery.trim() || selectedTags.length)}
                   showInstallationSource
                   sortField={sortField}
                   sortDirection={sortDirection}

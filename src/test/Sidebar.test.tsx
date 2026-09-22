@@ -374,7 +374,7 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: /Claude Code/ })).not.toBeInTheDocument();
   });
 
-  it("hides agents with zero skills by default", () => {
+  it("shows enabled agents with zero skills", () => {
     vi.mocked(usePlatformStore).mockReturnValue({
       ...defaultStoreState,
       skillsByAgent: {
@@ -388,15 +388,16 @@ describe("Sidebar", () => {
         <Sidebar />
       </MemoryRouter>
     );
-    expect(screen.queryByRole("button", { name: /Claude Code/ })).not.toBeInTheDocument();
+    expect(within(screen.getByText("软件平台").closest("button")!).getByText(String(defaultStoreState.agents.filter(a => a.id !== "central" && !a.id.startsWith("project:") && a.is_enabled).length))).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: /Claude Code/ })).getByText("0")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Cursor/ })).toBeInTheDocument();
   });
 
-  it("hides undetected agents even when they still have cached skills", () => {
+  it("hides disabled agents even when they still have cached skills", () => {
     vi.mocked(usePlatformStore).mockReturnValue({
       ...defaultStoreState,
       agents: mockAgents.map((agent) =>
-        agent.id === "claude-code" ? { ...agent, is_detected: false } : agent
+        agent.id === "claude-code" ? { ...agent, is_enabled: false } : agent
       ),
       skillsByAgent: {
         "claude-code": 5,
@@ -413,22 +414,18 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: /Cursor/ })).toBeInTheDocument();
   });
 
-  it("shows hidden agents after clicking toggle", () => {
+  it("defaults missing counts to zero and removes platforms when disabled", () => {
+    window.localStorage.setItem("skills-manage:show-all-platforms", "true");
+    const view = renderSidebar("/central", { platformState: {
+      ...defaultStoreState, skillsByAgent: {},
+    }});
+    expect(within(screen.getByRole("button", { name: /Claude Code/ })).getByText("0")).toBeInTheDocument();
     vi.mocked(usePlatformStore).mockReturnValue({
       ...defaultStoreState,
-      skillsByAgent: {
-        "claude-code": 0,
-        cursor: 3,
-        central: 10,
-      },
+      agents: mockAgents.map(agent => ({ ...agent, is_enabled: false })),
     });
-    render(
-      <MemoryRouter>
-        <Sidebar />
-      </MemoryRouter>
-    );
-    fireEvent.click(screen.getByRole("button", { name: "显示所有平台" }));
-    expect(screen.getByRole("button", { name: /Claude Code/ })).toBeInTheDocument();
+    view.rerender(<MemoryRouter><Sidebar /><LocationProbe /></MemoryRouter>);
+    expect(screen.queryByRole("button", { name: /Claude Code/ })).not.toBeInTheDocument();
   });
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -604,24 +601,12 @@ describe("Sidebar", () => {
     expect(projects).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("renders show all platforms toggle", () => {
+  it("keeps only collapse buttons in platform and project headings", () => {
     renderSidebar();
-    expect(screen.getByText("软件平台")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "显示所有平台" })).toBeInTheDocument();
-  });
-
-  it("places the show-all platforms icon in the software platform header", () => {
-    renderSidebar();
-
-    const heading = screen.getByText("软件平台");
-    const header = heading.closest("[data-testid='software-platform-heading']");
-    expect(header).not.toBeNull();
-    expect(header).toBeInstanceOf(HTMLElement);
-    if (!header) return;
-
-    const toggle = within(header as HTMLElement).getByRole("button", { name: "显示所有平台" });
-    expect(toggle).toHaveAttribute("title", "显示所有平台");
-    expect(within(toggle).queryByText("显示所有平台")).toBeNull();
+    expect(within(screen.getByTestId("software-platform-heading")).getAllByRole("button")).toHaveLength(1);
+    expect(within(screen.getByTestId("project-directories-heading")).getAllByRole("button")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "显示所有平台" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "显示空项目目录" })).not.toBeInTheDocument();
   });
 
   it("renders the software platform heading like a primary sidebar title with an icon", () => {
@@ -685,7 +670,7 @@ describe("Sidebar", () => {
     expect(projectHeading.closest("[data-testid='project-directories-heading']")).toBeTruthy();
   });
 
-  it("uses separate empty item toggles for software platforms and project directories", () => {
+  it("shows empty platforms and project directories with zero counts", () => {
     renderSidebar("/central", {
       platformState: {
         ...defaultStoreState,
@@ -710,15 +695,8 @@ describe("Sidebar", () => {
       },
     });
 
-    expect(screen.queryByRole("button", { name: /Claude Code/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Empty Project/ })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "显示空项目目录" }));
-    expect(screen.queryByRole("button", { name: /Claude Code/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Empty Project/ })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "显示所有平台" }));
-    expect(screen.getByRole("button", { name: /Claude Code/ })).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: /Claude Code/ })).getByText("0")).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: /Empty Project/ })).getByText("0")).toBeInTheDocument();
   });
 
   it("marks independent and shared software platforms after the name", () => {

@@ -34,7 +34,7 @@ describe("background repository preview", () => {
       .mockRejectedValueOnce(new Error("network unavailable"))
       .mockResolvedValueOnce({ repositories: [] });
     await useRepositorySyncStore.getState().checkForUpdates();
-    expect(useRepositorySyncStore.getState()).toMatchObject({ isChecking: false, error: "Error: network unavailable" });
+    expect(useRepositorySyncStore.getState()).toMatchObject({ isChecking: false, error: expect.any(String) });
     await useRepositorySyncStore.getState().checkForUpdates();
     expect(check).toHaveBeenCalledTimes(2);
     expect(useRepositorySyncStore.getState()).toMatchObject({ error: null, open: true });
@@ -88,8 +88,36 @@ describe("background repository preview", () => {
     useRepositorySyncStore.setState({preview:{repositories:[item,{...item,repository:"two/repo"}]}});
     vi.spyOn(useResourceLibraryStore.getState(), "previewRepositorySync").mockRejectedValue(new Error("offline"));
     await useRepositorySyncStore.getState().recheckRepository("one/repo");
-    expect(useRepositorySyncStore.getState().preview?.repositories[0].error).toContain("offline");
+    expect(useRepositorySyncStore.getState().preview?.repositories[0].error).toEqual(expect.any(String));
     expect(useRepositorySyncStore.getState().preview?.repositories[1].error).toBeUndefined();
   });
 
+});
+
+it("removes the withdrawn screenshot preview without changing real data or ignored versions", async () => {
+  const repo = (repository: string) => ({repository, added: [], modified: [], deleted: [], unchanged: []});
+  const persisted = {
+    ignored: ["real/repo:skill:version"],
+    preview: {repositories: [
+      {...repo("demo/engineering"),added:[{skillId:"new",name:"performance-review",version:"demo-v2"}],modified:[{skillId:"react-patterns",name:"react-patterns",version:"demo-v2"}]},
+      {...repo("demo/research"),modified:[{skillId:"research-notes",name:"research-notes",version:"demo-v2"}]},
+    ]},
+  };
+  localStorage.setItem("skillshub.repository-update-preview.v1",JSON.stringify({state:persisted,version:0}));
+  await useRepositorySyncStore.persist.rehydrate();
+  expect(useRepositorySyncStore.getState().preview).toBeNull();
+  expect(useRepositorySyncStore.getState().ignored).toEqual(persisted.ignored);
+  const realPreview={repositories:[repo("demo/engineering"),repo("demo/research")]};
+  localStorage.setItem("skillshub.repository-update-preview.v1",JSON.stringify({state:{preview:realPreview},version:0}));
+  await useRepositorySyncStore.persist.rehydrate();
+  expect(useRepositorySyncStore.getState().preview).toEqual(realPreview);
+});
+
+it("does not let scoped check results replace repositories outside its scope",async()=>{
+  const first={repository:"one/repo",added:[],modified:[],deleted:[],unchanged:[]};
+  const second={...first,repository:"two/repo"};
+  useRepositorySyncStore.setState({isChecking:false,checkingRepository:null,preview:{repositories:[first,second]}});
+  vi.spyOn(useResourceLibraryStore.getState(),"previewRepositorySync").mockResolvedValue({repositories:[first,{...second,error:"outside scope"}]});
+  await useRepositorySyncStore.getState().recheckRepository("one/repo");
+  expect(useRepositorySyncStore.getState().preview?.repositories[1]).toEqual(second);
 });

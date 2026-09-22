@@ -7,3 +7,5 @@ pub mod remote_sources;
 pub mod scanner;
 pub mod settings;
 pub mod skills;
+
+pub mod metadata;

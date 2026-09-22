@@ -1,3 +1,4 @@
+import { usePlatformIconStore } from "./platformIconStore";
 import { create } from "zustand";
 import { invoke, isTauriRuntime } from "@/lib/tauri";
 import { AgentWithStatus, ScanDirectory, ScanResult } from "@/types";
@@ -84,6 +85,7 @@ export const usePlatformStore = create<PlatformState>((set) => ({
    */
   initialize: async () => {
     set({ isLoading: true, error: null });
+    void usePlatformIconStore.getState().load().catch(() => {});
     if (!isTauriRuntime()) {
       set((state) => ({
         agents: BROWSER_FIXTURE_AGENTS,

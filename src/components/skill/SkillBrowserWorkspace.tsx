@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { useBrowserStatusStore } from "@/stores/browserStatusStore";
+import { Link, useLocation } from "react-router-dom";
 import { buildMembershipInstallSummary } from "@/lib/installSummary";
 import { useExpansionShortcuts } from "@/hooks/useExpansionShortcuts";
 import { useConfiguredHotkey } from "@/hooks/useConfiguredHotkey";
@@ -29,6 +30,7 @@ function writePreference(key: string, value: unknown) { try { localStorage.setIt
 
 export function SkillBrowserWorkspace({ storageKey, skills = [], folders = [], searchActive = false, agentId, loading = false, toolbar, collectionsMode = false, ...tableProps }: Props) {
   const { t } = useTranslation();
+  const { pathname } = useLocation();
   const key = `skillshub.browser.${storageKey}.${agentId ?? ""}`;
   const { visibleColumns, toggleColumn, resetColumns } = useSkillTableColumns("tree");
   const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded(`${key}.expanded`));
@@ -81,6 +83,9 @@ export function SkillBrowserWorkspace({ storageKey, skills = [], folders = [], s
       return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) * multiplier;
     });
   }, [folders, skills, collectionsMode, searchActive, t, tableProps.sortDirection, tableProps.sortField]);
+  useEffect(() => {
+    if (!groups.length) useBrowserStatusStore.getState().setStats({path:pathname,collections:collectionsMode,groups:0,skills:0,selected:0,selectedGroups:0,installed:0});
+  }, [pathname,collectionsMode,groups.length]);
   useConfiguredHotkey("toggleSkillViewMode", () => {
     const next = groups.every(group => expanded.has(group.key)) ? new Set<string>() : new Set(groups.map(group => group.key));
     setExpanded(next); writePreference(`${key}.expanded`, [...next]);
@@ -124,7 +129,7 @@ export function SkillBrowserWorkspace({ storageKey, skills = [], folders = [], s
     <section tabIndex={0} onKeyDown={expansionKeys} onMouseDown={event => { if (!(event.target as HTMLElement).closest("button,input,textarea,select,a")) event.currentTarget.focus({preventScroll:true}); }} className="flex min-w-0 flex-1 flex-col overflow-hidden outline-none" aria-label={t("browser.list")}>
       {toolbar && <div className="shrink-0 border-b border-border [&>header]:border-b-0" style={{paddingRight: scrollbarWidth}}>{toolbar}</div>}
       <div ref={listScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        {loading && !groups.length ? <p className="p-8 text-center text-sm text-muted-foreground">{t("common.loading")}</p> : groups.length ? <SkillBrowserTable {...tableProps} kind="folder" tree nameHeaderAction={collectionsMode ? undefined : <button type="button" title={t(groups.every(group => expanded.has(group.key)) ? "browser.collapseAll" : "browser.expandAll")} aria-label={t(groups.every(group => expanded.has(group.key)) ? "browser.collapseAll" : "browser.expandAll")} className="shrink-0 rounded p-1 hover:bg-muted" onClick={() => {
+        {loading && !groups.length ? <p className="p-8 text-center text-sm text-muted-foreground">{t("common.loading")}</p> : groups.length ? <SkillBrowserTable {...tableProps} statusPath={pathname} statusCollections={collectionsMode} kind="folder" tree nameHeaderAction={collectionsMode ? undefined : <button type="button" title={t(groups.every(group => expanded.has(group.key)) ? "browser.collapseAll" : "browser.expandAll")} aria-label={t(groups.every(group => expanded.has(group.key)) ? "browser.collapseAll" : "browser.expandAll")} className="shrink-0 rounded p-1 hover:bg-muted" onClick={() => {
           const next = groups.every(group => expanded.has(group.key)) ? new Set<string>() : new Set(groups.map(group => group.key));
           setExpanded(next); writePreference(`${key}.expanded`, [...next]);
         }}>{groups.every(group => expanded.has(group.key)) ? <ChevronsDownUp className="size-4"/> : <ChevronsUpDown className="size-4"/>}</button>} visibleColumns={collectionsMode ? new Set([...visibleColumns].filter(column => !["skillCount", "githubStars", "installSummary"].includes(column))) : visibleColumns} folders={treeRows} onToggleColumn={toggleColumn} onResetColumns={resetColumns} stickyHeaderTop="0px" className="rounded-none border-0 shadow-none"/> : <p className="p-8 text-center text-sm text-muted-foreground">{t("browser.noMatches")}</p>}
@@ -162,6 +167,7 @@ export function SkillBrowserWorkspace({ storageKey, skills = [], folders = [], s
               </div>
               </details>
             </section>}
+            {selectedFolder.notesEditor}
             <section aria-label={t("browser.skillList")}>
               <details open><summary className="mb-3 cursor-pointer text-xs font-semibold text-muted-foreground">{t("browser.skillList")}</summary>
               <div className="overflow-hidden rounded-lg border border-border/70">

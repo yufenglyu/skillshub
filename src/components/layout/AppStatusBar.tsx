@@ -1,4 +1,8 @@
-import { useNavigate } from "react-router-dom";
+import { useBrowserStatusStore } from "@/stores/browserStatusStore";
+import { usePlatformStore } from "@/stores/platformStore";
+import { useCollectionStore } from "@/stores/collectionStore";
+import { TaskCenter } from "./TaskCenter";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useRepositorySyncStore } from "@/stores/repositorySyncStore";
 import { AlertCircle, CheckCircle2, Circle, Loader2, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -45,8 +49,15 @@ function itemStatusLabel(
   return t("status.itemSkipped");
 }
 
-export function AppStatusBar() {
+export function AppStatusBar({settingsOpen = false}: {settingsOpen?: boolean} = {}) {
   const navigate = useNavigate();
+  const {pathname} = useLocation();
+  const stats = useBrowserStatusStore(state => state.stats);
+  const agents = usePlatformStore(state => state.agents);
+  const counts = usePlatformStore(state => state.skillsByAgent);
+  const collections = useCollectionStore(state => state.collections.length);
+  const collectionSize = useCollectionStore(state => state.currentDetail?.skills.length ?? 0);
+
   const isChecking = useRepositorySyncStore((s) => s.isChecking);
   const previewError = useRepositorySyncStore((s) => s.error);
   const checkForUpdates = useRepositorySyncStore((s) => s.checkForUpdates);
@@ -64,11 +75,22 @@ export function AppStatusBar() {
   const isImport = task?.kind === "import";
   useEffect(() => { setStatsFilter(null); }, [task?.startedAt, task?.id]);
 
-  const label = task?.label ?? t("status.ready");
-  const detail = task?.detail ?? t("status.summary", {
-    resources: resourceSkills,
-    central: centralSkills,
-  });
+  const activeStats = !settingsOpen && stats?.path === pathname ? stats : null;
+  const agentId = pathname.startsWith("/platform/") ? decodeURIComponent(pathname.slice("/platform/".length)) : undefined;
+  const agent = agents.find(agent => agent.id === agentId);
+  const pageLabel = settingsOpen ? t("sidebar.settings") : agent?.display_name ?? (pathname === "/resources" ? t("sidebar.resourceLibrary") : pathname === "/central" ? t("sidebar.centralSkills") : pathname.startsWith("/collections") ? t("sidebar.collections") : pathname === "/settings" ? t("sidebar.settings") : t("status.ready"));
+  const total = agentId ? counts[agentId] ?? 0 : pathname === "/resources" ? resourceSkills : pathname === "/central" ? centralSkills : activeStats?.collections ? collections : pathname.startsWith("/collections/") ? collectionSize : activeStats?.skills ?? 0;
+  const contextDetail = activeStats ? [
+    activeStats.collections ? t("status.collectionCounts", {visible:activeStats.groups,total}) : t("status.skillCounts", {visible:activeStats.skills,total}),
+    activeStats.collections ? t("status.selectedCollections", {count:activeStats.selectedGroups}) : t("status.selectedSkills", {count:activeStats.selected}),
+    !activeStats.collections && t("status.repositoryCounts", {count:activeStats.groups}),
+    !activeStats.collections && t("status.installedSkills", {count:activeStats.installed}),
+    agent && t(agent.shares_central_skills ? "status.sharedDirectory" : "status.independentDirectory"),
+    activeStats.name,
+  ].filter(Boolean).join(" · ") : "";
+  const busyTask = task?.status === "running";
+  const label = busyTask ? task.label : pageLabel;
+  const detail = busyTask ? task.detail ?? "" : contextDetail;
   const statusTitle =
     task?.error && task.error !== detail ? `${label}: ${detail} (${task.error})` : `${label}: ${detail}`;
   const hasStats =
@@ -119,11 +141,11 @@ export function AppStatusBar() {
         title={statusTitle}
       >
         <div className="flex min-w-0 items-center gap-2">
-          {statusIcon(task)}
+          {statusIcon(busyTask ? task : null)}
           <span
             className={cn(
               "shrink-0 font-medium",
-              task?.status === "error" && "text-destructive",
+              busyTask && task?.status === "error" && "text-destructive",
               task?.status === "success" && "text-foreground",
               task?.status === "running" && "text-foreground"
             )}
@@ -132,7 +154,7 @@ export function AppStatusBar() {
           </span>
           <span className="truncate">{detail}</span>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2"><TaskCenter />
           {isChecking && (
             <span role="status" className="inline-flex items-center gap-1 text-primary">
               <Loader2 className="size-3 animate-spin" />{t("resource.repoSyncChecking")}
@@ -147,7 +169,7 @@ export function AppStatusBar() {
           {preview && !previewApplied && (
             <button type="button" className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => { setPreviewOpen(true); navigate("/resources"); }}>
-              {t("resource.repoSyncPreviewTitle")}
+              {t("workflow.updateCenter")}
             </button>
           )}
           {showProgress ? (
@@ -179,7 +201,7 @@ export function AppStatusBar() {
               variant="ghost"
               size="sm"
               className="h-6 shrink-0 gap-2 px-2 text-xs text-muted-foreground"
-              onClick={() => setIsStatsOpen(true)}
+              onClick={() => {if(isImport)setIsStatsOpen(true);else{setPreviewOpen(true);navigate("/resources");}}}
               aria-label={t(isImport ? "status.viewImportStats" : "status.viewUpdateStats")}
             >
               {typeof task?.updatedCount === "number" ? (

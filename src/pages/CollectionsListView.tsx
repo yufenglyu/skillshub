@@ -1,3 +1,7 @@
+import { SearchScopes } from "@/components/skill/SearchScopes";
+import { useSearchScopes, matchesSearch } from "@/lib/skillFilters";
+import { TagFilters } from "@/components/skill/TagFilters";
+import { matchesTags } from "@/lib/skillFilters";
 import { sortBySkillBrowserOrder, type SkillSortField, type SkillSortDirection } from "@/lib/skillSort";
 import { repositoryLocationUrl } from "@/lib/skillNavigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -50,7 +54,8 @@ export function CollectionsListView() {
   const [sortDirection, setSortDirection] = useState<SkillSortDirection>("asc");
   const location = useLocation();
   const [search, setSearch] = useState("");
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [searchScopes,setSearchScopes]=useSearchScopes();
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [collectionDetails, setCollectionDetails] = useState<CollectionDetail[]>([]);
 
   // Collection store
@@ -229,8 +234,8 @@ export function CollectionsListView() {
           source_author: skill.source_author ?? resourceSkill?.source_author,
           source_repo: skill.source_repo ?? resourceSkill?.source_repo,
           source_path: skill.source_path ?? resourceSkill?.source_path,
-          notes: skill.notes ?? resourceSkill?.notes,
-          tags: skill.tags ?? resourceSkill?.tags,
+          notes: resourceSkill ? resourceSkill.notes : skill.notes,
+          tags: resourceSkill ? resourceSkill.tags : skill.tags,
           is_central: resourceSkill?.is_central ?? skill.is_central,
           linked_agents: resourceSkill?.linked_agents ?? [],
           read_only_agents: resourceSkill?.read_only_agents ?? [],
@@ -382,14 +387,7 @@ export function CollectionsListView() {
 
   return (
     <div className="flex flex-col h-full">
-      <SidebarTagFilter>
-        <div role="group" aria-label={t("central.tagFilter")} className="flex flex-wrap items-center gap-1.5">
-          {availableTags.map(([key,label]) => <button key={key} type="button" aria-pressed={selectedTag === key}
-            onClick={() => setSelectedTag(selectedTag === key ? null : key)}
-            className={cn("h-7 rounded-lg px-2.5 text-xs font-medium transition-colors", selectedTag === key
-              ? "bg-primary/15 text-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground")}>{label}</button>)}
-        </div>
-      </SidebarTagFilter>
+      <SidebarTagFilter hasSelection={selectedTags.length > 0} onClear={() => setSelectedTags([])}><TagFilters tags={availableTags.map(([key,label])=>({key,label}))} selected={selectedTags} onChange={setSelectedTags}/></SidebarTagFilter>
       <SkillBrowserWorkspace
         storageKey="collections" collectionsMode loading={isLoading}
         sortField={sortField} sortDirection={sortDirection}
@@ -398,9 +396,9 @@ export function CollectionsListView() {
           <h1>{t("sidebar.collections")}</h1>
           <Button variant="ghost" size="icon" title={t("collection.refresh")} aria-label={t("collection.refresh")} onClick={() => void handleRefresh()} disabled={isLoading || isLoadingDetail}><RefreshCw className={cn("size-4", isLoading && "animate-spin")} /></Button>
           <Button variant="ghost" size="icon" title={t("sidebar.newCollectionLabel")} aria-label={t("sidebar.newCollectionLabel")} onClick={() => setIsEditorOpen(true)}><Plus className="size-4" /></Button>
-        </>} search={<SearchInput value={search} onValueChange={setSearch} placeholder={t("collection.searchCollections")} />} />}
-        folders={collections.filter(collection => `${collection.name} ${collection.description ?? ""}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())
-          && (!selectedTag || collectionTags.get(collection.id)?.some(tag => tag.toLowerCase() === selectedTag))).map(collection => ({
+        </>} search={<div className="flex items-center gap-2"><SearchInput containerClassName="min-w-0 flex-1" value={search} onValueChange={setSearch} placeholder={t("collection.searchCollections")} trailing={<SearchScopes value={searchScopes} onChange={setSearchScopes}/>} /></div>} />}
+        folders={collections.filter(collection => (matchesSearch({name:collection.name,description:collection.description},search,searchScopes,collection.name) || (collectionDetails.find(detail=>detail.id===collection.id)?.skills ?? []).some(skill=>matchesSearch(resourceSkills.find(s=>s.id===skill.id)??skill,search,searchScopes,collection.name)))
+          && (!selectedTags.length || (collectionDetails.find(detail=>detail.id===collection.id)?.skills ?? []).some(skill=>matchesTags(resourceSkills.find(s=>s.id===skill.id)?.tags??skill.tags,selectedTags)))).map(collection => ({
           batchOperations: {
             install: (targets: string[]) => batchInstallCollection(collection.id,targets),
             delete: () => deleteCollection(collection.id),
@@ -427,7 +425,7 @@ export function CollectionsListView() {
             <MetadataRow label={t("detail.updatedAt")} value={new Date(collection.updated_at).toLocaleString()} />
           </>,
         }))}
-                          skills={sortBySkillBrowserOrder(collectionSkillsWithLinks, sortField, sortDirection).map((skill) => ({
+                          skills={sortBySkillBrowserOrder(collectionSkillsWithLinks.filter(skill=>matchesTags(skill.tags,selectedTags)&&matchesSearch(skill,search,searchScopes,currentDetail?.name)), sortField, sortDirection).map((skill) => ({
                             rowKey: skill.id,
                             batchOperations: {
                               install: async (targets:string[]) => { const result=await installResourceSkill(skill.id,targets,"auto"); await refreshCounts(); return result; },

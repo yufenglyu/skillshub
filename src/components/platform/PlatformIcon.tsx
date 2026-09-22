@@ -1,3 +1,4 @@
+import { usePlatformIconStore } from "@/stores/platformIconStore";
 import Claude from "@lobehub/icons/es/Claude/components/Mono";
 import OpenAI from "@lobehub/icons/es/OpenAI/components/Mono";
 import Cursor from "@lobehub/icons/es/Cursor/components/Mono";
@@ -33,6 +34,8 @@ const brandIcons = {
 const abbreviations: Record<string, string> = { warp: "W", workbuddy: "WB", codebuddy: "CB", kiro: "K", pi: "π", "codearts-agent": "CA", hermes: "H", openclaw: "OC" };
 
 export function PlatformIcon({ agentId, className, size = 16, brand = false, displayName }: PlatformIconProps) {
+  const icon = usePlatformIconStore(state => state.icons[agentId]);
+  if (icon && !isProjectAgentId(agentId)) return <img src={icon} alt="" width={size} height={size} className={cn("shrink-0 rounded-sm bg-white object-contain p-px", className)} />;
   if (brand && !isProjectAgentId(agentId)) {
     const BrandIcon = brandIcons[agentId as keyof typeof brandIcons];
     if (BrandIcon) return <BrandIcon size={size} className={cn("shrink-0", className)} aria-hidden />;

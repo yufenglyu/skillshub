@@ -333,7 +333,7 @@ describe("CollectionsListView", () => {
     fireEvent.change(search,{target:{value:"Frontend"}});
     expect(screen.queryByRole("button",{name:"Backend"})).not.toBeInTheDocument();
     fireEvent.change(search,{target:{value:""}});
-    fireEvent.click(api);
+    fireEvent.click(api,{ctrlKey:true});
     expect(screen.getByRole("button",{name:"Frontend"})).toBeInTheDocument();
     expect(screen.getByRole("button",{name:"Infra"})).toBeInTheDocument();
   });

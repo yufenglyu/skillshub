@@ -712,7 +712,7 @@ describe("CentralSkillsView", () => {
     });
   });
 
-  it("filters skills by local notes and tags when searching", async () => {
+  it("searches notes but excludes tags from keyword search", async () => {
     renderCentralSkillsView({
       skills: [
         {
@@ -734,7 +734,7 @@ describe("CentralSkillsView", () => {
     fireEvent.change(searchInput, { target: { value: "ui-pattern" } });
 
     await waitFor(() => {
-      expect(screen.getByText("frontend-design")).toBeInTheDocument();
+      expect(screen.queryByText("frontend-design")).not.toBeInTheDocument();
       expect(screen.queryByText("code-reviewer")).not.toBeInTheDocument();
     });
   });

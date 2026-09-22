@@ -1,3 +1,4 @@
+import { useRepositorySyncStore } from "@/stores/repositorySyncStore";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
@@ -68,6 +69,8 @@ describe("AppShell", () => {
 
     mockUsePlatformStore.mockImplementation((selector?: unknown) => {
       const state = {
+        agents: [],
+        skillsByAgent: {},
         initialize: vi.fn(),
         rescan: vi.fn(),
       };
@@ -128,7 +131,7 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("contentinfo", { name: /状态栏|Status bar/i })).toBeInTheDocument();
     expect(screen.getByText("就绪")).toBeInTheDocument();
-    expect(screen.getByText("技能仓库 2 · 共享中心 1")).toBeInTheDocument();
+    expect(screen.queryByText("技能仓库 2 · 共享中心 1")).not.toBeInTheDocument();
   });
 
   it("suppresses the default Chromium context menu", () => {
@@ -170,7 +173,7 @@ describe("AppShell", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it("shows expandable and filterable update statistics in the bottom status bar", () => {
+  it("opens the unified update center from the status bar", () => {
     const onRetryFailedItem = vi.fn();
     mockUseAppStatusStore.mockImplementation((selector?: unknown) => {
       const state = {
@@ -208,33 +211,8 @@ describe("AppShell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /查看更新统计|View update statistics/i }));
 
-    expect(screen.getByRole("dialog", { name: /更新统计|Update statistics/i })).toBeInTheDocument();
-    expect(screen.getByText(/更新成功 3/)).toBeInTheDocument();
-    expect(screen.getByText(/已是最新 1/)).toBeInTheDocument();
-    expect(screen.getByText(/跳过 2/)).toBeInTheDocument();
-    expect(screen.getByText(/更新失败 1/)).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "序号" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "名称" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "仓库" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "更新状态" })).toBeInTheDocument();
-    expect(screen.getByText("ask-matt")).toBeInTheDocument();
-    expect(screen.getByText("mattpocock/skills")).toBeInTheDocument();
-    expect(screen.getByText("broken-skill")).toBeInTheDocument();
-    expect(screen.getAllByText("更新成功").length).toBeGreaterThan(1);
-    expect(screen.getAllByText("已是最新").length).toBeGreaterThan(1);
-    expect(screen.getAllByText("跳过").length).toBeGreaterThan(1);
-    expect(screen.getAllByText("更新失败").length).toBeGreaterThan(1);
+    expect(useRepositorySyncStore.getState().open).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: /更新失败\s*1/i }));
-
-    expect(screen.queryByText("ask-matt")).not.toBeInTheDocument();
-    expect(screen.getByText("broken-skill")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "操作" })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "重新检查" }));
-    expect(onRetryFailedItem).toHaveBeenCalledWith(
-      expect.objectContaining({ skillId: "skill-failed", name: "broken-skill" })
-    );
   });
 
   it("shows a live progress bar while source updates are running", () => {

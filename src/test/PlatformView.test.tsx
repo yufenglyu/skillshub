@@ -326,7 +326,7 @@ describe("PlatformView", () => {
     fireEvent.change(search,{target:{value:"code-reviewer"}});
     expect(screen.queryByRole("button",{name:"查看 frontend-design 的详情"})).not.toBeInTheDocument();
     fireEvent.change(search,{target:{value:""}});
-    fireEvent.click(frontend);
+    fireEvent.click(frontend,{ctrlKey:true});
     expect(frontend).toHaveAttribute("aria-pressed","false");
     expect(screen.getByRole("button",{name:"查看 code-reviewer 的详情"})).toBeInTheDocument();
   });
@@ -808,7 +808,7 @@ describe("PlatformView", () => {
     const view = renderPlatformView();
 
     const searchInput = screen.getByPlaceholderText(/搜索技能/);
-    fireEvent.change(searchInput, { target: { value: "shared-skill-id" } });
+    fireEvent.change(searchInput, { target: { value: "Shared skill" } });
 
     await waitFor(() => {
       expect(
@@ -855,7 +855,7 @@ describe("PlatformView", () => {
       expect(mockGetSkillsByAgent).toHaveBeenCalledWith("claude-code");
     });
 
-    expect(searchInput).toHaveValue("shared-skill-id");
+    expect(searchInput).toHaveValue("Shared skill");
     expect(
       screen.getAllByRole("button", { name: /查看 Shared skill 的详情/i })
     ).toHaveLength(1);

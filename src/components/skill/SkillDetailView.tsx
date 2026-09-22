@@ -1,3 +1,4 @@
+import { useTaskQueueStore, isTaskActive } from "@/stores/taskQueueStore";
 import { open } from "@tauri-apps/plugin-shell";
 import { OpenableDirectoryPath } from "@/components/common/OpenableDirectoryPath";
 import { skillSourceLinks } from "@/lib/skillSourceLinks";
@@ -295,7 +296,8 @@ export function SkillDetailView({
   const explanationError = useSkillDetailStore((s) => s.explanationError);
   const explanationErrorInfo = useSkillDetailStore((s) => s.explanationErrorInfo);
   const loadCachedExplanation = useSkillDetailStore((s) => s.loadCachedExplanation);
-  const generateExplanation = useSkillDetailStore((s) => s.generateExplanation);
+  const clearNoteGeneration = useSkillDetailStore(s=>s.clearNoteGeneration);
+  const refreshExplanation = useSkillDetailStore((s) => s.refreshExplanation);
   const generateTags = useSkillDetailStore((s) => s.generateTags);
   const updateMetadata = useSkillDetailStore((s) => s.updateMetadata);
   const updateSourceMetadata = useSkillDetailStore((s) => s.updateSourceMetadata);
@@ -420,7 +422,7 @@ export function SkillDetailView({
   }, [detail?.id, detail?.notes, detail?.tags, draftKey, variant]);
 
   useEffect(() => {
-    if (isGeneratingNoteIntoNotes && explanation) {
+    if (isGeneratingNoteIntoNotes && explanation && !isExplanationLoading && !isExplanationStreaming && !explanationError) {
       setNotesInput(explanation);
       if (variant === "inspector") inspectorDrafts.set(draftKey, { ...inspectorDrafts.get(draftKey), notes: explanation });
     }
@@ -670,19 +672,25 @@ export function SkillDetailView({
     return source;
   }
 
-  function handleGenerateExplanation() {
-    if (explanationRequestKey && skillContent) {
-      generateExplanation(explanationRequestKey, skillContent, i18n.language);
-    }
+  function handleGenerateNote() {
+    if (!explanationRequestKey || !skillContent || isExplanationLoading || isExplanationStreaming) return;
+    setIsGeneratingNoteIntoNotes(true);
+    void refreshExplanation(explanationRequestKey, skillContent, i18n.language);
   }
 
-  function handleGenerateNote() {
-    if (explanation) {
-      setNotesInput(explanation);
-      return;
+  async function handleClear(field: "notes" | "tags") {
+    if (!detail || detail.is_read_only) return;
+    for (const task of useTaskQueueStore.getState().tasks) {
+      if (isTaskActive(task) && task.key === `ai:${field}:${field === "notes" ? explanationRequestKey : detail.id}`) useTaskQueueStore.getState().cancel(task.id);
     }
-    setIsGeneratingNoteIntoNotes(true);
-    handleGenerateExplanation();
+    if (field === "notes") {setIsGeneratingNoteIntoNotes(false);clearNoteGeneration?.();}
+    else { tagsRequestId.current += 1; setIsGeneratingTags(false); }
+    setIsSavingMetadata(true);
+    try {
+      await updateMetadata(detail.id, {notes: field === "notes" ? null : detail.notes ?? null, tags: field === "tags" ? [] : detail.tags ?? []});
+      setDraft(field, "");
+    } catch { toast.error(t("workflow.operationFailed")); }
+    finally {setIsSavingMetadata(false);}
   }
 
   function handleSelectFile(file: SelectedSkillFile) {
@@ -1090,6 +1098,7 @@ export function SkillDetailView({
                             variant="outline"
                             className="h-7 px-2.5 text-xs font-normal"
                             disabled={!skillContent || isExplanationLoading || isExplanationStreaming}
+                            aria-label={t(isExplanationLoading||isExplanationStreaming ? "detail.explanationLoading" : "detail.generateNote")}
                             onClick={handleGenerateNote}
                           >
                             {isExplanationLoading || isExplanationStreaming ? (
@@ -1098,7 +1107,7 @@ export function SkillDetailView({
                                 {t("detail.explanationLoading")}
                               </>
                             ) : (
-                              t("detail.generateNote")
+                              t("workflow.ai")
                             )}
                           </Button>
                           <Button
@@ -1119,6 +1128,7 @@ export function SkillDetailView({
                               t("common.save")
                             )}
                           </Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs font-normal" disabled={isSavingMetadata} onClick={()=>void handleClear("notes")}>{t("workflow.clear")}</Button>
                         </div>
                         {isExplanationStreaming && explanation && (
                           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1160,10 +1170,11 @@ export function SkillDetailView({
                           variant="outline"
                             className="h-7 px-2.5 text-xs font-normal"
                           disabled={isGeneratingTags || isSavingMetadata || !skillContent}
+                          aria-label={t("detail.generateTags")}
                           onClick={handleGenerateTags}
                         >
                           {isGeneratingTags && <Loader2 className="size-4 animate-spin" />}
-                          {t(isGeneratingTags ? "detail.generatingTags" : "detail.generateTags")}
+                          {t("workflow.ai")}
                         </Button>
                         <Button
                           type="button"
@@ -1183,6 +1194,7 @@ export function SkillDetailView({
                             t("common.save")
                           )}
                         </Button>
+                        <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs font-normal" disabled={isSavingMetadata} onClick={()=>void handleClear("tags")}>{t("workflow.clear")}</Button>
                         </div>
                       </div>
                     </section>

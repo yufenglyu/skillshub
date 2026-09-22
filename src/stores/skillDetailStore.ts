@@ -1,3 +1,5 @@
+import { useTaskQueueStore, waitForTask } from "./taskQueueStore";
+import { useMetadataStore } from "./metadataStore";
 import i18n from "@/i18n";
 import { create } from "zustand";
 import { invoke, isTauriRuntime } from "@/lib/tauri";
@@ -42,6 +44,7 @@ interface SkillDetailState {
   refreshInstallations: (skillId: string) => Promise<void>;
   updateMetadata: (skillId: string, metadata: { notes: string | null; tags: string[] }) => Promise<void>;
   updateSourceMetadata: (skillId: string, metadata: SkillSourceMetadataUpdate) => Promise<void>;
+  clearNoteGeneration: () => void;
   cleanupExplanationListeners: () => void;
   reset: () => void;
 }
@@ -188,7 +191,7 @@ async function setupExplanationListeners(
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
-export const useSkillDetailStore = create<SkillDetailState>((set) => ({
+export const useSkillDetailStore = create<SkillDetailState>((set, get) => ({
   detail: null,
   content: null,
   isLoading: false,
@@ -297,11 +300,12 @@ export const useSkillDetailStore = create<SkillDetailState>((set) => ({
       return;
     }
     try {
-      await setupExplanationListeners(skillId, requestId, set);
-      await invoke("refresh_skill_explanation", { skillId, content, lang });
-    } catch (err) {
-      failExplanationRequest(requestId, err, set);
-    }
+      const id=useTaskQueueStore.getState().enqueue({key:`ai:notes:${skillId}`,kind:"ai",label:i18n.t("detail.notes"),steps:[{command:"explain_skill",args:{content,lang},label:i18n.t("detail.notes")}]});
+      const task=await waitForTask(id);
+      if(task.status!=="success")throw new Error(i18n.t("workflow.operationFailed"));
+      if(requestId===activeExplanationRequestId)set({explanation:task.steps[0].result as string,isExplanationLoading:false,isExplanationStreaming:false});
+    } catch (err) { failExplanationRequest(requestId, err, set); }
+
   },
 
   /**
@@ -385,10 +389,16 @@ export const useSkillDetailStore = create<SkillDetailState>((set) => ({
     }
   },
 
-  generateTags: (content) => invoke<string[]>("generate_skill_tags", { content }),
+  generateTags: async (content) => {
+    const id=useTaskQueueStore.getState().enqueue({key:`ai:tags:${get().detail?.id??content}`,kind:"ai",label:i18n.t("detail.tags"),steps:[{command:"generate_skill_tags",args:{content},label:i18n.t("detail.tags")}]});
+    const task=await waitForTask(id);
+    if(task.status!=="success")throw new Error(i18n.t("workflow.operationFailed"));
+    return task.steps[0].result as string[];
+  },
 
   updateMetadata: async (skillId, metadata) => {
     if (!isTauriRuntime()) {
+      useMetadataStore.getState().publish(skillId, metadata);
       set((state) => ({
         detail: state.detail?.id === skillId
           ? { ...state.detail, notes: metadata.notes, tags: metadata.tags }
@@ -404,6 +414,7 @@ export const useSkillDetailStore = create<SkillDetailState>((set) => ({
           metadata,
         }
       );
+      useMetadataStore.getState().publish(skillId, saved);
       set((state) => ({
         detail: state.detail?.id === skillId
           ? { ...state.detail, notes: saved.notes, tags: saved.tags }
@@ -459,6 +470,7 @@ export const useSkillDetailStore = create<SkillDetailState>((set) => ({
     }
   },
 
+  clearNoteGeneration: () => {cleanupExplanationListeners();nextExplanationRequestId();set({isExplanationLoading:false,isExplanationStreaming:false,explanation:null,explanationError:null,explanationErrorInfo:null});},
   cleanupExplanationListeners,
 
   /**

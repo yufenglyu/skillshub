@@ -108,6 +108,7 @@ export function installationSourcesForSkill(skill: ScannedSkill): Array<"indepen
 }
 
 export interface InstallSummaryMember {
+  id?: string;
   is_central: boolean;
   shared_agents?: readonly string[];
   linked_agents?: readonly string[];
