@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { Pencil, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useEffect, useState } from "react";
@@ -202,7 +203,7 @@ export function TagFilters({
         <DialogContent><DialogHeader><DialogTitle>{t("workflow.renameTag")}</DialogTitle></DialogHeader>
           <DialogBody className="space-y-3"><Input aria-label={t("workflow.tagName")} value={newName} maxLength={100} onChange={event=>{setNewName(event.target.value);setGlobalCollision(false);setMergeConfirmed(false);}}/>
           {collision && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={mergeConfirmed} onChange={event=>setMergeConfirmed(event.target.checked)}/>{t("workflow.mergeTag")}</label>}</DialogBody>
-          <DialogFooter><Button variant="outline" disabled={busy} onClick={()=>setEditing(null)}>{t("common.cancel")}</Button><Button disabled={busy || !newName.trim() || (collision && !mergeConfirmed)} onClick={async()=>{if(!editing)return;setBusy(true);try{if (!mergeConfirmed && editing.toLowerCase() !== newName.trim().toLowerCase() && await useMetadataStore.getState().countTag(newName.trim()) > 0) {setGlobalCollision(true);return;} await useMetadataStore.getState().renameTag(editing,newName,mergeConfirmed);setEditing(null);}catch{toast.error(t("workflow.operationFailed"));}finally{setBusy(false);}}}>{t("common.save")}</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" disabled={busy} onClick={()=>setEditing(null)}><ActionIcon action="cancel"/>{t("common.cancel")}</Button><Button disabled={busy || !newName.trim() || (collision && !mergeConfirmed)} onClick={async()=>{if(!editing)return;setBusy(true);try{if (!mergeConfirmed && editing.toLowerCase() !== newName.trim().toLowerCase() && await useMetadataStore.getState().countTag(newName.trim()) > 0) {setGlobalCollision(true);return;} await useMetadataStore.getState().renameTag(editing,newName,mergeConfirmed);setEditing(null);}catch{toast.error(t("workflow.operationFailed"));}finally{setBusy(false);}}}><ActionIcon action="save"/>{t("common.save")}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog
@@ -225,7 +226,7 @@ export function TagFilters({
               variant="outline"
               disabled={busy}
               onClick={() => setConfirmation(null)}
-            >
+            ><ActionIcon action="cancel"/>
               {t("common.cancel")}
             </Button>
             <Button
@@ -250,7 +251,7 @@ export function TagFilters({
                   setBusy(false);
                 }
               }}
-            >
+            ><ActionIcon action="delete"/>
               {t("common.delete")}
             </Button>
           </DialogFooter>

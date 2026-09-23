@@ -6,6 +6,7 @@ import {
 } from "./taskQueueStore";
 import { useCentralSkillsStore } from "./centralSkillsStore";
 import i18n from "@/i18n";
+import { toast } from "sonner";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
@@ -21,7 +22,10 @@ export function hasRepositoryChanges(item: RepositorySyncPreview): boolean {
 }
 
 interface RepositorySyncState {
+  isRefreshingStars: boolean;
+  refreshStars: (repositories?: string[]) => Promise<void>;
   checkedAt: Record<string, number>;
+  reportCheckedAt: number | null;
   ignored: string[];
   setIgnored: (keys: string[]) => void;
   preview: RepositorySyncPreviewReport | null;
@@ -52,7 +56,30 @@ let previewRequest: Promise<void> | null = null;
 export const useRepositorySyncStore = create<RepositorySyncState>()(
   persist(
     (set, get) => ({
+      isRefreshingStars: false,
+      refreshStars: async (repositories) => {
+        if (get().isRefreshingStars) return;
+        set({ isRefreshingStars: true });
+        try {
+          const library = useResourceLibraryStore.getState();
+          if (library.error) throw new Error(library.error);
+          const scope = repositories?.length ? new Set(repositories.map(repo => repo.toLowerCase())) : null;
+          const repos = [...new Set(library.skills.flatMap(skill => {
+            const repo = skill.source_repo?.trim().toLowerCase();
+            return repo && /^[^/\s]+\/[^/\s]+$/.test(repo) && (!scope || scope.has(repo)) ? [repo] : [];
+          }))];
+          const ids = repos.map(repository => useTaskQueueStore.getState().enqueue({
+            key: `stars:${repository}`, kind: "check", label: `${i18n.t("workflow.refreshStars")} · ${repository}`,
+            locks: [`repo:${repository}`],
+            steps: [{ command: "refresh_repository_stars", args: { repository }, label: repository }],
+          }));
+          await Promise.all(ids.map(waitForTask));
+        } catch {
+          toast.error(i18n.t("workflow.operationFailed"));
+        } finally { set({ isRefreshingStars: false }); }
+      },
       checkedAt: {},
+      reportCheckedAt: null,
       ignored: [],
       setIgnored: (ignored) => set({ ignored }),
       preview: null,
@@ -124,9 +151,15 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
         });
         previewRequest = (async () => {
           try {
+            if (!repositories?.length) {
+              await useResourceLibraryStore.getState().loadResourceLibrary();
+              const scanError=useResourceLibraryStore.getState().error;
+              if (scanError) throw new Error(scanError);
+            }
             const preview = await checkInBackground(repositories);
             set({
               preview,
+              reportCheckedAt: Date.now(),
               open: true,
               includeAdded: true,
               removeDeleted: false,
@@ -173,6 +206,7 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
       },
       partialize: (state) => ({
         checkedAt: state.checkedAt,
+        reportCheckedAt: state.reportCheckedAt,
         ignored: state.ignored,
         preview: state.preview,
         repositories: state.repositories,
@@ -246,6 +280,13 @@ registerTaskResult("update_source_backed_resource_skill", async () => {
   await useResourceLibraryStore.getState().loadResourceLibrary();
 });
 
+registerTaskResult("refresh_repository_stars", (step, result) => {
+  const repository = String(step.args.repository).toLowerCase();
+  if (typeof result !== "number") return;
+  useResourceLibraryStore.setState(state => ({skills: state.skills.map(skill => skill.source_repo?.toLowerCase() === repository ? {...skill, github_stars: result} : skill)}));
+  useCentralSkillsStore.setState(state => ({skills: state.skills.map(skill => skill.source_repo?.toLowerCase() === repository ? {...skill, github_stars: result} : skill)}));
+});
+
 registerTaskResult(
   "preview_source_backed_resource_repository_updates",
   (step, result) => {
@@ -254,7 +295,7 @@ registerTaskResult(
     const scope = Array.isArray(step.args.repositories) ? new Set((step.args.repositories as string[]).map(repo => repo.toLowerCase())) : null;
     const report = {repositories:rawReport.repositories.filter(repo => !scope || scope.has(repo.repository.toLowerCase()))};
     useRepositorySyncStore.setState((state) => ({
-      checkedAt: {...state.checkedAt, ...Object.fromEntries(report.repositories.filter(repo => !repo.error).map(repo => [repo.repository.toLowerCase(), Date.now()]))},
+      checkedAt: {...state.checkedAt, ...Object.fromEntries(report.repositories.map(repo => [repo.repository.toLowerCase(), Date.now()]))},
       preview:
         step.args.repositories && state.preview
           ? {

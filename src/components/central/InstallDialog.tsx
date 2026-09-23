@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -179,7 +180,7 @@ export function InstallDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isLoading}
-          >
+          ><ActionIcon action="cancel"/>
             {t("installDialog.cancel")}
           </Button>
           <Button
@@ -192,7 +193,7 @@ export function InstallDialog({
                 {t("installDialog.installing")}
               </>
             ) : (
-              t("installDialog.confirmInstall", { count: selectedInstallableCount })
+              <><ActionIcon action="install"/>{t("installDialog.confirmInstall", { count: selectedInstallableCount })}</>
             )}
           </Button>
         </DialogFooter>

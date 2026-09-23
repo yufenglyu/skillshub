@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -932,7 +933,7 @@ export function GitHubRepoImportWizard({
                           variant="outline"
                           size="sm"
                           onClick={() => handleInstallImported(skill.importedSkillId)}
-                        >
+                        ><ActionIcon action="install"/>
                           <span>
                             {t("githubImport.githubImportInstallImportedSkill")}
                           </span>
@@ -1423,7 +1424,7 @@ export function GitHubRepoImportWizard({
                                               selectedPreviewSkill,
                                             )
                                           }
-                                        >
+                                        ><ActionIcon action="confirm"/>
                                           {t("common.confirm")}
                                         </Button>
                                         <Button
@@ -1435,7 +1436,7 @@ export function GitHubRepoImportWizard({
                                               selectedPreviewSkill,
                                             )
                                           }
-                                        >
+                                        ><ActionIcon action="cancel"/>
                                           {t("common.cancel")}
                                         </Button>
                                       </div>
@@ -1473,7 +1474,7 @@ export function GitHubRepoImportWizard({
                                               },
                                             )
                                           }
-                                        >
+                                        ><ActionIcon action="reset"/>
                                           {t(
                                             "githubImport.githubImportStatusResetDefault",
                                           )}
@@ -1489,7 +1490,7 @@ export function GitHubRepoImportWizard({
                                                 selectedPreviewSkill,
                                               )
                                             }
-                                          >
+                                          ><ActionIcon action="edit"/>
                                             {t(
                                               "githubImport.githubImportStatusChangeToRename",
                                             )}
@@ -1506,7 +1507,7 @@ export function GitHubRepoImportWizard({
                                                 },
                                               )
                                             }
-                                          >
+                                          ><ActionIcon action="reset"/>
                                             {t(
                                               "githubImport.githubImportStatusResetDefault",
                                             )}
@@ -1526,7 +1527,7 @@ export function GitHubRepoImportWizard({
                                                 },
                                               )
                                             }
-                                          >
+                                          ><ActionIcon action="import"/>
                                             {t(
                                               "githubImport.githubImportStatusChangeToOverwrite",
                                             )}
@@ -1540,7 +1541,7 @@ export function GitHubRepoImportWizard({
                                                 selectedPreviewSkill,
                                               )
                                             }
-                                          >
+                                          ><ActionIcon action="edit"/>
                                             {t(
                                               "githubImport.githubImportStatusChangeToRename",
                                             )}
@@ -1836,7 +1837,7 @@ export function GitHubRepoImportWizard({
                     {t("githubImport.githubImportResultActionRestart")}
                   </span>
                 </Button>
-                <Button onClick={handleClose.bind(null, false)}>
+                <Button onClick={handleClose.bind(null, false)}><ActionIcon action="cancel"/>
                   <span>{t("common.close")}</span>
                 </Button>
               </div>
@@ -1849,13 +1850,13 @@ export function GitHubRepoImportWizard({
                 <Button
                   onClick={() => setStep("confirm")}
                   disabled={!canReview}
-                >
+                ><ActionIcon action="confirm"/>
                   <span>{t("githubImport.reviewImportSelection")}</span>
                 </Button>
               </div>
             ) : (
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setStep("preview")}>
+                <Button variant="outline" onClick={() => setStep("preview")}><ActionIcon action="back"/>
                   <span>{t("githubImport.githubImportBackToPreview")}</span>
                 </Button>
                 <Button

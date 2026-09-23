@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useState, useEffect } from "react";
 import { Loader2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -190,7 +191,7 @@ export function CollectionPickerDialog({
               variant="outline"
               onClick={() => onOpenChange(false)}
               disabled={isAdding}
-            >
+            ><ActionIcon action="cancel"/>
               {t("collectionPicker.cancel")}
             </Button>
             <Button
@@ -203,9 +204,9 @@ export function CollectionPickerDialog({
                   {t("collectionPicker.adding")}
                 </>
               ) : selectedIds.size > 0 ? (
-                t("collectionPicker.addCount", { count: selectedIds.size })
+                <><ActionIcon action="add"/>{t("collectionPicker.addCount", { count: selectedIds.size })}</>
               ) : (
-                t("collectionPicker.add")
+                <><ActionIcon action="add"/>{t("collectionPicker.add")}</>
               )}
             </Button>
           </DialogFooter>

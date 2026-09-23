@@ -1,4 +1,6 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { browserStats } from "@/lib/browserStats";
+import { useRepositoryNameStore } from "@/stores/repositoryNameStore";
 import { useBrowserStatusStore } from "@/stores/browserStatusStore";
 import { shouldIgnoreShortcutTarget } from "@/lib/shortcutKeys";
 import { BatchSkillActionDialog, type BatchAction, type BatchEntry, type BatchOperations } from "./BatchSkillActionDialog";
@@ -7,6 +9,7 @@ import { ActionMenuContext } from "@/components/ui/action-menu-context";
 import { isProjectAgentId } from "@/lib/projectTargets";
 import {
   Check,
+  ArrowLeftRight,
   ChevronRight,
   ChevronDown,
   FileText,
@@ -67,6 +70,7 @@ import {
 type InstallationSource = "independent" | "shared";
 
 export interface FolderTableItem {
+  sourceRepo?: string | null;
   batchOperations?: BatchOperations;
   expandable?: boolean;
   onSelect?: () => void;
@@ -695,7 +699,7 @@ export function SkillBrowserTable({
   kind,
   visibleColumns,
   skills = [],
-  folders = [],
+  folders: originalFolders = [],
   sortField,
   sortDirection = "asc",
   onSortChange,
@@ -708,6 +712,20 @@ export function SkillBrowserTable({
   className,
 }: SkillBrowserTableProps) {
   const { t } = useTranslation();
+  const { repositoryFirst, toggle: toggleRepositoryName } = useRepositoryNameStore();
+  const folders = useMemo(() => {
+    const result = originalFolders.map(folder => {
+      if (!repositoryFirst || folder.sourceRepo?.toLowerCase() !== folder.name.toLowerCase()) return folder;
+      const parts = folder.sourceRepo.split("/");
+      return parts.length === 2 && parts.every(Boolean) ? { ...folder, name: `${parts[1]}@${parts[0]}` } : folder;
+    });
+    if (sortField === "name") {
+      result.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) * (sortDirection === "asc" ? 1 : -1));
+    }
+    return result;
+  }, [originalFolders, repositoryFirst, sortField, sortDirection]);
+  const canSwitchRepositoryName = kind === "folder" && originalFolders.some(folder => folder.sourceRepo?.toLowerCase() === folder.name.toLowerCase());
+  const switchNameLabel = t(repositoryFirst ? "skillBrowser.showOwnerFirst" : "skillBrowser.showRepositoryFirst");
   const columnLabel = (column: string) => t(`skillBrowser.columns.${column === "installSummary" && showInstallationSource ? "installationSource" : column}`);
   const renderInstallationSources = (sources: InstallationSource[] = []) => (
     <span className="text-inherit text-muted-foreground">
@@ -1202,7 +1220,13 @@ export function SkillBrowserTable({
                     column === "index" ? "px-2" : "px-3"
                   )}
                 >
-                  <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">{column === "name" && nameHeaderAction}{renderHeaderContent(column)}</div>
+                  <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
+                    {renderHeaderContent(column)}
+                    {column === "name" && <div className="ml-auto flex shrink-0 items-center gap-2 pr-1">
+                      {canSwitchRepositoryName && <button type="button" title={switchNameLabel} aria-label={switchNameLabel} aria-pressed={repositoryFirst} onClick={toggleRepositoryName} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeftRight className="size-4" /></button>}
+                      {nameHeaderAction}
+                    </div>}
+                  </div>
                   {column !== "actions" && !compactList ? (
                     <span
                       role="separator"
@@ -1371,10 +1395,10 @@ export function SkillBrowserTable({
             <div className="mt-2 border-t border-border pt-2">
               <button
                 type="button"
-                className="flex w-full items-center rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 onClick={() => { saveOrder([]); onResetColumns(); }}
               >
-                {t("skillBrowser.resetColumns")}
+                <ActionIcon action="reset"/>{t("skillBrowser.resetColumns")}
               </button>
             </div>
           ) : null}

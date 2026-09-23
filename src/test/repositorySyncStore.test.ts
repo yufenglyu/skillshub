@@ -4,6 +4,20 @@ import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
 import type { RepositorySyncPreviewReport } from "@/types";
 
 describe("background repository preview", () => {
+  it("scans before a full check and preserves its report time on a repository retry", async () => {
+    const order:string[]=[];
+    useResourceLibraryStore.setState({error:null});
+    vi.spyOn(useResourceLibraryStore.getState(),"loadResourceLibrary").mockImplementation(async()=>{order.push("scan");});
+    vi.spyOn(useResourceLibraryStore.getState(),"previewRepositorySync").mockImplementation(async()=>{order.push("check");return {repositories:[{repository:"example/repo",added:[],modified:[],deleted:[],unchanged:[]}]};});
+    await useRepositorySyncStore.getState().checkForUpdates();
+    expect(order).toEqual(["scan","check"]);
+    expect(useRepositorySyncStore.getState().reportCheckedAt).toEqual(expect.any(Number));
+    useRepositorySyncStore.setState({reportCheckedAt:1000});
+    await useRepositorySyncStore.getState().recheckRepository("example/repo");
+    expect(useRepositorySyncStore.getState().reportCheckedAt).toBe(1000);
+    expect(useRepositorySyncStore.getState().checkedAt["example/repo"]).toBeGreaterThan(1000);
+    expect(order).toEqual(["scan","check","check"]);
+  });
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();

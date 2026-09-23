@@ -80,6 +80,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::remote_sources::apply_repository_update_item,
+            commands::github_import::refresh_repository_stars,
             commands::skills::preview_local_resource_skills,
             commands::metadata::get_folder_notes, commands::metadata::save_folder_note, commands::metadata::count_skill_tag, commands::metadata::change_skill_tag, commands::metadata::rename_skill_tag,
             // Scanner

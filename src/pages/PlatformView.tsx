@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { SearchScopes } from "@/components/skill/SearchScopes";
 import { useSearchScopes, matchesSearch } from "@/lib/skillFilters";
 import { TagFilters } from "@/components/skill/TagFilters";
@@ -439,6 +440,7 @@ export function PlatformView() {
                         ...(group.skills.some((skill) => installationSourcesForSkill(skill).includes("shared")) ? ["shared" as const] : []),
                       ],
                       name: group.name,
+                      sourceRepo: group.skills.find(skill => skill.source_repo?.toLowerCase() === group.name.toLowerCase())?.source_repo,
                       path: group.path,
                       skillCount: group.skillCount,
  skillKeys: group.skills.map(skill => getSkillRowKey(skill)),
@@ -554,7 +556,7 @@ export function PlatformView() {
               variant="outline"
               disabled={isFolderUninstalling}
               onClick={() => setFolderUninstallGroupPath(null)}
-            >
+            ><ActionIcon action="cancel"/>
               {t("common.cancel")}
             </Button>
             <Button

@@ -844,6 +844,18 @@ pub(crate) async fn cache_repository_stars(pool: &DbPool, repo: &GitHubRepoRef) 
     Ok(())
 }
 
+#[tauri::command]
+pub async fn refresh_repository_stars(state: State<'_, AppState>, repository: String) -> Result<i64, String> {
+    let auth = github_direct_auth_from_settings(&state.db).await?;
+    let repo = resolve_repo_ref(&repository, auth.as_deref()).await?;
+    let stars = repo.stars.ok_or_else(|| "Repository star count is unavailable".to_string())?;
+    // Keep the requested source key working after a GitHub repository redirect.
+    let (owner, name) = parse_github_url(&repository)?;
+    db::save_github_stars(&state.db, &format!("{owner}/{name}"), stars).await?;
+    cache_repository_stars(&state.db, &repo).await?;
+    Ok(stars)
+}
+
 fn pinned_commit_from_url(url: &str) -> Option<&str> {
     let parts: Vec<_> = url.trim().trim_end_matches('/').split('/').collect();
     if parts.len() == 7 && parts[5] == "tree" && parts[6].len() == 40 && parts[6].bytes().all(|b|b.is_ascii_hexdigit()) { Some(parts[6]) } else {None}

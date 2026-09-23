@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -50,7 +51,7 @@ export function FolderNotesEditor({ skillIds }: { skillIds: string[] }) {
           variant="outline"
           disabled={busy}
           onClick={() => void save(value)}
-        >
+        ><ActionIcon action="save"/>
           {t("common.save")}
         </Button>
         <Button
@@ -58,7 +59,7 @@ export function FolderNotesEditor({ skillIds }: { skillIds: string[] }) {
           variant="outline"
           disabled={busy}
           onClick={() => void save("")}
-        >
+        ><ActionIcon action="delete"/>
           {t("workflow.clear")}
         </Button>
       </div>

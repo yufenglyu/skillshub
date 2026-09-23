@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useState, useEffect } from "react";
 import { FolderOpen, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -197,7 +198,7 @@ export function AddDirectoryDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
-          >
+          ><ActionIcon action="cancel"/>
             {t("addDir.cancel")}
           </Button>
           <Button onClick={() => void handleSubmit()} disabled={isSubmitting}>
@@ -207,7 +208,7 @@ export function AddDirectoryDialog({
                 {isEditMode ? t("addDir.saving") : t("addDir.adding")}
               </>
             ) : (
-              isEditMode ? t("addDir.save") : t("addDir.add")
+              isEditMode ? <><ActionIcon action="save"/>{t("addDir.save")}</> : <><ActionIcon action="add"/>{t("addDir.add")}</>
             )}
           </Button>
         </DialogFooter>

@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useMemo, useState } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
@@ -132,7 +133,7 @@ export function PlatformInstallDrawer({
                   className="h-9"
                 />
                 {onOpenInstallDialog && (
-                  <Button type="button" variant="outline" size="sm" onClick={onOpenInstallDialog}>
+                  <Button type="button" variant="outline" size="sm" onClick={onOpenInstallDialog}><ActionIcon action="open"/>
                     {t("platformDrawer.openFull")}
                   </Button>
                 )}
@@ -204,7 +205,7 @@ export function PlatformInstallDrawer({
                             aria-label={t("platformDrawer.sharedAria", {
                               platform: agent.display_name,
                             })}
-                          >
+                          ><ActionIcon action="install"/>
                             {t("installDialog.alwaysIncluded")}
                           </Button>
                         ) : (
@@ -225,7 +226,7 @@ export function PlatformInstallDrawer({
                                   })
                             }
                             onClick={() => onToggle(skill.id, agent.id)}
-                          >
+                          ><ActionIcon action={isLinked ? "uninstall" : "install"}/>
                             {isLinked ? t("common.uninstall") : t("common.install")}
                           </Button>
                         )}

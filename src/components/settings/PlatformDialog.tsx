@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { usePlatformIconStore } from "@/stores/platformIconStore";
 import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { useState, useEffect, useMemo } from "react";
@@ -180,7 +181,7 @@ export function PlatformDialog({
                 reader.onerror = () => setError(t("platformDialog.iconSaveFailed"));
                 reader.readAsDataURL(file);
               }}/>
-              <Button variant="outline" disabled={isSubmitting} onClick={() => setIconDraft(null)}>{t("platformDialog.resetIcon")}</Button>
+              <Button variant="outline" disabled={isSubmitting} onClick={() => setIconDraft(null)}><ActionIcon action="reset"/>{t("platformDialog.resetIcon")}</Button>
             </div>
             <p className="text-xs text-muted-foreground">{t("platformDialog.iconHint")}</p>
           </div>
@@ -293,7 +294,7 @@ export function PlatformDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
-          >
+          ><ActionIcon action="cancel"/>
             {t("platformDialog.cancel")}
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
@@ -303,9 +304,9 @@ export function PlatformDialog({
                 {isEditMode ? t("platformDialog.saving") : t("platformDialog.adding")}
               </>
             ) : isEditMode ? (
-              t("platformDialog.save")
+              <><ActionIcon action="save"/>{t("platformDialog.save")}</>
             ) : (
-              t("platformDialog.add")
+              <><ActionIcon action="add"/>{t("platformDialog.add")}</>
             )}
           </Button>
         </DialogFooter>

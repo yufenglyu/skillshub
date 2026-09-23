@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -36,6 +37,6 @@ export function BatchSkillActionDialog({action, entries, onClose}: {action:Batch
       {(running || done) && <p className="text-xs text-muted-foreground">{results.length} / {eligible.length}</p>}
       {results.filter(result=>result.error).map((result,index)=><p key={index} className="text-xs text-destructive">{result.name}: {result.error}</p>)}
     </div>
-    <DialogFooter className="flex-row justify-end"><Button onClick={()=>void apply()} disabled={running || done || !eligible.length || (action==="install"&&!targets.size)}>{t("common.confirm")}</Button><Button variant="outline" onClick={onClose} disabled={running}>{t(done ? "common.close":"common.cancel")}</Button></DialogFooter>
+    <DialogFooter className="flex-row justify-end"><Button onClick={()=>void apply()} disabled={running || done || !eligible.length || (action==="install"&&!targets.size)}><ActionIcon action="confirm"/>{t("common.confirm")}</Button><Button variant="outline" onClick={onClose} disabled={running}><ActionIcon action="cancel"/>{t(done ? "common.close":"common.cancel")}</Button></DialogFooter>
   </DialogContent></Dialog>;
 }

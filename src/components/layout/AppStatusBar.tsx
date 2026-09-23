@@ -1,3 +1,5 @@
+import { ActionIcon } from "@/components/ui/action-icon";
+import { RepositoryCheckConfirm } from "@/components/skill/RepositoryCheckConfirm";
 import { useBrowserStatusStore } from "@/stores/browserStatusStore";
 import { usePlatformStore } from "@/stores/platformStore";
 import { useCollectionStore } from "@/stores/collectionStore";
@@ -60,12 +62,13 @@ export function AppStatusBar({settingsOpen = false}: {settingsOpen?: boolean} = 
 
   const isChecking = useRepositorySyncStore((s) => s.isChecking);
   const previewError = useRepositorySyncStore((s) => s.error);
-  const checkForUpdates = useRepositorySyncStore((s) => s.checkForUpdates);
+  const reportCheckedAt = useRepositorySyncStore((s) => s.reportCheckedAt);
+  const [checkConfirmOpen, setCheckConfirmOpen] = useState(false);
   const previewScope = useRepositorySyncStore((s) => s.requestedRepositories);
   const preview = useRepositorySyncStore((s) => s.preview);
   const previewApplied = useRepositorySyncStore((s) => s.applied);
   const setPreviewOpen = useRepositorySyncStore((s) => s.setOpen);
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [statsFilter, setStatsFilter] = useState<UpdateStatsFilter | null>(null);
   const task = useAppStatusStore((state) => state.task);
@@ -154,22 +157,23 @@ export function AppStatusBar({settingsOpen = false}: {settingsOpen?: boolean} = 
           </span>
           <span className="truncate">{detail}</span>
         </div>
-        <div className="flex shrink-0 items-center gap-2"><TaskCenter />
+        <div className="flex shrink-0 items-center gap-2"><TaskCenter /><RepositoryCheckConfirm open={checkConfirmOpen} onOpenChange={setCheckConfirmOpen} repositories={previewScope ?? undefined}/>
           {isChecking && (
-            <span role="status" className="inline-flex items-center gap-1 text-primary">
+            <span role="status" className="inline-flex items-center gap-1 text-muted-foreground">
               <Loader2 className="size-3 animate-spin" />{t("resource.repoSyncChecking")}
             </span>
           )}
           {!isChecking && previewError && (
-            <button type="button" className="text-destructive hover:underline" title={previewError}
-              onClick={() => void checkForUpdates(previewScope ?? undefined)}>
-              {t("resource.repoSyncCheckFailed")}
+            <button type="button" className="inline-flex items-center gap-1 text-destructive hover:underline" title={previewError}
+              onClick={() => setCheckConfirmOpen(true)}>
+              <ActionIcon action="error"/>{t("resource.repoSyncCheckFailed")}
             </button>
           )}
           {preview && !previewApplied && (
-            <button type="button" className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            <button type="button" className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title={reportCheckedAt ? new Date(reportCheckedAt).toLocaleString(i18n.language) : t("workflow.checkTimeUnknown")}
               onClick={() => { setPreviewOpen(true); navigate("/resources"); }}>
-              {t("workflow.updateCenter")}
+              <ActionIcon action="update"/>{t("workflow.updateStatus")}{reportCheckedAt ? ` · ${new Date(reportCheckedAt).toLocaleString(i18n.language, {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}` : ""}
             </button>
           )}
           {showProgress ? (
@@ -203,7 +207,7 @@ export function AppStatusBar({settingsOpen = false}: {settingsOpen?: boolean} = 
               className="h-6 shrink-0 gap-2 px-2 text-xs text-muted-foreground"
               onClick={() => {if(isImport)setIsStatsOpen(true);else{setPreviewOpen(true);navigate("/resources");}}}
               aria-label={t(isImport ? "status.viewImportStats" : "status.viewUpdateStats")}
-            >
+            ><ActionIcon action="delete"/>
               {typeof task?.updatedCount === "number" ? (
                 <span>{t(isImport ? "status.importedCount" : "status.updatedCount", { count: task.updatedCount })}</span>
               ) : null}
@@ -238,7 +242,7 @@ export function AppStatusBar({settingsOpen = false}: {settingsOpen?: boolean} = 
               aria-pressed={statsFilter === "updated"}
               onClick={() => toggleStatsFilter("updated")}
             >
-              <div className="text-xs text-muted-foreground">{t(isImport ? "status.importedLabel" : "status.updatedLabel")}</div>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground"><ActionIcon action={isImport ? "import" : "update"}/>{t(isImport ? "status.importedLabel" : "status.updatedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-foreground">{task?.updatedCount ?? 0}</div>
             </button>
             {!isImport && <>
@@ -248,7 +252,7 @@ export function AppStatusBar({settingsOpen = false}: {settingsOpen?: boolean} = 
               aria-pressed={statsFilter === "unchanged"}
               onClick={() => toggleStatsFilter("unchanged")}
             >
-              <div className="text-xs text-muted-foreground">{t("status.unchangedLabel")}</div>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground"><ActionIcon action="success"/>{t("status.unchangedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-foreground">{task?.unchangedCount ?? 0}</div>
             </button>
             <button
@@ -257,7 +261,7 @@ export function AppStatusBar({settingsOpen = false}: {settingsOpen?: boolean} = 
               aria-pressed={statsFilter === "deleted"}
               onClick={() => toggleStatsFilter("deleted")}
             >
-              <div className="text-xs text-muted-foreground">{t("status.deletedLabel")}</div>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground"><ActionIcon action="delete"/>{t("status.deletedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-amber-600">{task?.deletedCount ?? 0}</div>
             </button>
             </>}
@@ -267,7 +271,7 @@ export function AppStatusBar({settingsOpen = false}: {settingsOpen?: boolean} = 
               aria-pressed={statsFilter === "skipped"}
               onClick={() => toggleStatsFilter("skipped")}
             >
-              <div className="text-xs text-muted-foreground">{t("status.skippedLabel")}</div>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground"><ActionIcon action="ignore"/>{t("status.skippedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-foreground">{task?.skippedCount ?? 0}</div>
             </button>
             <button
@@ -276,7 +280,7 @@ export function AppStatusBar({settingsOpen = false}: {settingsOpen?: boolean} = 
               aria-pressed={statsFilter === "failed"}
               onClick={() => toggleStatsFilter("failed")}
             >
-              <div className="text-xs text-muted-foreground">{t(isImport ? "status.importFailedLabel" : "status.failedLabel")}</div>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground"><ActionIcon action="error"/>{t(isImport ? "status.importFailedLabel" : "status.failedLabel")}</div>
               <div className="mt-1 text-xl font-semibold text-destructive">{task?.failedCount ?? 0}</div>
             </button>
           </div>

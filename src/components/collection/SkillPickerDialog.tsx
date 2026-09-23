@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Loader2, CheckSquare, XSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -209,7 +210,7 @@ export function SkillPickerDialog({
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isAdding}
-          >
+          ><ActionIcon action="cancel"/>
             {t("skillPicker.cancel")}
           </Button>
           <Button
@@ -222,9 +223,9 @@ export function SkillPickerDialog({
                 {t("skillPicker.adding")}
               </>
             ) : selectedSkillIds.size > 0 ? (
-              t("skillPicker.addCount", { count: selectedSkillIds.size })
+              <><ActionIcon action="add"/>{t("skillPicker.addCount", { count: selectedSkillIds.size })}</>
             ) : (
-              t("skillPicker.add")
+              <><ActionIcon action="add"/>{t("skillPicker.add")}</>
             )}
           </Button>
         </DialogFooter>

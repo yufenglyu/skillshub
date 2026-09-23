@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { SearchInput } from "@/components/ui/search-input";
 import { SearchScopes } from "@/components/skill/SearchScopes";
 import { useSearchScopes, matchesSearch, matchesTags } from "@/lib/skillFilters";
@@ -303,7 +304,7 @@ export function CollectionView() {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
         <p className="text-sm text-destructive">{error}</p>
-        <Button variant="outline" size="sm" onClick={() => navigate(-1)}>
+        <Button variant="outline" size="sm" onClick={() => navigate(-1)}><ActionIcon action="back"/>
           {t("collection.goBack")}
         </Button>
       </div>

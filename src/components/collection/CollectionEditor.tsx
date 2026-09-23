@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -147,7 +148,7 @@ export function CollectionEditor({
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
-          >
+          ><ActionIcon action="cancel"/>
             {t("collectionEditor.cancel")}
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
@@ -157,9 +158,9 @@ export function CollectionEditor({
                 {isEditMode ? t("collectionEditor.saving") : t("collectionEditor.creating")}
               </>
             ) : isEditMode ? (
-              t("collectionEditor.save")
+              <><ActionIcon action="save"/>{t("collectionEditor.save")}</>
             ) : (
-              t("collectionEditor.create")
+              <><ActionIcon action="add"/>{t("collectionEditor.create")}</>
             )}
           </Button>
         </DialogFooter>

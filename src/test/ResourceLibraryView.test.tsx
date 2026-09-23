@@ -121,7 +121,7 @@ vi.mock("@/stores/resourceLibraryStore", () => ({
       previewDeleteResourceBundle: mockPreviewDeleteResourceBundle,
       deleteResourceBundle: mockDeleteResourceBundle,
       deleteResourceSkill: mockDeleteResourceSkill,
-    }), { getState: () => ({ previewRepositorySync: mockPreviewRepositorySync }) }),
+    }), { getState: () => ({ previewRepositorySync: mockPreviewRepositorySync, loadResourceLibrary: mockLoadResourceLibrary, error: null }) }),
 }));
 
 vi.mock("@/stores/platformStore", () => ({
@@ -332,14 +332,17 @@ describe("ResourceLibraryView delete", () => {
     mockPreviewRepositorySync.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     const view = render(<MemoryRouter><ResourceLibraryView /><AppStatusBar /></MemoryRouter>);
     fireEvent.click(screen.getByRole("button", { name: /更新技能|Update skills/i }));
+    expect(mockPreviewRepositorySync).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", {name:"检查更新"}));
+    await waitFor(()=>expect(mockPreviewRepositorySync).toHaveBeenCalledTimes(1));
     view.rerender(<MemoryRouter><AppStatusBar /></MemoryRouter>);
     expect(screen.getByRole("status")).toHaveTextContent(/正在后台检查更新|Checking for updates/);
     finish({ repositories: [] });
-    await screen.findByRole("button", { name: /更新技能|Update skills/i });
+    await screen.findByRole("button", { name: /更新状态|Update status/i });
     expect(mockSyncSourceBackedSkills).not.toHaveBeenCalled();
     expect(mockUpdateSourceBackedSkills).not.toHaveBeenCalled();
     view.rerender(<MemoryRouter><ResourceLibraryView /><AppStatusBar /></MemoryRouter>);
-    await screen.findByRole("dialog", { name: /更新技能|Update skills/i });
+    await screen.findByRole("dialog", { name: /更新状态|Update status/i });
     expect(mockPreviewRepositorySync).toHaveBeenCalledTimes(1);
   });
 
@@ -694,7 +697,7 @@ describe("ResourceLibraryView delete", () => {
   it.each([false, true])("shows the status preview only when unapplied (applied=%s)", (applied) => {
     useRepositorySyncStore.setState({ preview: { repositories: [] }, applied });
     render(<MemoryRouter><AppStatusBar /></MemoryRouter>);
-    const button = screen.queryByRole("button", { name: /更新技能|Update skills/i });
+    const button = screen.queryByRole("button", { name: /更新状态|Update status/i });
     if (applied) expect(button).not.toBeInTheDocument();
     else expect(button).toBeInTheDocument();
   });

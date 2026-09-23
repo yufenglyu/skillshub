@@ -166,8 +166,17 @@ impl From<&ScanDirectory> for ScanDirectoryBackup {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+struct RepositoryStatsBackup {
+    repository: String,
+    stars: i64,
+    checked_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AppBackup {
+    #[serde(default)]
+    repository_stats: Vec<RepositoryStatsBackup>,
     #[serde(default)]
     folder_notes: Vec<super::metadata::FolderNote>,
     schema_version: u32,
@@ -1001,7 +1010,16 @@ async fn export_app_backup_data_impl(
         Vec::new()
     };
 
+    let repositories: HashSet<String> = skill_backups.iter()
+        .filter_map(|skill| skill.source.as_ref()?.source_repo.as_deref())
+        .filter(|repo| is_portable_github_repo(repo))
+        .map(str::to_ascii_lowercase).collect();
+    let repository_stats = sqlx::query_as::<_, RepositoryStatsBackup>(
+        "SELECT repository, stars, checked_at FROM github_repository_stats ORDER BY repository"
+    ).fetch_all(pool).await.map_err(|error| error.to_string())?
+        .into_iter().filter(|stats| repositories.contains(&stats.repository.to_ascii_lowercase())).collect();
     let mut backup = AppBackup {
+        repository_stats,
         folder_notes: if options.include_resource_library { super::metadata::folder_notes(pool).await? } else { Vec::new() },
         schema_version: BACKUP_SCHEMA_VERSION,
         exported_at: Utc::now().to_rfc3339(),
@@ -1178,6 +1196,12 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
     std::fs::create_dir_all(&resource_root)
         .map_err(|e| format!("Failed to create Skill Resource Library root: {}", e))?;
     validate_restore_plan(&backup.skills)?;
+    for stats in &backup.repository_stats {
+        if !is_portable_github_repo(&stats.repository) || stats.stars < 0
+            || DateTime::parse_from_rfc3339(&stats.checked_at).is_err() {
+            return Err("Backup contains invalid repository statistics".into());
+        }
+    }
     for note in &backup.folder_notes { super::metadata::save_note(pool, note).await?; }
 
     for setting in backup.settings {
@@ -1311,6 +1335,13 @@ async fn import_app_backup_data_impl(pool: &DbPool, backup: AppBackup) -> Result
         .map_err(|e| e.to_string())?;
     }
 
+    for stats in backup.repository_stats {
+        sqlx::query("INSERT INTO github_repository_stats (repository, stars, checked_at) VALUES (?, ?, ?) \
+            ON CONFLICT(repository) DO UPDATE SET stars=excluded.stars, checked_at=excluded.checked_at \
+            WHERE julianday(excluded.checked_at) >= julianday(github_repository_stats.checked_at)")
+            .bind(stats.repository).bind(stats.stars).bind(stats.checked_at)
+            .execute(pool).await.map_err(|error| error.to_string())?;
+    }
     crate::commands::skills::get_resource_library_skills_impl(pool).await?;
 
     Ok(())
@@ -2831,14 +2862,30 @@ mod tests {
         .await
         .expect("metadata");
 
+        db::save_github_stars(&pool, "openai/skills", 1234).await.unwrap();
+        db::save_github_stars(&pool, "unrelated/repository", 999).await.unwrap();
         let json = export_app_backup_impl(&pool, BackupOptions::default())
             .await
             .expect("export");
+        let mut serialized: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(serialized["repository_stats"].as_array().unwrap().len(), 1);
+        let checked_at = serialized["repository_stats"][0]["checked_at"].as_str().unwrap().to_string();
+        serialized.as_object_mut().unwrap().remove("repository_stats");
+        assert!(serde_json::from_value::<AppBackup>(serialized).unwrap().repository_stats.is_empty());
         std::fs::remove_dir_all(&skill_dir).expect("remove original files");
         db::delete_skill(&pool, "demo").await.expect("delete db");
 
+        sqlx::query("DELETE FROM github_repository_stats").execute(&pool).await.unwrap();
         import_app_backup_impl(&pool, &json).await.expect("import");
 
+        assert_eq!(db::get_github_stars(&pool, "openai/skills").await.unwrap(), Some(1234));
+        let restored_time: String = sqlx::query_scalar("SELECT checked_at FROM github_repository_stats WHERE repository = 'openai/skills'").fetch_one(&pool).await.unwrap();
+        assert_eq!(restored_time, checked_at);
+        db::save_github_stars(&pool, "openai/skills", 0).await.unwrap();
+        let archive = export_app_backup_archive_impl(&pool, repository_backup_options()).await.unwrap();
+        sqlx::query("DELETE FROM github_repository_stats").execute(&pool).await.unwrap();
+        import_app_backup_bytes_impl(&pool, &archive).await.unwrap();
+        assert_eq!(db::get_github_stars(&pool, "openai/skills").await.unwrap(), Some(0));
         assert!(skill_dir.join("SKILL.md").exists());
         assert_eq!(
             std::fs::read(skill_dir.join("asset.bin")).unwrap(),

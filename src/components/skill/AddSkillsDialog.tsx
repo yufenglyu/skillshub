@@ -1,8 +1,9 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { previewLocalImport } from "@/stores/importPreparationStore";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { useGitHubImportStore } from "@/stores/githubImportStore";
 import { registerTaskResult, taskErrorMessage, useTaskQueueStore } from "@/stores/taskQueueStore";
@@ -152,7 +153,7 @@ export function AddSkillsDialog({
       >
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>{t("resource.addSkills")}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><PackagePlus className="size-5" aria-hidden="true"/>{t("resource.addSkills")}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-4 py-2">
             <label htmlFor="add-github">GitHub</label>
@@ -166,7 +167,7 @@ export function AddSkillsDialog({
             <Button
               disabled={preparing || !repo.trim()}
               onClick={() => void add("github")}
-            >
+            ><ActionIcon action="import"/>
               {t("common.import")}
             </Button>
             <label htmlFor="add-local">{t("workflow.local")}</label>
@@ -204,7 +205,7 @@ export function AddSkillsDialog({
             <Button
               disabled={preparing || !path.trim()}
               onClick={() => void add("local")}
-            >
+            ><ActionIcon action="add"/>
               {t("common.add")}
             </Button>
             <label className="col-start-2 col-span-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -219,7 +220,7 @@ export function AddSkillsDialog({
           </div>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
-            <Button variant="outline" onClick={close}>
+            <Button variant="outline" onClick={close}><ActionIcon action="cancel"/>
               {t("common.cancel")}
             </Button>
           </DialogFooter>

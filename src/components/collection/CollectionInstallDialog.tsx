@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -153,7 +154,7 @@ export function CollectionInstallDialog({
                 size="sm"
                 onClick={() => onOpenChange(false)}
                 className="mt-2"
-              >
+              ><ActionIcon action="cancel"/>
                 {t("batchInstall.close")}
               </Button>
             </div>
@@ -172,7 +173,7 @@ export function CollectionInstallDialog({
               variant="outline"
               onClick={() => onOpenChange(false)}
               disabled={isLoading}
-            >
+            ><ActionIcon action="cancel"/>
               {t("batchInstall.cancel")}
             </Button>
             <Button
@@ -185,7 +186,7 @@ export function CollectionInstallDialog({
                   {t("batchInstall.installing")}
                 </>
               ) : (
-                t("batchInstall.install", { count: selectedInstallableCount })
+                <><ActionIcon action="install"/>{t("batchInstall.install", { count: selectedInstallableCount })}</>
               )}
             </Button>
           </DialogFooter>

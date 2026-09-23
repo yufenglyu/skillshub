@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { SearchScopes } from "@/components/skill/SearchScopes";
 import { useSearchScopes, matchesSearch } from "@/lib/skillFilters";
 import { TagFilters } from "@/components/skill/TagFilters";
@@ -521,6 +522,7 @@ export function CentralSkillsView() {
                       key: group.relativePath,
                       onLocate: () => navigate(repositoryLocationUrl(group.skills[0], true)),
                       name: group.name,
+                      sourceRepo: group.skills.find(skill => skill.source_repo?.toLowerCase() === group.name.toLowerCase())?.source_repo,
                       path: group.path,
                       skillCount: group.skillCount,
  skillKeys: groupSkills.map(skill => skill.id),
@@ -664,7 +666,7 @@ export function CentralSkillsView() {
               variant="outline"
               onClick={() => setDeleteTargetSkill(null)}
               disabled={!!deleteTargetSkill && deletingSkillId === deleteTargetSkill.id}
-            >
+            ><ActionIcon action="cancel"/>
               {t("common.cancel")}
             </Button>
             <Button
@@ -675,7 +677,7 @@ export function CentralSkillsView() {
                 }
               }}
               disabled={!!deleteTargetSkill && deletingSkillId === deleteTargetSkill.id}
-            >
+            ><ActionIcon action="delete"/>
               {t("central.deleteCascadeLabel")}
             </Button>
           </DialogFooter>
@@ -772,7 +774,7 @@ export function CentralSkillsView() {
                 !!deleteTargetBundle &&
                 deletingBundlePath === deleteTargetBundle.relativePath
               }
-            >
+            ><ActionIcon action="cancel"/>
               {t("common.cancel")}
             </Button>
             <Button
@@ -787,7 +789,7 @@ export function CentralSkillsView() {
                 (!!deleteTargetBundle &&
                   deletingBundlePath === deleteTargetBundle.relativePath)
               }
-            >
+            ><ActionIcon action="delete"/>
               {t("central.deleteBundleCascadeLabel")}
             </Button>
           </DialogFooter>

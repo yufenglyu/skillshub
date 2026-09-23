@@ -1,9 +1,11 @@
+import { ActionIcon } from "@/components/ui/action-icon";
+import { PlatformIcon } from "@/components/platform/PlatformIcon";
 import { useAiConnectionStore, type AiConnections } from "@/stores/aiConnectionStore";
 import { X } from "lucide-react";
 import { AiPromptSettings } from "@/components/settings/AiPromptSettings";
 import { useCollectionStore } from "@/stores/collectionStore";
 import { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Pencil, Loader2, FolderOpen, Cpu, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save, Keyboard, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Pencil, Loader2, FolderOpen, AppWindow, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save, Keyboard, RotateCcw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
@@ -44,7 +46,7 @@ import { useShortcutStore } from "@/stores/shortcutStore";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.1.0";
 const CONFIG_DIR_FALLBACK = "~/.skillshub";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
@@ -222,7 +224,7 @@ function SoftwarePlatformRow({
             : ""
       )}
     >
-      <Cpu className="size-3.5 shrink-0 text-muted-foreground" />
+      <PlatformIcon agentId={agent.id} brand displayName={agent.display_name} size={16} className="size-4" />
       <div className="flex-1 min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="truncate text-sm font-medium">
@@ -352,7 +354,7 @@ function SoftwarePlatformsCard({
         <div data-testid="settings-software-platforms-header" className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <button type="button" onClick={() => setPlatformsExpanded(value => !value)} aria-expanded={platformsExpanded} aria-label={platformsToggleLabel} className="flex items-center gap-2 text-left">
-              <Cpu className="size-5 shrink-0 text-muted-foreground" />
+              <AppWindow className="size-5 shrink-0 text-muted-foreground" />
               <CardTitle role="heading" aria-level={2}>{t("settings.softwarePlatforms")}</CardTitle>
               {platformsExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
             </button>
@@ -1737,7 +1739,7 @@ export function SettingsView({ onClose }: {onClose?: () => void} = {}) {
                       onClick={() => useSettingsStore.getState().saveLanguage("zh")}
                       aria-pressed={i18n.language === "zh"}
                       className={cn(i18n.language === "zh" && "border-transparent bg-hover-bg text-white shadow-sm hover:bg-hover-bg hover:text-white dark:bg-hover-bg dark:text-white dark:hover:bg-hover-bg dark:hover:text-white")}
-                    >
+                    ><ActionIcon action="language"/>
                       {t("settings.chinese")}
                     </Button>
                     <Button
@@ -1746,7 +1748,7 @@ export function SettingsView({ onClose }: {onClose?: () => void} = {}) {
                       onClick={() => useSettingsStore.getState().saveLanguage("en")}
                       aria-pressed={i18n.language === "en"}
                       className={cn(i18n.language === "en" && "border-transparent bg-hover-bg text-white shadow-sm hover:bg-hover-bg hover:text-white dark:bg-hover-bg dark:text-white dark:hover:bg-hover-bg dark:hover:text-white")}
-                    >
+                    ><ActionIcon action="language"/>
                       {t("settings.english")}
                     </Button>
                 </div>

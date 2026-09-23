@@ -812,7 +812,7 @@ describe("SettingsView", () => {
     expandSoftwarePlatforms();
 
     expect(screen.getByText("Claude Code")).toBeTruthy();
-    expect(screen.getByText("Cursor")).toBeTruthy();
+    expect(screen.getByText("Cursor", {selector:"div"})).toBeTruthy();
     expect(screen.getByText("已检测到")).toBeTruthy();
     expect(screen.getByText("未检测到")).toBeTruthy();
   });
@@ -1273,5 +1273,5 @@ it("collapses paths and access token by default and renders one platform title w
     expect(details).not.toHaveAttribute("open");
   }
   expect(screen.getAllByText("软件平台")).toHaveLength(1);
-  expect(screen.getByTestId("settings-software-platforms-header").querySelector("svg.lucide-cpu")).not.toBeNull();
+  expect(screen.getByTestId("settings-software-platforms-header").querySelector("svg.lucide-app-window")).not.toBeNull();
 });

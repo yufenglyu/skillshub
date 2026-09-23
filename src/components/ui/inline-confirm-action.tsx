@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { ActionMenuContext } from "./action-menu-context";
 import type { MouseEvent, ReactNode } from "react";
 import { useContext, useEffect, useRef, useState } from "react";
@@ -88,7 +89,7 @@ export function InlineConfirmAction({
           disabled={disabled || isLoading}
           aria-label={confirmLabel}
           className={cn(
-            "inline-flex h-8 items-center justify-center rounded-md px-2.5 text-xs font-medium transition-colors text-destructive bg-destructive/10 hover:bg-destructive/15 disabled:opacity-50 disabled:cursor-default",
+            "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors text-destructive bg-destructive/10 hover:bg-destructive/15 disabled:opacity-50 disabled:cursor-default",
             menu && "w-full justify-start gap-2 px-2.5",
             className
           )}
@@ -99,7 +100,7 @@ export function InlineConfirmAction({
               {confirmLabel}
             </span>
           ) : (
-            confirmLabel
+            <><ActionIcon action="confirm"/><span>{confirmLabel}</span></>
           )}
         </button>
       ) : (

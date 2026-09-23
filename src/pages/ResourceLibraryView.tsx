@@ -1,3 +1,5 @@
+import { ActionIcon } from "@/components/ui/action-icon";
+import { RepositoryCheckConfirm } from "@/components/skill/RepositoryCheckConfirm";
 import { useTaskQueueStore } from "@/stores/taskQueueStore";
 import { AddSkillsDialog } from "@/components/skill/AddSkillsDialog";
 import { UpdateCenter } from "@/components/skill/UpdateCenter";
@@ -144,6 +146,7 @@ export function ResourceLibraryView() {
   const [drawerSkillId, setDrawerSkillId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [updatingSkillId, setUpdatingSkillId] = useState<string | null>(null);
+  const [isCheckConfirmOpen, setIsCheckConfirmOpen] = useState(false);
   const [isLocalAddOpen, setIsLocalAddOpen] = useState(false);
   const [folderDeletePreview, setFolderDeletePreview] =
     useState<CentralSkillBundleDeletePreview | null>(null);
@@ -340,7 +343,7 @@ export function ResourceLibraryView() {
 
   async function handleUpdateSources() {
     if (pendingRepositorySync || isUpdatingSources) return;
-    await checkForUpdates();
+    setIsCheckConfirmOpen(true);
   }
 
   async function handleUpdateSingleSource(skill: SkillWithLinks) {
@@ -693,6 +696,7 @@ export function ResourceLibraryView() {
                       highlighted: locatedFolderKey === group.relativePath,
                       onSearch: () => handleSearchSkill({ ...group.skills[0], name: group.name }),
                       name: group.name,
+                      sourceRepo: group.skills.find(skill => skill.source_repo?.toLowerCase() === group.name.toLowerCase())?.source_repo,
                       path: group.path,
                       skillCount: group.skillCount,
  skillKeys: group.skills.map(skill => skill.id),
@@ -879,7 +883,7 @@ export function ResourceLibraryView() {
               variant="outline"
               onClick={() => setDeleteTargetSkill(null)}
               disabled={!!deleteTargetSkill && deletingSkillId === deleteTargetSkill.id}
-            >
+            ><ActionIcon action="cancel"/>
               {t("common.cancel")}
             </Button>
             <Button
@@ -890,13 +894,14 @@ export function ResourceLibraryView() {
                 }
               }}
               disabled={!!deleteTargetSkill && deletingSkillId === deleteTargetSkill.id}
-            >
+            ><ActionIcon action="delete"/>
               {t("resource.deleteCascadeLabel")}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      <RepositoryCheckConfirm open={isCheckConfirmOpen} onOpenChange={setIsCheckConfirmOpen} />
       <AddSkillsDialog open={isLocalAddOpen} onOpenChange={setIsLocalAddOpen}/>
 
       <Dialog
@@ -959,7 +964,7 @@ export function ResourceLibraryView() {
               variant="outline"
               onClick={closeFolderActionDialog}
               disabled={pendingFolderAction === "install"}
-            >
+            ><ActionIcon action="cancel"/>
               {t("common.cancel")}
             </Button>
             <Button
@@ -1010,7 +1015,7 @@ export function ResourceLibraryView() {
               variant="outline"
               onClick={closeFolderActionDialog}
               disabled={pendingFolderAction === "uninstall"}
-            >
+            ><ActionIcon action="cancel"/>
               {t("common.cancel")}
             </Button>
             <Button
@@ -1058,14 +1063,14 @@ export function ResourceLibraryView() {
               variant="outline"
               onClick={() => setFolderDeletePreview(null)}
               disabled={isDeletingFolder}
-            >
+            ><ActionIcon action="cancel"/>
               {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
               onClick={() => void handleConfirmDeleteFolder()}
               disabled={isDeletingFolder}
-            >
+            ><ActionIcon action="delete"/>
               {folderDeletePreview?.affectedAgents.length
                 ? t("resource.deleteFolderCascadeLabel")
                 : t("resource.deleteFolderLabelShort")}

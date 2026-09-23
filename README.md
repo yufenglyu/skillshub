@@ -19,7 +19,7 @@ Import, organize, update and distribute `SKILL.md` skills to Claude Code, Codex 
 
 ![SkillsHub repository with folder browsing, tags and notes](docs/images/en/library.jpg)
 
-*Screenshots show the UI from the current v1.1.0 source, using fictional repositories, skills and paths. The example content is not bundled with the app.*
+*Screenshots show the UI from the current v1.1.1 source, using fictional repositories, skills and paths. The example content is not bundled with the app.*
 
 ## Why SkillsHub?
 
@@ -54,16 +54,20 @@ GitHub / Local folders
 
 ## Know what changes before you update
 
-Update Skills combines source checks and update review. Collapse repositories, filter by status and expand a skill to inspect added, modified or removed files.
+The **Update skills** dialog offers **Last results / Check updates / Update stars / Cancel**. Checks start only after confirmation. Updating stars fetches repository statistics without downloading skills or replacing the last update report.
+
+![Update skills: check changes or refresh stars independently](docs/images/en/update-actions.jpg)
+
+The status bar shows Update status with a check timestamp. Open the results to collapse repositories, filter by status and inspect changed files.
 
 ![Update Skills with selected skills and file changes](docs/images/en/updates.jpg)
 
 - Select individual skills or entire groups. Upstream deletions are not selected by default.
 - Ignore a detected version; a later upstream change makes it eligible for review again.
 - Recheck selected repositories from the footer without losing other results. Retry failures checks selected failed repositories, or all currently visible failures if none are selected.
-- Review replacements under remote deletions and use Delete and reimport; ambiguous matches require manual pairing.
+- Review replacements under remote deletions and select them and use Delete & reimport in the footer; ambiguous matches require manual pairing.
 - Resize the dialog as needed; filtering keeps its height unchanged.
-- Imports, update checks, applied updates and AI generation run through a background queue with progress, results and retries.
+- Imports, update checks, applied updates and AI generation run through a background queue with progress, results, manual stop, retries and manual cleanup. Running tasks stop after the current step finishes.
 - Navigating away or closing a dialog does not interrupt a task. Tasks run while the app is open; interrupted tasks can be retried after restarting.
 
 ## Build your own skill toolkit
@@ -74,9 +78,9 @@ Update Skills combines source checks and update review. Collapse repositories, f
 
 - Click a tag to filter, then click it again to clear. Use `Ctrl / Cmd` to select multiple tags and match their intersection.
 - Drag selected skills onto a tag to add it. Hold `Shift` while dropping to remove only that tag.
-- The filter button inside the search field lets you search repository names, skill names, descriptions and notes. Repository folders can have their own notes.
-- The detail pane provides overview, documents and installation information. Tables support sorting, column visibility, reordering and resizing.
-- Skill notes and tags use **AI / Save / Clear** controls. Each AI request produces an editable suggestion; it is written only when saved. Configure your own AI service and prompts.
+- The filter button inside the search field lets you search repository names, skill names, descriptions and notes. Repository folders can have their own notes. The filter closes on focus loss, an outside click or Escape.
+- The detail pane provides overview, documents and installation information. Tables support sorting, column visibility, reordering and resizing. Switch between `owner/repository` and `repository@owner` from the right of the name header; name sorting follows the displayed format.
+- Skill notes and tags use **AI / Save / Clear** controls. Each AI request produces an editable suggestion. Tag suggestions are appended and deduplicated, preserving existing tags; changes are written only when saved. Configure your own AI service and prompts.
 
 ## Get started
 
@@ -84,13 +88,15 @@ Update Skills combines source checks and update review. Collapse repositories, f
 2. Check platform directories in Settings, or add your own platforms and projects from the sidebar.
 3. In Skill Repository, choose **Add skills** and enter a GitHub `owner/repo`, repository URL, or local skill folder.
 4. Read the skill, add tags or notes, organize it into a bundle, then install it to the platforms, projects or Shared Hub you need.
-5. Use **Update center** to review upstream changes and **Background tasks** to follow execution.
+5. Use **Update skills** to review upstream changes and **Background tasks** to follow execution.
 
 The toolbar uses distinct icons: a package with a plus for adding skills, two circular arrows for updating, and a single rotating arrow for refreshing the list. Hover for labels. GitHub imports only flag overwrites at the actual destination; matching IDs in different repositories remain independent.
 
 ![Add skills from GitHub or a local folder](docs/images/en/import.jpg)
 
 ## Your data and backups
+
+Local and WebDAV repository backups preserve cached GitHub star counts and their timestamps. Directory CSV exports also include star counts.
 
 Skills stay on your machine. The default repository is `~/.skillshub/library`; portable mode keeps `.skillshub` next to the executable so the application and its data can travel together.
 

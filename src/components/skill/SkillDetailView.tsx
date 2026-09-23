@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useTaskQueueStore, isTaskActive } from "@/stores/taskQueueStore";
 import { open } from "@tauri-apps/plugin-shell";
 import { OpenableDirectoryPath } from "@/components/common/OpenableDirectoryPath";
@@ -371,7 +372,8 @@ export function SkillDetailView({
     setIsGeneratingTags(false);
     return () => { tagsRequestId.current += 1; };
   }, [skillId, agentId, rowId]);
-  const [isSavingMetadata, setIsSavingMetadata] = useState(false);
+  const [metadataAction, setMetadataAction] = useState<"notes-save" | "tags-save" | "notes-clear" | "tags-clear" | null>(null);
+  const isSavingMetadata = metadataAction !== null;
   const [isGeneratingNoteIntoNotes, setIsGeneratingNoteIntoNotes] = useState(false);
   const [sourceTypeInput, setSourceTypeInput] = useState("github");
   const [sourceUrlInput, setSourceUrlInput] = useState("");
@@ -595,8 +597,8 @@ export function SkillDetailView({
   }
 
   async function handleSaveNotes() {
-    if (!detail || detail.is_read_only) return;
-    setIsSavingMetadata(true);
+    if (!detail || detail.is_read_only || isSavingMetadata) return;
+    setMetadataAction("notes-save");
     try {
       await updateMetadata(detail.id, {
         notes: notesInput.trim() ? notesInput.trim() : null,
@@ -608,7 +610,7 @@ export function SkillDetailView({
     } catch (err) {
       toast.error(t("detail.metadataSaveError", { error: String(err) }));
     } finally {
-      setIsSavingMetadata(false);
+      setMetadataAction(null);
     }
   }
 
@@ -618,7 +620,7 @@ export function SkillDetailView({
     setIsGeneratingTags(true);
     try {
       const tags = await generateTags(skillContent);
-      if (requestId === tagsRequestId.current) setDraft("tags", tags.join(", "));
+      if (requestId === tagsRequestId.current) setDraft("tags", parseTagsInput([tagsInput, ...tags].join(", ")).join(", "));
     } catch (err) {
       if (requestId === tagsRequestId.current) {
         toast.error(t("detail.tagsGenerationError", { error: String(err) }));
@@ -629,8 +631,8 @@ export function SkillDetailView({
   }
 
   async function handleSaveTags() {
-    if (!detail || detail.is_read_only) return;
-    setIsSavingMetadata(true);
+    if (!detail || detail.is_read_only || isSavingMetadata) return;
+    setMetadataAction("tags-save");
     try {
       await updateMetadata(detail.id, {
         notes: detail.notes ?? null,
@@ -642,7 +644,7 @@ export function SkillDetailView({
     } catch (err) {
       toast.error(t("detail.metadataSaveError", { error: String(err) }));
     } finally {
-      setIsSavingMetadata(false);
+      setMetadataAction(null);
     }
   }
 
@@ -679,18 +681,18 @@ export function SkillDetailView({
   }
 
   async function handleClear(field: "notes" | "tags") {
-    if (!detail || detail.is_read_only) return;
+    if (!detail || detail.is_read_only || isSavingMetadata) return;
     for (const task of useTaskQueueStore.getState().tasks) {
       if (isTaskActive(task) && task.key === `ai:${field}:${field === "notes" ? explanationRequestKey : detail.id}`) useTaskQueueStore.getState().cancel(task.id);
     }
     if (field === "notes") {setIsGeneratingNoteIntoNotes(false);clearNoteGeneration?.();}
     else { tagsRequestId.current += 1; setIsGeneratingTags(false); }
-    setIsSavingMetadata(true);
+    setMetadataAction(`${field}-clear`);
     try {
       await updateMetadata(detail.id, {notes: field === "notes" ? null : detail.notes ?? null, tags: field === "tags" ? [] : detail.tags ?? []});
       setDraft(field, "");
     } catch { toast.error(t("workflow.operationFailed")); }
-    finally {setIsSavingMetadata(false);}
+    finally {setMetadataAction(null);}
   }
 
   function handleSelectFile(file: SelectedSkillFile) {
@@ -790,7 +792,7 @@ export function SkillDetailView({
                 variant="outline"
                 size="sm"
                 onClick={() => detailRequest && loadDetail(detailRequest)}
-              >
+              ><ActionIcon action="retry"/>
                 {t("detail.retry")}
               </Button>
             </div>
@@ -1027,7 +1029,7 @@ export function SkillDetailView({
                                 {t("detail.savingSourceMetadata")}
                               </>
                             ) : (
-                              t("detail.saveBasicInfo")
+                              <><ActionIcon action="save"/>{t("detail.saveBasicInfo")}</>
                             )}
                           </Button>
                         </>
@@ -1107,28 +1109,28 @@ export function SkillDetailView({
                                 {t("detail.explanationLoading")}
                               </>
                             ) : (
-                              t("workflow.ai")
+                              <><ActionIcon action="ai"/>{t("workflow.ai")}</>
                             )}
                           </Button>
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
-                            className="h-7 px-2.5 text-xs font-normal"
+                            className="h-7 px-2.5 text-xs font-normal disabled:opacity-100"
                             disabled={isSavingMetadata}
                             onClick={handleSaveNotes}
 
                           >
-                            {isSavingMetadata ? (
+                            {metadataAction === "notes-save" ? (
                               <>
                                 <Loader2 className="size-4 animate-spin" />
                                 {t("detail.savingMetadata")}
                               </>
                             ) : (
-                              t("common.save")
+                              <><ActionIcon action="save"/>{t("common.save")}</>
                             )}
                           </Button>
-                          <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs font-normal" disabled={isSavingMetadata} onClick={()=>void handleClear("notes")}>{t("workflow.clear")}</Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs font-normal disabled:opacity-100" disabled={isSavingMetadata} onClick={()=>void handleClear("notes")}>{metadataAction === "notes-clear" ? <Loader2 className="size-4 animate-spin" /> : <ActionIcon action="clear"/>}{t("workflow.clear")}</Button>
                         </div>
                         {isExplanationStreaming && explanation && (
                           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1168,33 +1170,33 @@ export function SkillDetailView({
                           type="button"
                           size="sm"
                           variant="outline"
-                            className="h-7 px-2.5 text-xs font-normal"
+                            className="h-7 px-2.5 text-xs font-normal disabled:opacity-100"
                           disabled={isGeneratingTags || isSavingMetadata || !skillContent}
                           aria-label={t("detail.generateTags")}
                           onClick={handleGenerateTags}
                         >
-                          {isGeneratingTags && <Loader2 className="size-4 animate-spin" />}
+                          {isGeneratingTags ? <Loader2 className="size-4 animate-spin" /> : <ActionIcon action="ai"/>}
                           {t("workflow.ai")}
                         </Button>
                         <Button
                           type="button"
                           size="sm"
                           variant="outline"
-                            className="h-7 px-2.5 text-xs font-normal"
+                            className="h-7 px-2.5 text-xs font-normal disabled:opacity-100"
                           disabled={isSavingMetadata || isGeneratingTags}
                           onClick={handleSaveTags}
 
                         >
-                          {isSavingMetadata ? (
+                          {metadataAction === "tags-save" ? (
                             <>
                               <Loader2 className="size-4 animate-spin" />
                               {t("detail.savingMetadata")}
                             </>
                           ) : (
-                            t("common.save")
+                            <><ActionIcon action="save"/>{t("common.save")}</>
                           )}
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs font-normal" disabled={isSavingMetadata} onClick={()=>void handleClear("tags")}>{t("workflow.clear")}</Button>
+                        <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs font-normal disabled:opacity-100" disabled={isSavingMetadata} onClick={()=>void handleClear("tags")}>{metadataAction === "tags-clear" ? <Loader2 className="size-4 animate-spin" /> : <ActionIcon action="clear"/>}{t("workflow.clear")}</Button>
                         </div>
                       </div>
                     </section>

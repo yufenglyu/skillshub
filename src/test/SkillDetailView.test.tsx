@@ -757,7 +757,8 @@ describe("SkillDetailView", () => {
 
     expect(buttonRow).toBe(saveButton.parentElement);
     expect(buttonRow).toHaveClass("flex");
-    expect(aiButton.querySelector("svg")).toBeNull();
+    expect(aiButton.querySelector(".lucide-sparkles")).not.toBeNull();
+    expect(saveButton.querySelector(".lucide-save")).not.toBeNull();
     expect(aiButton).toHaveClass("h-7", "border");
     expect(saveButton).toHaveClass("h-7", "border");
   });
@@ -1365,6 +1366,31 @@ describe("AI tags", () => {
     await waitFor(() => expect(mockUpdateMetadata).toHaveBeenCalledWith(mockDetail.id, {
       notes: mockDetail.notes ?? null, tags: ["前端开发", "界面设计", "交互设计"],
     }));
+  });
+
+  it.each([["技能备注", "保存"], ["技能标签", "保存"], ["技能备注", "清空"], ["技能标签", "清空"]])("only shows feedback for %s %s", async (regionName, action) => {
+    let finish!: () => void;
+    mockUpdateMetadata.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    renderView();
+    const region = screen.getByRole("region", {name: regionName});
+    const other = screen.getByRole("region", {name: regionName === "技能备注" ? "技能标签" : "技能备注"});
+    fireEvent.click(within(region).getByRole("button", {name: action}));
+    expect(within(other).getByRole("button", {name: "保存"})).toBeInTheDocument();
+    expect(within(other).getByRole("button", {name: "保存"})).toHaveClass("disabled:opacity-100");
+    expect(within(other).getByRole("button", {name: "清空"})).toHaveClass("disabled:opacity-100");
+    expect(other.querySelector(".animate-spin")).toBeNull();
+    expect(region.querySelectorAll(".animate-spin")).toHaveLength(1);
+    if (action === "清空") expect(within(region).getByRole("button", {name: "保存"})).toBeInTheDocument();
+    await act(async () => finish());
+  });
+
+  it("appends AI suggestions to existing draft tags without duplicates", async () => {
+    mockGenerateTags.mockResolvedValue(["UI", "新标签"]);
+    renderView();
+    fireEvent.change(screen.getByPlaceholderText(/输入标签/), {target: {value: "原有标签, ui"}});
+    fireEvent.click(screen.getByRole("button", {name: "AI 标签"}));
+    await waitFor(() => expect(screen.getByPlaceholderText(/输入标签/)).toHaveValue("原有标签, ui, 新标签"));
+    expect(mockUpdateMetadata).not.toHaveBeenCalled();
   });
 
   it("preserves existing input on failure", async () => {

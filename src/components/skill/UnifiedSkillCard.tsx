@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import {
   Check,
   Link2,
@@ -513,10 +514,10 @@ export function UnifiedSkillCard(props: UnifiedSkillCardProps) {
                   <button
                     type="button"
                     onClick={platformIcons.onManage}
-                    className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={t("central.managePlatformsLabel", { skill: name })}
                   >
-                    {t("central.managePlatforms")}
+                    <ActionIcon action="edit"/>{t("central.managePlatforms")}
                   </button>
                 )}
               </div>

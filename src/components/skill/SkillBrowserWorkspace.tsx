@@ -1,3 +1,4 @@
+import { ActionIcon } from "@/components/ui/action-icon";
 import { useBrowserStatusStore } from "@/stores/browserStatusStore";
 import { Link, useLocation } from "react-router-dom";
 import { buildMembershipInstallSummary } from "@/lib/installSummary";
@@ -144,7 +145,7 @@ export function SkillBrowserWorkspace({ storageKey, skills = [], folders = [], s
         onKeyDown={e=>{if(e.key==="ArrowLeft"||e.key==="ArrowRight"){e.preventDefault();const next=Math.min(70,Math.max(30,width+(e.key==="ArrowLeft"?2:-2)));setWidth(next);writePreference("skillshub.browser.width",next);}}}/>
       <aside style={{flexBasis:`${width}%`}} className="flex min-w-0 shrink-0 flex-col overflow-hidden" aria-label={t("browser.preview")}>
         <div role="tablist" className="flex h-11 shrink-0 items-stretch gap-4 border-b border-border px-4">
-          {((selectedSkill ? ["overview","document","install"] : ["overview","install"]) as Tab[]).map(value=><button role="tab" aria-selected={activeTab===value} key={value} onClick={()=>{setTab(value);writePreference("skillshub.browser.tab",value);}} className={cn("border-b-2 border-transparent px-1 text-sm text-muted-foreground",activeTab===value&&"border-primary text-primary")}>{t(`browser.${value}`)}</button>)}
+          {((selectedSkill ? ["overview","document","install"] : ["overview","install"]) as Tab[]).map(value=><button role="tab" aria-selected={activeTab===value} key={value} onClick={()=>{setTab(value);writePreference("skillshub.browser.tab",value);}} className={cn("inline-flex items-center gap-1.5 border-b-2 border-transparent px-1 text-sm text-muted-foreground",activeTab===value&&"border-primary text-primary")}><ActionIcon action={value === "install" ? "install" : value === "document" ? "document" : "info"}/>{t(`browser.${value}`)}</button>)}
           <Button className="my-auto ml-auto" size="icon-sm" variant="ghost" aria-label={t("browser.hidePreview")} onClick={()=>setCollapsed(true)}><ChevronRight className="size-4"/></Button>
         </div>
         {selectedSkill && request ? <>

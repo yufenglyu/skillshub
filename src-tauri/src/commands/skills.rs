@@ -1934,7 +1934,7 @@ pub async fn export_resource_skill_directory_list(
 
     let exported_count = rows.len();
     let mut csv =
-        String::from("Directory,Skill Count,Skills,Source Repositories,Source Paths,Local Path\n");
+        String::from("Directory,Skill Count,Skills,Source Repositories,Source Paths,Local Path,GitHub Stars\n");
     for (relative, mut grouped_skills) in rows {
         grouped_skills.sort_by(|left, right| left.name.cmp(&right.name));
         let skill_names = grouped_skills
@@ -1961,13 +1961,14 @@ pub async fn export_resource_skill_directory_list(
             .and_then(|skill| skill.canonical_path.as_deref())
             .unwrap_or("");
         csv.push_str(&format!(
-            "{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{}\n",
             csv_cell(&relative),
             grouped_skills.len(),
             csv_cell(&skill_names),
             csv_cell(&source_repos),
             csv_cell(&source_paths),
-            csv_cell(local_path)
+            csv_cell(local_path),
+            csv_cell(&grouped_skills.iter().filter_map(|skill| skill.github_stars).map(|stars| stars.to_string()).collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>().join("; "))
         ));
     }
 
