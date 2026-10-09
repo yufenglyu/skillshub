@@ -7,6 +7,7 @@ export type TaskKind = "import" | "check" | "update" | "ai";
 export type TaskStatus =
   | "queued"
   | "running"
+  | "awaiting_input"
   | "success"
   | "partial"
   | "failed"
@@ -30,12 +31,19 @@ export interface BackgroundTask {
   status: TaskStatus;
   cancelRequested: boolean;
   createdAt: number;
+  clearRequested?: boolean;
+  batchId?: string;
+  batchLabel?: string;
 }
 type Input = Pick<BackgroundTask, "key" | "kind" | "label" | "steps"> & {
   locks?: string[];
+  batchId?: string;
+  batchLabel?: string;
 };
 type Handler = (step: TaskStep, result: unknown) => void | Promise<void>;
 const handlers = new Map<string, Handler>();
+const failureHandlers = new Map<string, (step: TaskStep) => void | Promise<void>>();
+const inputRequirements = new Map<string, (result: unknown) => boolean>();
 const executors = new Map<
   string,
   (args: Record<string, unknown>) => Promise<unknown>
@@ -49,6 +57,12 @@ export function registerTaskExecutor(
 export function registerTaskResult(command: string, handler: Handler) {
   handlers.set(command, handler);
 }
+export function registerTaskFailure(command: string, handler: (step: TaskStep) => void | Promise<void>) {
+  failureHandlers.set(command, handler);
+}
+export function registerTaskInputRequirement(command: string, requiresInput: (result: unknown) => boolean) {
+  inputRequirements.set(command, requiresInput);
+}
 const running = new Set<string>();
 const limits: Record<TaskKind, number> = {
   check: 5,
@@ -61,21 +75,31 @@ export const isTaskActive = (task: BackgroundTask) =>
 function trimHistory(tasks: BackgroundTask[]) {
   const retained = new Set(
     tasks
-      .filter((t) => !isTaskActive(t))
+      .filter((t) => t.status === "success")
       .slice(-100)
       .map((t) => t.id),
   );
-  return tasks.filter((t) => isTaskActive(t) || retained.has(t.id));
+  return tasks.filter((t) => t.status !== "success" || retained.has(t.id));
 }
 export function taskErrorMessage(
   error: unknown,
   kind: TaskKind = "check",
 ): string {
-  const message = String(error).toLowerCase();
+  const text = error instanceof Error ? error.message : String(error);
+  // Background tasks already store safe, translated errors. Preserve them when
+  // a dialog or a check wrapper handles that same error a second time.
+  const translatedErrors = i18n.t("workflow.errors", { returnObjects: true });
+  if (typeof translatedErrors === "object" && translatedErrors !== null && Object.values(translatedErrors).includes(text)) {
+    return text;
+  }
+  const message = text.toLowerCase();
   if (/invalid github repository url|only https:\/\/ github|only github\.com|repository url (must|is missing)|enter a github repository/.test(message)) return i18n.t("workflow.errors.invalidRepository");
   if (/no importable skills/.test(message)) return i18n.t("workflow.noImportableSkills");
   if (message.includes("preview changed: item category changed")) return i18n.t("workflow.errors.categoryChanged");
   if (message.includes("preview changed: remote content version changed")) return i18n.t("workflow.errors.remoteVersionChanged");
+  if (/response body failed|download interrupted|response body incomplete|error decoding response body/.test(message)) {
+    return i18n.t(/timeout|timed out/.test(message) ? "workflow.errors.timeout" : "workflow.errors.network");
+  }
   const key = /rate.?limit|too many requests|\b429\b|secondary.*limit/.test(
     message,
   )
@@ -104,7 +128,11 @@ interface State {
   enqueue: (task: Input) => string;
   cancel: (id: string) => void;
   retry: (id: string) => void;
+  remove: (id: string) => void;
+  clearCheckHistory: () => void;
   clear: () => void;
+  clearFinished: () => void;
+  clearAll: () => void;
   patch: (id: string, patch: Partial<BackgroundTask>) => void;
 }
 export const useTaskQueueStore = create<State>()(
@@ -186,22 +214,42 @@ export const useTaskQueueStore = create<State>()(
         });
         pump();
       },
-      clear: () => set((s) => ({ tasks: s.tasks.filter(isTaskActive) })),
+      remove: (id) => set(s => ({tasks: s.tasks.filter(task => task.id !== id || isTaskActive(task))})),
+      clearCheckHistory: () => {
+        const isCheck = (task: BackgroundTask) => task.steps.length > 0 && task.steps.every(step => step.command === "preview_source_backed_resource_repository_updates");
+        get().tasks.filter(task => task.status === "queued" && isCheck(task)).forEach(task => get().cancel(task.id));
+        set(s => ({tasks: s.tasks.flatMap(task => {
+          if (!isCheck(task)) return [task];
+          // Superseded checks keep their locks until completion but no longer publish records.
+          return isTaskActive(task) ? [{...task, clearRequested: true}] : [];
+        })}));
+      },
+      clearFinished: () => set(s => {
+        const activeBatches = new Set(s.tasks.filter(isTaskActive).map(task => task.batchId).filter(Boolean));
+        return {tasks: s.tasks.filter(task => (task.batchId && activeBatches.has(task.batchId)) || (task.status !== "success" && task.status !== "cancelled"))};
+      }),
+      clear: () => set((s) => ({ tasks: s.tasks.filter(task => task.status !== "success") })),
+      clearAll: () => {
+        // Resolve queued task waiters as cancelled before removing their records.
+        get().tasks.filter(isTaskActive).forEach(task => get().cancel(task.id));
+        set(state => ({tasks: state.tasks.filter(task => task.status === "running")
+          .map(task => ({...task, clearRequested: true}))}));
+      },
     }),
     {
       name: "skillshub.background-tasks.v1",
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         tasks: [
-          ...s.tasks.filter(isTaskActive),
-          ...s.tasks.filter((t) => !isTaskActive(t)).slice(-100),
+          ...s.tasks.filter(t => t.status !== "success" && !t.clearRequested),
+          ...s.tasks.filter((t) => t.status === "success").slice(-100),
         ],
       }),
       merge: (persisted, current) => {
         const tasks = (persisted as { tasks?: BackgroundTask[] })?.tasks ?? [];
         return {
           ...current,
-          tasks: tasks.map((t) =>
+          tasks: tasks.filter(t => !t.clearRequested).map((t) =>
             isTaskActive(t)
               ? {
                   ...t,
@@ -249,7 +297,7 @@ async function execute(id: string) {
       const result = await (executors.get(step.command)?.(step.args) ??
         invoke(step.command, step.args));
       step.result = result;
-      step.status = "success";
+      step.status = inputRequirements.get(step.command)?.(result) ? "awaiting_input" : "success";
       step.error = undefined;
       if (
         step.command === "preview_source_backed_resource_repository_updates"
@@ -271,8 +319,14 @@ async function execute(id: string) {
       step.status = "failed";
       // Provider responses and credentials must never be surfaced in the task UI.
       step.error = taskErrorMessage(error, task.kind);
+      try {
+        await failureHandlers.get(step.command)?.(step);
+      } catch {
+        /* Keep the original operation failure if a status observer fails. */
+      }
     }
     state().patch(id, { steps: steps.map((s) => ({ ...s })) });
+    if (step.status === "awaiting_input") break;
   }
   const cancelled = state().tasks.find((t) => t.id === id)?.cancelRequested;
   const failures = steps.some(
@@ -281,6 +335,8 @@ async function execute(id: string) {
   state().patch(id, {
     status: cancelled
       ? "cancelled"
+      : steps.some(step => step.status === "awaiting_input")
+        ? "awaiting_input"
       : failures
         ? steps.some((s) => s.status === "success" || s.status === "partial")
           ? "partial"
@@ -288,6 +344,9 @@ async function execute(id: string) {
         : "success",
   });
   running.delete(id);
+  if (state().tasks.find(t => t.id === id)?.clearRequested) {
+    useTaskQueueStore.setState(s => ({tasks: s.tasks.filter(t => t.id !== id)}));
+  }
   pump();
 }
 export function waitForTask(id: string): Promise<BackgroundTask> {

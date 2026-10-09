@@ -58,16 +58,18 @@ The **Update skills** dialog offers **Last results / Check updates / Update star
 
 ![Update skills: check changes or refresh stars independently](docs/images/en/update-actions.jpg)
 
-The status bar shows Update status with a check timestamp. Open the results to collapse repositories, filter by status and inspect changed files.
+The status bar provides one **Tasks & updates** entry with running and pending counts, available from every page without navigation. **Pending / In progress / History** cover update decisions and failures, batch progress, and finished operations including import results. Checks finish with a lightweight notification instead of opening a dialog; click the notification to review the results.
 
-![Update Skills with selected skills and file changes](docs/images/en/updates.jpg)
+![Tasks & updates with change types and actions (fictional data, Chinese UI)](docs/images/zh/tasks-updates-preview.jpg)
 
 - Select individual skills or entire groups. Upstream deletions are not selected by default.
 - Ignore a detected version; a later upstream change makes it eligible for review again.
+- Starting a full check clears previous check reports and records; scoped checks preserve other repositories. Delete failed or interrupted task records individually, or dismiss failed repository check results. These actions keep skill files intact.
 - Recheck selected repositories from the footer without losing other results. Retry failures checks selected failed repositories, or all currently visible failures if none are selected.
 - Review replacements under remote deletions and select them and use Delete & reimport in the footer; ambiguous matches require manual pairing.
-- Resize the dialog as needed; filtering keeps its height unchanged.
+- Resize the dialog as needed; switching views preserves its height and update selections. Unchanged skills are hidden by default. Batch updates and star refreshes appear as one operation with expandable details. Clearing finished records keeps running work and unresolved failures.
 - Imports, update checks, applied updates and AI generation run through a background queue with progress, results, manual stop, retries and manual cleanup. Running tasks stop after the current step finishes.
+- After starting a GitHub import, clicking outside the Add Skills dialog moves repository checks and subsequent imports to the background. Name conflicts remain in Pending until you choose Continue import. Clicking Cancel still cancels the current dialog operation.
 - Navigating away or closing a dialog does not interrupt a task. Tasks run while the app is open; interrupted tasks can be retried after restarting.
 
 ## Build your own skill toolkit
@@ -88,7 +90,7 @@ The status bar shows Update status with a check timestamp. Open the results to c
 2. Check platform directories in Settings, or add your own platforms and projects from the sidebar.
 3. In Skill Repository, choose **Add skills** and enter a GitHub `owner/repo`, repository URL, or local skill folder.
 4. Read the skill, add tags or notes, organize it into a bundle, then install it to the platforms, projects or Shared Hub you need.
-5. Use **Update skills** to review upstream changes and **Background tasks** to follow execution.
+5. Use **Update skills** to review upstream changes and **Tasks & updates** to review results and follow execution.
 
 The toolbar uses distinct icons: a package with a plus for adding skills, two circular arrows for updating, and a single rotating arrow for refreshing the list. Hover for labels. GitHub imports only flag overwrites at the actual destination; matching IDs in different repositories remain independent.
 

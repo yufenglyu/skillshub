@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useRepositorySyncStore } from "@/stores/repositorySyncStore";
 import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
+import {useTaskQueueStore as queue, waitForTask, type BackgroundTask} from "@/stores/taskQueueStore";
 import type { RepositorySyncPreviewReport } from "@/types";
 
 describe("background repository preview", () => {
@@ -21,8 +22,42 @@ describe("background repository preview", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
-    useRepositorySyncStore.setState({ preview: null, open: false, isChecking: false, error: null,
+    useRepositorySyncStore.setState({ preview: null, reportGeneration:null, open: false, isChecking: false, error: null,
       applied: false, appliedRepositories: [], checkingRepository: null, repositories: null, requestedRepositories: null, includeAdded: true, removeDeleted: false });
+  });
+
+  it.each([undefined, []])("clears previous reports and check history as soon as a full check starts (%s)", async (scope) => {
+    const old = {repository:"old/repo",added:[{skillId:"old",name:"Old"}],modified:[],deleted:[],unchanged:[]};
+    const oldTask:BackgroundTask = {id:"old-check",key:"old-check",kind:"check",label:"Old check",status:"failed",createdAt:1,cancelRequested:false,locks:[],steps:[{label:"check",command:"preview_source_backed_resource_repository_updates",args:{}}]};
+    queue.setState({tasks:[oldTask,{...oldTask,id:"ai",key:"ai",kind:"ai",steps:[{label:"AI",command:"explain_skill",args:{}}]}]});
+    useRepositorySyncStore.setState({preview:{repositories:[old]},reportCheckedAt:1,checkedAt:{"old/repo":1},updateErrors:{old:"failed"},ignored:["keep-version"],applied:true,appliedRepositories:["old/repo"]});
+    let finishScan!: () => void;
+    vi.spyOn(useResourceLibraryStore.getState(),"loadResourceLibrary").mockImplementation(() => new Promise(resolve => {finishScan = resolve;}));
+    useResourceLibraryStore.setState({error:null});
+    vi.spyOn(useResourceLibraryStore.getState(),"previewRepositorySync").mockRejectedValue(new Error("network unavailable"));
+    const request = useRepositorySyncStore.getState().checkForUpdates(scope);
+    expect(useRepositorySyncStore.getState()).toMatchObject({preview:null,reportCheckedAt:null,checkedAt:{},updateErrors:{},applied:false,appliedRepositories:[],ignored:["keep-version"],isChecking:true});
+    expect(queue.getState().tasks.map(task => task.id)).toEqual(["ai"]);
+    finishScan(); await request;
+    expect(useRepositorySyncStore.getState()).toMatchObject({preview:null,isChecking:false,error:expect.any(String)});
+  });
+
+  it("does not restore a superseded running check when its result arrives late", async () => {
+    const oldReport = {repositories:[{repository:"old/repo",added:[],modified:[],deleted:[],unchanged:[]}]};
+    const newReport = {repositories:[{repository:"new/repo",added:[],modified:[],deleted:[],unchanged:[]}]};
+    useRepositorySyncStore.setState({reportGeneration:"old",preview:oldReport});
+    useResourceLibraryStore.setState({error:null});
+    vi.spyOn(useResourceLibraryStore.getState(),"loadResourceLibrary").mockResolvedValue();
+    let finishOld!: (report:RepositorySyncPreviewReport) => void;
+    vi.spyOn(useResourceLibraryStore.getState(),"previewRepositorySync").mockImplementationOnce(() => new Promise(resolve => {finishOld = resolve;})).mockResolvedValueOnce(newReport);
+    const id = queue.getState().enqueue({key:"old-check",kind:"check",label:"Old check",steps:[{command:"preview_source_backed_resource_repository_updates",label:"check",args:{repositories:null,reportGeneration:"old"}}]});
+    const oldFinished = waitForTask(id);
+    await useRepositorySyncStore.getState().checkForUpdates();
+    expect(useRepositorySyncStore.getState().preview).toEqual(newReport);
+    expect(queue.getState().tasks.find(task => task.id === id)?.clearRequested).toBe(true);
+    finishOld(oldReport); await oldFinished;
+    expect(useRepositorySyncStore.getState().preview).toEqual(newReport);
+    expect(queue.getState().tasks.some(task => task.id === id)).toBe(false);
   });
 
   it("continues without a mounted page and coalesces repeat clicks", async () => {
@@ -39,7 +74,7 @@ describe("background repository preview", () => {
     expect(check).toHaveBeenCalledTimes(1);
     expect(apply).not.toHaveBeenCalled();
     expect(useRepositorySyncStore.getState()).toMatchObject({
-      isChecking: false, open: true, preview: { repositories: [] }, repositories: ["example/skills"],
+      isChecking: false, open: false, preview: { repositories: [] }, repositories: ["example/skills"],
     });
   });
 
@@ -51,7 +86,7 @@ describe("background repository preview", () => {
     expect(useRepositorySyncStore.getState()).toMatchObject({ isChecking: false, error: expect.any(String) });
     await useRepositorySyncStore.getState().checkForUpdates();
     expect(check).toHaveBeenCalledTimes(2);
-    expect(useRepositorySyncStore.getState()).toMatchObject({ error: null, open: true });
+    expect(useRepositorySyncStore.getState()).toMatchObject({ error: null, open: false });
   });
 
   it("restores the report and choices without reopening a dialog or resuming a spinner", async () => {
@@ -134,4 +169,33 @@ it("does not let scoped check results replace repositories outside its scope",as
   vi.spyOn(useResourceLibraryStore.getState(),"previewRepositorySync").mockResolvedValue({repositories:[first,{...second,error:"outside scope"}]});
   await useRepositorySyncStore.getState().recheckRepository("one/repo");
   expect(useRepositorySyncStore.getState().preview?.repositories[1]).toEqual(second);
+});
+
+it("runs scoped rechecks independently and coalesces duplicate repositories", async () => {
+  const empty = (repository: string) => ({repository, added: [], modified: [], deleted: [], unchanged: []});
+  useRepositorySyncStore.setState({isChecking: false, checkingRepository: null, preview: {repositories: [empty("one/repo"), empty("two/repo")]}});
+  const finishes = new Map<string, (report: RepositorySyncPreviewReport) => void>();
+  const check = vi.spyOn(useResourceLibraryStore.getState(), "previewRepositorySync").mockImplementation(repositories =>
+    new Promise(resolve => finishes.set(repositories![0], resolve)));
+  const one = useRepositorySyncStore.getState().recheckRepositories(["one/repo"]);
+  const two = useRepositorySyncStore.getState().recheckRepositories(["two/repo"]);
+  await useRepositorySyncStore.getState().recheckRepositories(["one/repo"]);
+  await vi.waitFor(() => expect(finishes.size).toBe(2));
+  expect(check).toHaveBeenCalledTimes(2);
+  finishes.get("one/repo")!({repositories: [empty("one/repo")]});
+  await one;
+  expect(useRepositorySyncStore.getState().checkingRepository).toBe("two/repo");
+  finishes.get("two/repo")!({repositories: [empty("two/repo")]});
+  await two;
+  expect(useRepositorySyncStore.getState().checkingRepository).toBeNull();
+  expect(useRepositorySyncStore.getState().preview?.repositories).toHaveLength(2);
+});
+
+it("dismisses only failed repository results and preserves valid changes", () => {
+  const repo = {repository:"good/repo",added:[{skillId:"new",name:"New"}],modified:[],deleted:[],unchanged:[]};
+  useRepositorySyncStore.setState({isChecking:false,preview:{repositories:[repo,{...repo,repository:"failed/repo",error:"network unavailable"}]}});
+  useRepositorySyncStore.getState().dismissFailedCheck("good/repo");
+  expect(useRepositorySyncStore.getState().preview?.repositories).toHaveLength(2);
+  useRepositorySyncStore.getState().dismissFailedCheck("FAILED/repo");
+  expect(useRepositorySyncStore.getState().preview?.repositories).toEqual([repo]);
 });

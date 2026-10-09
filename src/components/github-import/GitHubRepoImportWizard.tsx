@@ -67,7 +67,7 @@ type ImportSource = "github" | "skillsSh";
 
 interface GitHubRepoImportWizardProps {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (open: boolean, details?: {reason?: string}) => void;
   importSource?: ImportSource;
   repoUrl: string;
   onRepoUrlChange: (value: string) => void;
@@ -604,12 +604,12 @@ export function GitHubRepoImportWizard({
     setStep("input");
   }
 
-  function handleClose(nextOpen: boolean) {
+  function handleClose(nextOpen: boolean, details?: {reason?: string}) {
     if (!nextOpen) {
       setPostImportTargetSkillId(null);
       onReset();
     }
-    onOpenChange(nextOpen);
+    onOpenChange(nextOpen, details);
   }
 
   async function handleImportConfirmClick() {
@@ -1837,7 +1837,7 @@ export function GitHubRepoImportWizard({
                     {t("githubImport.githubImportResultActionRestart")}
                   </span>
                 </Button>
-                <Button onClick={handleClose.bind(null, false)}><ActionIcon action="cancel"/>
+                <Button onClick={() => handleClose(false)}><ActionIcon action="cancel"/>
                   <span>{t("common.close")}</span>
                 </Button>
               </div>

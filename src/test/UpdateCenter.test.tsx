@@ -6,6 +6,7 @@ import {
   fireEvent,
   waitFor,
   within,
+  act,
 } from "@testing-library/react";
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@/lib/tauri", () => ({ invoke, isTauriRuntime: () => true }));
@@ -59,6 +60,7 @@ beforeEach(() => {
     isChecking: false,
     error: null,
     checkedAt: {},
+    updateErrors: {},
   });
 });
 it("selects added and modified skills, keeps remote deletions opt-in and removes successes", async () => {
@@ -123,6 +125,74 @@ it("retains failed items with retry information while other items succeed", asyn
         .error!,
     ),
   ).toBeInTheDocument();
+});
+it("keeps apply failures independently of task history and retries only failed updates in bulk", async () => {
+  invoke.mockImplementation((_command, args) => args.skillId === "changed" ? Promise.reject("network failed") : Promise.resolve());
+  render(<UpdateCenter />);
+  fireEvent.click(screen.getByRole("button", {name: "待更新 1"}));
+  fireEvent.click(screen.getByRole("button", {name: "应用更新"}));
+  await waitFor(() => expect(queue.getState().tasks.some(task => task.status === "failed")).toBe(true));
+  expect(screen.getByRole("button", {name: "更新失败 1"})).toBeInTheDocument();
+  act(() => queue.getState().clear());
+  const persistedErrors = updates.getState().updateErrors;
+  const savedReport = localStorage.getItem("skillshub.repository-update-preview.v1")!;
+  act(() => updates.setState({updateErrors: {}}));
+  localStorage.setItem("skillshub.repository-update-preview.v1", savedReport);
+  await act(async () => { await updates.persist.rehydrate(); });
+  expect(updates.getState().updateErrors).toEqual(persistedErrors);
+  fireEvent.click(screen.getByRole("button", {name: "更新失败 1"}));
+  fireEvent.click(screen.getByRole("button", {name: "owner/repo"}));
+  expect(screen.getByText(Object.values(updates.getState().updateErrors)[0])).toBeInTheDocument();
+  expect(screen.queryByText("New")).not.toBeInTheDocument();
+  invoke.mockClear();
+  invoke.mockResolvedValue(undefined);
+  fireEvent.click(screen.getByRole("button", {name: "重试更新"}));
+  await waitFor(() => expect(updates.getState().preview?.repositories[0].modified).toHaveLength(0));
+  expect(invoke).toHaveBeenCalledTimes(1);
+  expect(invoke).toHaveBeenCalledWith("apply_repository_update_item", expect.objectContaining({skillId: "changed", action: "modified"}));
+  expect(screen.getByRole("button", {name: "更新失败 0"})).toBeInTheDocument();
+});
+it("retries multiple failed updates without applying other pending skills", async () => {
+  updates.setState({preview: {repositories: [{...preview.repositories[0], added: [], deleted: [],
+    modified: [{skillId: "a", name: "A", version: "v1"}, {skillId: "b", name: "B", version: "v1"}, {skillId: "c", name: "C", version: "v1"}]}]}});
+  invoke.mockRejectedValue("network failed");
+  render(<UpdateCenter />);
+  fireEvent.click(screen.getByRole("button", {name: "owner/repo"}));
+  fireEvent.click(within(screen.getByText("C").parentElement!).getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", {name: "应用更新"}));
+  await waitFor(() => expect(screen.getByRole("button", {name: "更新失败 2"})).toBeInTheDocument());
+  invoke.mockClear();
+  invoke.mockResolvedValue(undefined);
+  fireEvent.click(screen.getByRole("button", {name: "更新失败 2"}));
+  fireEvent.click(screen.getByRole("button", {name: "重试更新"}));
+  await waitFor(() => expect(updates.getState().preview?.repositories[0].modified.map(item => item.skillId)).toEqual(["c"]));
+  expect(invoke.mock.calls.map(([, args]) => args.skillId)).toEqual(["a", "b"]);
+});
+it("syncs mixed background outcomes and rechecks only the selected failed repositories", async () => {
+  const repositories = ["one/repo", "two/repo", "three/repo"].map((repository, index) => ({
+    repository, added: [], deleted: [], unchanged: [],
+    modified: [{skillId: `skill-${index}`, name: `Skill ${index}`, version: "v1"}],
+  }));
+  updates.setState({preview: {repositories}, checkingRepository: null});
+  invoke.mockImplementation((_command, args) => args.repository === "three/repo" ? Promise.resolve() : Promise.reject("network failed"));
+  render(<UpdateCenter />);
+  fireEvent.click(screen.getByRole("button", {name: "待更新 3"}));
+  fireEvent.click(screen.getByRole("button", {name: "应用更新"}));
+  await waitFor(() => expect(queue.getState().tasks.every(task => !["queued", "running"].includes(task.status))).toBe(true));
+  expect(screen.getByRole("button", {name: "待更新 2"})).toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "three/repo"})).not.toBeInTheDocument();
+  expect(screen.getByRole("button", {name: "更新失败 2"})).toBeInTheDocument();
+  act(() => queue.getState().clear());
+  fireEvent.click(screen.getByRole("button", {name: "更新失败 2"}));
+  fireEvent.click(screen.getByRole("checkbox", {name: "全选"}));
+  const recheck = vi.spyOn(useResourceLibraryStore.getState(), "previewRepositorySync").mockResolvedValue({repositories: repositories.slice(0, 2)});
+  fireEvent.click(screen.getByRole("button", {name: "重查所选"}));
+  await waitFor(() => expect(recheck).toHaveBeenCalledWith(["one/repo", "two/repo"]));
+  await waitFor(() => expect(updates.getState().checkingRepository).toBeNull());
+  expect(updates.getState().preview?.repositories[2].modified).toHaveLength(0);
+  expect(updates.getState().preview?.repositories[2].unchanged).toHaveLength(1);
+  expect(screen.getByRole("button", {name: "更新失败 0"})).toBeInTheDocument();
+  recheck.mockRestore();
 });
 it("keeps the center available for more submissions while an update runs", async () => {
   let finish!: () => void;
@@ -298,4 +368,34 @@ it("keeps all routine update operations directly visible",()=>{
  expect(screen.getByRole("button",{name:"检查全部"})).toBeInTheDocument();
  expect(screen.getByRole("button",{name:"忽略所选"})).toBeInTheDocument();
  expect(screen.queryByRole("button",{name:"更多操作"})).not.toBeInTheDocument();
+});
+
+it("selects ambiguous remote deletions for recheck before choosing replacements", () => {
+  updates.setState({checkingRepository: null, preview: {repositories: [{repository: "ambiguous/repo",
+    added: [{skillId: "new1", name: "New one", sourcePath: "skills/new1/SKILL.md", version: "v1"},
+      {skillId: "new2", name: "New two", sourcePath: "skills/new2/SKILL.md", version: "v1"}],
+    deleted: [{skillId: "old1", name: "Old one", version: "deleted"}, {skillId: "old2", name: "Old two", version: "deleted"}],
+    modified: [], unchanged: []}]}});
+  render(<UpdateCenter />);
+  fireEvent.click(screen.getByRole("button", {name: "远程删除 2"}));
+  fireEvent.click(screen.getByRole("checkbox", {name: "ambiguous/repo"}));
+  expect(screen.getByRole("checkbox", {name: "ambiguous/repo"})).toBeChecked();
+  expect(screen.getByRole("button", {name: "重查所选"})).toBeEnabled();
+  expect(screen.getByRole("button", {name: "删除并重导"})).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", {name: "ambiguous/repo"}));
+  fireEvent.change(screen.getAllByRole("combobox")[0],
+    {target: {value: "ambiguous/repo:new1:v1"}});
+  expect(within(screen.getByText("Old one").closest("div")!).getByRole("checkbox")).toBeChecked();
+  expect(screen.getByRole("button", {name: "删除并重导"})).toBeEnabled();
+});
+
+it("can enqueue an update while a different repository is being checked", async () => {
+  updates.setState({checkingRepository: "busy/repo", isChecking: false});
+  render(<UpdateCenter />);
+  expect(screen.getByRole("button", {name: "应用更新"})).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", {name: "应用更新"}));
+  expect(queue.getState().tasks).toHaveLength(2);
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
+  await Promise.all(queue.getState().tasks.map(task => waitForTask(task.id)));
+  updates.setState({checkingRepository: null});
 });

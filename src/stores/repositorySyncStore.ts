@@ -1,6 +1,8 @@
+import {activityAttention, pendingUpdateCount} from "@/lib/activityCenter";
 import {
   registerTaskExecutor,
   registerTaskResult,
+  registerTaskFailure,
   useTaskQueueStore,
   waitForTask,
 } from "./taskQueueStore";
@@ -22,10 +24,12 @@ export function hasRepositoryChanges(item: RepositorySyncPreview): boolean {
 }
 
 interface RepositorySyncState {
+  updateErrors: Record<string, string>;
   isRefreshingStars: boolean;
   refreshStars: (repositories?: string[]) => Promise<void>;
   checkedAt: Record<string, number>;
   reportCheckedAt: number | null;
+  reportGeneration: string | null;
   ignored: string[];
   setIgnored: (keys: string[]) => void;
   preview: RepositorySyncPreviewReport | null;
@@ -41,10 +45,13 @@ interface RepositorySyncState {
   error: string | null;
   checkForUpdates: (repositories?: string[]) => Promise<void>;
   open: boolean;
+  centerView: "pending" | "active" | "history" | null;
+  setCenterView: (view: "pending" | "active" | "history") => void;
   includeAdded: boolean;
   removeDeleted: boolean;
   repositories: string[] | null;
   setPreview: (preview: RepositorySyncPreviewReport | null) => void;
+  dismissFailedCheck: (repository?: string) => void;
   setOpen: (open: boolean) => void;
   setIncludeAdded: (includeAdded: boolean) => void;
   setRemoveDeleted: (removeDeleted: boolean) => void;
@@ -52,10 +59,12 @@ interface RepositorySyncState {
 }
 
 let previewRequest: Promise<void> | null = null;
+const activeRechecks = new Set<string>();
 
 export const useRepositorySyncStore = create<RepositorySyncState>()(
   persist(
     (set, get) => ({
+      updateErrors: {},
       isRefreshingStars: false,
       refreshStars: async (repositories) => {
         if (get().isRefreshingStars) return;
@@ -68,7 +77,9 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
             const repo = skill.source_repo?.trim().toLowerCase();
             return repo && /^[^/\s]+\/[^/\s]+$/.test(repo) && (!scope || scope.has(repo)) ? [repo] : [];
           }))];
+          const batchId = crypto.randomUUID();
           const ids = repos.map(repository => useTaskQueueStore.getState().enqueue({
+            batchId, batchLabel: i18n.t("workflow.refreshStars"),
             key: `stars:${repository}`, kind: "check", label: `${i18n.t("workflow.refreshStars")} · ${repository}`,
             locks: [`repo:${repository}`],
             steps: [{ command: "refresh_repository_stars", args: { repository }, label: repository }],
@@ -80,6 +91,7 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
       },
       checkedAt: {},
       reportCheckedAt: null,
+      reportGeneration: null,
       ignored: [],
       setIgnored: (ignored) => set({ ignored }),
       preview: null,
@@ -105,9 +117,11 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
         }),
       recheckRepository: (repository) => get().recheckRepositories([repository]),
       recheckRepositories: async (repositories) => {
-        if (get().isChecking || get().checkingRepository || !repositories.length) return;
-        const requested = [...new Set(repositories.map(repo => repo.toLowerCase()))];
-        set({ checkingRepository: requested[0] });
+        if (get().isChecking || !repositories.length) return;
+        const requested = [...new Set(repositories.map(repo => repo.toLowerCase()))].filter(repo => !activeRechecks.has(repo));
+        if (!requested.length) return;
+        requested.forEach(repo => activeRechecks.add(repo));
+        set({ checkingRepository: [...activeRechecks][0] });
         try {
           const report = await checkInBackground(requested);
           set((state) => ({
@@ -130,7 +144,8 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
             } : null,
           }));
         } finally {
-          set({ checkingRepository: null });
+          requested.forEach(repo => activeRechecks.delete(repo));
+          set({ checkingRepository: [...activeRechecks][0] ?? null });
         }
       },
       markApplied: () =>
@@ -144,6 +159,12 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
       checkForUpdates: (repositories) => {
         if (previewRequest) return previewRequest;
         if (get().checkingRepository) return Promise.resolve();
+        if (!repositories?.length) {
+          useTaskQueueStore.getState().clearCheckHistory();
+          set({preview: null, checkedAt: {}, reportCheckedAt: null, updateErrors: {},
+            reportGeneration: crypto.randomUUID(), repositories: null, applied: false,
+            appliedRepositories: [], includeAdded: true, removeDeleted: false});
+        }
         set({
           isChecking: true,
           error: null,
@@ -157,10 +178,10 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
               if (scanError) throw new Error(scanError);
             }
             const preview = await checkInBackground(repositories);
+            toast.info(i18n.t("workflow.checkFinished", {count: preview.repositories.reduce<number>((sum, repo) => sum + repo.added.length + repo.modified.length + repo.deleted.length, 0), failures: preview.repositories.filter(repo => repo.error).length}), {action:{label:i18n.t("workflow.viewResults"),onClick:() => get().setOpen(true)}});
             set({
               preview,
               reportCheckedAt: Date.now(),
-              open: true,
               includeAdded: true,
               removeDeleted: false,
               repositories: repositories ?? null,
@@ -169,6 +190,7 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
             });
           } catch (error) {
             set({ error: String(error) });
+            toast.error(i18n.t("workflow.checkFailedNotification"), {action:{label:i18n.t("workflow.viewResults"),onClick:() => get().setOpen(true)}});
           } finally {
             set({ isChecking: false });
           }
@@ -178,11 +200,32 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
         return previewRequest;
       },
       open: false,
+      centerView: null,
+      setCenterView: (centerView) => set({centerView, open: true}),
       includeAdded: true,
       removeDeleted: false,
       repositories: null,
       setPreview: (preview) => set({ preview }),
-      setOpen: (open) => set({ open }),
+      dismissFailedCheck: (repository) => {
+        if (repository) {
+          if (get().isChecking || activeRechecks.has(repository.toLowerCase())) return;
+          set(state => ({preview: state.preview ? {repositories: state.preview.repositories.filter(repo =>
+            repo.repository.toLowerCase() !== repository.toLowerCase() || !repo.error)} : null}));
+        } else {
+          set({error: null});
+          for (const task of useTaskQueueStore.getState().tasks) {
+            if (["failed", "partial", "interrupted"].includes(task.status) && task.steps.length &&
+              task.steps.every(step => step.command === "preview_source_backed_resource_repository_updates" && !step.result))
+              useTaskQueueStore.getState().remove(task.id);
+          }
+        }
+      },
+      setOpen: (open) => {
+        const state = get();
+        const tasks = useTaskQueueStore.getState().tasks.filter(task => !task.clearRequested);
+        const pending = pendingUpdateCount(state.preview, state.ignored, tasks) + activityAttention(tasks, state.preview, state.checkedAt, state.error).count + (state.error ? 1 : 0);
+        set({open, centerView: open ? pending ? "pending" : tasks.some(task => task.status === "running" || task.status === "queued") ? "active" : "history" : null});
+      },
       setIncludeAdded: (includeAdded) => set({ includeAdded }),
       setRemoveDeleted: (removeDeleted) => set({ removeDeleted }),
       setRepositories: (repositories) => set({ repositories }),
@@ -205,8 +248,10 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
         } : {}) };
       },
       partialize: (state) => ({
+        updateErrors: state.updateErrors,
         checkedAt: state.checkedAt,
         reportCheckedAt: state.reportCheckedAt,
+        reportGeneration: state.reportGeneration,
         ignored: state.ignored,
         preview: state.preview,
         repositories: state.repositories,
@@ -222,18 +267,19 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
 async function checkInBackground(
   repositories?: string[],
 ): Promise<RepositorySyncPreviewReport> {
+  const reportGeneration = useRepositorySyncStore.getState().reportGeneration;
   const id = useTaskQueueStore
     .getState()
     .enqueue({
-      key: `check:${repositories?.slice().sort().join(",") ?? "all"}`,
+      key: `check:${repositories?.slice().sort().join(",") ?? "all"}:${reportGeneration ?? "legacy"}`,
       kind: "check",
       locks: repositories?.length ? repositories.map(repo => `repo:${repo.toLowerCase()}`) : ["repo:*"],
-      label: i18n.t("workflow.recheck"),
+      label: repositories?.length ? i18n.t("workflow.checkRepositories", {count:repositories.length}) : i18n.t("workflow.allSourceRepositories"),
       steps: [
         {
           label: i18n.t("workflow.recheck"),
           command: "preview_source_backed_resource_repository_updates",
-          args: { repositories: repositories ?? null },
+          args: { repositories: repositories ?? null, reportGeneration },
         },
       ],
     });
@@ -260,12 +306,25 @@ registerTaskResult("apply_repository_update_item", async (step) => {
       return {...repo, [action]:repo[action].filter(item => !matches(item)),
         unchanged: action === "deleted" ? repo.unchanged : [...repo.unchanged.filter(item => !completed.some(done => done.skillId === item.skillId)), ...completed.map(item => ({...item, files:[]}))]};
     })};
-    return {preview, applied:preview.repositories.every(repo => !repo.error && !hasRepositoryChanges(repo))};
+    const updateErrors = {...state.updateErrors};
+    delete updateErrors[updateStepKey(step.args)];
+    return {preview, updateErrors, applied:preview.repositories.every(repo => !repo.error && !hasRepositoryChanges(repo))};
   });
   await Promise.all([
     useResourceLibraryStore.getState().loadResourceLibrary(),
     useCentralSkillsStore.getState().loadCentralSkills(),
   ]);
+});
+
+function updateStepKey(args: Record<string, unknown>): string {
+  const key = `${String(args.repository).toLowerCase()}:${args.skillId}:${args.version ?? ""}`;
+  return args.action === "replace" ? `${key}:replace:${String(args.repository).toLowerCase()}:${args.replacementSkillId}:${args.replacementVersion ?? ""}` : key;
+}
+
+registerTaskFailure("apply_repository_update_item", step => {
+  // Store only the sanitized task error, separately from disposable task history.
+  const key = updateStepKey(step.args);
+  useRepositorySyncStore.setState(state => ({updateErrors: {...state.updateErrors, [key]: step.error ?? i18n.t("workflow.operationFailed")}}));
 });
 
 registerTaskExecutor(
@@ -290,11 +349,15 @@ registerTaskResult("refresh_repository_stars", (step, result) => {
 registerTaskResult(
   "preview_source_backed_resource_repository_updates",
   (step, result) => {
+    // A check started before the latest full refresh cannot restore its old report.
+    if ((step.args.reportGeneration ?? null) !== useRepositorySyncStore.getState().reportGeneration) return;
     const rawReport = result as RepositorySyncPreviewReport;
     if (!rawReport?.repositories) return;
     const scope = Array.isArray(step.args.repositories) ? new Set((step.args.repositories as string[]).map(repo => repo.toLowerCase())) : null;
     const report = {repositories:rawReport.repositories.filter(repo => !scope || scope.has(repo.repository.toLowerCase()))};
     useRepositorySyncStore.setState((state) => ({
+      updateErrors: Object.fromEntries(Object.entries(state.updateErrors).filter(([key]) =>
+        !report.repositories.some(repo => !repo.error && key.startsWith(`${repo.repository.toLowerCase()}:`)))),
       checkedAt: {...state.checkedAt, ...Object.fromEntries(report.repositories.map(repo => [repo.repository.toLowerCase(), Date.now()]))},
       preview:
         step.args.repositories && state.preview

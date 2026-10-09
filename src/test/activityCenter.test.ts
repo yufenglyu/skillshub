@@ -1,0 +1,25 @@
+import {it, expect} from "vitest";
+import {activityGroups, activityAttention, pendingUpdateCount} from "@/lib/activityCenter";
+import type {BackgroundTask} from "@/stores/taskQueueStore";
+const task = (id:string, status:BackgroundTask["status"], key=id):BackgroundTask => ({id,key,status,label:id,kind:"update",createdAt:1,cancelRequested:false,locks:[],steps:[{command:"test",args:{},label:id}]});
+it("counts only the latest attempt and groups related failures", () => {
+  const tasks = [task("old","failed","same"),{...task("latest","failed","same"),batchId:"batch"},{...task("other","failed"),batchId:"batch"}];
+  expect(activityAttention(tasks,null,{},null)).toMatchObject({count:1});
+  expect(activityAttention(tasks,null,{},null).attention.map(t => t.id)).toEqual(["latest","other"]);
+  expect(activityGroups(tasks)).toHaveLength(2);
+});
+it("does not count an active replacement as another pending deletion", () => {
+  const preview = {repositories:[{repository:"example/repo",added:[{skillId:"new",name:"New",sourcePath:"new/SKILL.md",version:"v2"}],modified:[],deleted:[{skillId:"old",name:"Old",version:"v1"}],unchanged:[]}]};
+  expect(pendingUpdateCount(preview,[],[])).toBe(1);
+  expect(pendingUpdateCount(preview,[],[task("replace","running","example/repo:old:v1:replace:example/repo:new:v2")])).toBe(0);
+});
+it("counts a failed check once even when the global error and task coexist", () => {
+  const failed = {...task("check","failed"),kind:"check" as const,steps:[{command:"preview_source_backed_resource_repository_updates",args:{},label:"check"}]};
+  expect(activityAttention([failed],null,{},"network unavailable")).toMatchObject({attention:[],count:0});
+});
+
+it("does not bring a dismissed full-check failure back as a pending task", () => {
+  const report = {repositories:[{repository:"failed/repo",added:[],modified:[],deleted:[],unchanged:[],error:"network unavailable"}]};
+  const failed = {...task("check","partial"),kind:"check" as const,steps:[{command:"preview_source_backed_resource_repository_updates",args:{repositories:null},label:"check",result:report}]};
+  expect(activityAttention([failed],{repositories:[]},{"failed/repo":2},null)).toMatchObject({attention:[],count:0});
+});

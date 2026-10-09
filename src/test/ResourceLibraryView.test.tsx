@@ -336,13 +336,15 @@ describe("ResourceLibraryView delete", () => {
     fireEvent.click(screen.getByRole("button", {name:"检查更新"}));
     await waitFor(()=>expect(mockPreviewRepositorySync).toHaveBeenCalledTimes(1));
     view.rerender(<MemoryRouter><AppStatusBar /></MemoryRouter>);
-    expect(screen.getByRole("status")).toHaveTextContent(/正在后台检查更新|Checking for updates/);
+    expect(screen.getByRole("button", {name: /任务与更新/})).toHaveTextContent(/运行 1/);
     finish({ repositories: [] });
-    await screen.findByRole("button", { name: /更新状态|Update status/i });
+    await waitFor(() => expect(screen.getByRole("button", {name: /任务与更新/})).toHaveTextContent(/运行 0/));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(mockSyncSourceBackedSkills).not.toHaveBeenCalled();
     expect(mockUpdateSourceBackedSkills).not.toHaveBeenCalled();
     view.rerender(<MemoryRouter><ResourceLibraryView /><AppStatusBar /></MemoryRouter>);
-    await screen.findByRole("dialog", { name: /更新状态|Update status/i });
+    fireEvent.click(screen.getByRole("button", {name: /任务与更新/}));
+    await screen.findByRole("dialog", {name: "任务与更新"});
     expect(mockPreviewRepositorySync).toHaveBeenCalledTimes(1);
   });
 
@@ -593,7 +595,7 @@ describe("ResourceLibraryView delete", () => {
 
     render(
       <MemoryRouter>
-        <ResourceLibraryView />
+        <ResourceLibraryView /><AppStatusBar />
       </MemoryRouter>
     );
 
@@ -606,6 +608,7 @@ describe("ResourceLibraryView delete", () => {
     });
     expect(mockSyncSourceBackedSkills).not.toHaveBeenCalled();
     vi.mocked(invoke).mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole("button", {name: /任务与更新/}));
     fireEvent.click(await screen.findByRole("button", { name: "应用更新" }));
     await waitFor(()=>expect(invoke).toHaveBeenCalledWith("apply_repository_update_item",expect.objectContaining({repository:"owner/repo",skillId:"resource-demo",action:"modified"})));
 
@@ -694,12 +697,11 @@ describe("ResourceLibraryView delete", () => {
     });
   });
 
-  it.each([false, true])("shows the status preview only when unapplied (applied=%s)", (applied) => {
+  it.each([false, true])("keeps one global activity entry after a check (applied=%s)", (applied) => {
     useRepositorySyncStore.setState({ preview: { repositories: [] }, applied });
     render(<MemoryRouter><AppStatusBar /></MemoryRouter>);
-    const button = screen.queryByRole("button", { name: /更新状态|Update status/i });
-    if (applied) expect(button).not.toBeInTheDocument();
-    else expect(button).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /任务与更新/})).toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: /更新状态|Update status/i})).not.toBeInTheDocument();
   });
 
 

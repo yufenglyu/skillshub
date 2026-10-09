@@ -1,7 +1,7 @@
 import { ActionIcon } from "@/components/ui/action-icon";
 import { RepositoryCheckConfirm } from "./RepositoryCheckConfirm";
 import {repositoryUpdateRows, updateCategories as categories, updateItemKey, type UpdateCategory as Category} from "@/lib/repositoryUpdateRows";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ChevronRight, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useRepositorySyncStore } from "@/stores/repositorySyncStore";
@@ -16,10 +16,8 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogBody,
-  DialogFooter,
 } from "@/components/ui/dialog";
-export function UpdateCenter() {
+export function UpdateCenter({ embedded = false }: { embedded?: boolean } = {}) {
   const { t, i18n } = useTranslation();
   const [confirmCheck, setConfirmCheck] = useState(false);
   const state = useRepositorySyncStore();
@@ -27,27 +25,28 @@ export function UpdateCenter() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [retryChoices, setRetryChoices] = useState<Record<string, boolean>>({});
   const [choices, setChoices] = useState<Record<string, boolean>>({});
-  const [filter, setFilter] = useState<Category | "ignored" | "failed" | null>(null);
+  const [filter, setFilter] = useState<Category | "ignored" | "failed" | "updateFailed" | null>(null);
   const [pairs,setPairs] = useState<Record<string,string>>({});
   const rows = useMemo(() => repositoryUpdateRows(state.preview?.repositories ?? [],pairs),[state.preview,pairs]);
   const busy = (key: string) =>
     tasks.some((task) => task.key === key && isTaskActive(task));
   const failed = (key: string) => {
+    if (state.updateErrors[key]) return state.updateErrors[key];
     const latest = [...tasks].reverse().find(task => task.key === key);
     const repo = latest?.steps[0]?.args.repository;
     if (!latest || !["partial", "failed"].includes(latest.status)) return undefined;
     if (typeof repo === "string" && latest.createdAt <= (state.checkedAt[repo.toLowerCase()] ?? 0)) return undefined;
-    return latest;
+    return latest.steps.find(step => step.error)?.error;
   };
   const ignored = (key: string) => state.ignored.includes(key);
-  const selectable = (row: (typeof rows)[number]) => !row.error && !busy(row.key) && (!row.candidates.length || !!row.replacement);
+  const selectable = (row: (typeof rows)[number]) => !row.error && !busy(row.key);
   const applicable = (row: (typeof rows)[number]) => selectable(row) && row.category !== "unchanged" && !ignored(row.key) && (!row.candidates.length || !!row.replacement);
   const checked = (row: (typeof rows)[number]) => selectable(row) &&
-    (choices[row.key] ?? (applicable(row) && ["added", "modified"].includes(row.category)));
+    (choices[row.pairKey] ?? (applicable(row) && ["added", "modified"].includes(row.category)));
   const visible = rows.filter((row) =>
     filter === "ignored"
       ? ignored(row.key)
-      : !ignored(row.key) && (!filter || row.category === filter),
+      : !ignored(row.key) && (filter === "updateFailed" ? !!failed(row.key) : (!filter ? (!embedded || row.category !== "unchanged") : row.category === filter)),
   );
   const selected = visible.filter(checked);
   const failedRepositories = (state.preview?.repositories ?? []).filter(repo => !!repo.error);
@@ -57,20 +56,30 @@ export function UpdateCenter() {
   const updatesToApply = selected.filter(applicable);
   const replacementsToApply = updatesToApply.filter(row => !!row.replacement);
   const regularUpdatesToApply = updatesToApply.filter(row => !row.replacement);
+  const failedRows = visible.filter(row => failed(row.key) && applicable(row));
+  const selectedFailedRows = selected.filter(row => failed(row.key) && applicable(row));
+  const updatesToRetry = selected.length ? selectedFailedRows : failedRows;
+  const repositoryChecking = (repository: string) => tasks.some(task => isTaskActive(task) && task.steps.some(step =>
+    step.command === "preview_source_backed_resource_repository_updates" &&
+    (!Array.isArray(step.args.repositories) || step.args.repositories.some(repo => String(repo).toLowerCase() === repository.toLowerCase()))));
   const checking = state.isChecking || !!state.checkingRepository;
+  const repositoriesToRecheck = selectedRepositories.filter(repo => !repositoryChecking(repo));
+  const retryableFailures = (selectedFailures.length ? selectedFailures : visibleFailures).filter(repo => !repositoryChecking(repo.repository));
   const selectableCount = visible.filter(selectable).length + visibleFailures.length;
   const selectedCount = selected.length + selectedFailures.length;
   const allSelected = selectableCount > 0 && selectedCount === selectableCount;
   const partiallySelected = selectedCount > 0 && !allSelected;
   function toggleAll(checked: boolean) {
     setRetryChoices(previous => ({...previous,...Object.fromEntries(visibleFailures.map(repo=>[repo.repository,checked]))}));
-    setChoices(previous=>({...previous,...Object.fromEntries(visible.filter(selectable).map(row=>[row.key,checked]))}));
+    setChoices(previous=>({...previous,...Object.fromEntries(visible.filter(selectable).map(row=>[row.pairKey,checked]))}));
   }
   function apply(items = regularUpdatesToApply) {
-    if (checking) return;
+    const batchId = crypto.randomUUID();
     for (const row of items) {
       useTaskQueueStore.getState().enqueue({
         key: row.key,
+        batchId,
+        batchLabel: t("workflow.updateBatch", {count: items.length}),
         kind: "update",
         label: row.item.name,
         locks: [`repo:${row.repo.toLowerCase()}`, `skill:${row.item.skillId}`],
@@ -89,26 +98,13 @@ export function UpdateCenter() {
         ],
       });
     }
+    setChoices(previous => ({...previous, ...Object.fromEntries(items.map(row => [row.pairKey, false]))}));
   }
   return (
     <>
     <RepositoryCheckConfirm open={confirmCheck} onOpenChange={setConfirmCheck} repositories={state.repositories ?? undefined}/>
-    <Dialog open={state.open} onOpenChange={state.setOpen}>
-      <DialogContent
-        className="grid-rows-[auto_auto_minmax(0,1fr)_auto] resize overflow-hidden"
-        style={{
-          width: "min(56rem, calc(100vw - 2rem))",
-          height: "min(46rem, calc(100dvh - 2rem))",
-          minWidth: "min(36rem, calc(100vw - 2rem))",
-          minHeight: "min(24rem, calc(100dvh - 2rem))",
-          maxWidth: "calc(100vw - 2rem)",
-          maxHeight: "calc(100dvh - 2rem)",
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>{t("workflow.updateStatus")}</DialogTitle>
-          <p className="text-xs text-muted-foreground">{t(state.repositories?.length ? "workflow.scopedCheckTime" : "workflow.fullCheckTime")} · {state.reportCheckedAt ? new Date(state.reportCheckedAt).toLocaleString(i18n.language) : t("workflow.checkTimeUnknown")}</p>
-        </DialogHeader>
+    <UpdateFrame embedded={embedded}>
+        <p className="text-xs text-muted-foreground">{t(state.repositories?.length ? "workflow.scopedCheckTime" : "workflow.fullCheckTime")} · {state.reportCheckedAt ? new Date(state.reportCheckedAt).toLocaleString(i18n.language) : t("workflow.checkTimeUnknown")}</p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant={filter === null ? "default" : "outline"} aria-pressed={filter === null} onClick={() => setFilter(null)}><ActionIcon action="filter"/>
             {t("workflow.allUpdates")}
@@ -121,7 +117,7 @@ export function UpdateCenter() {
               aria-pressed={filter === category}
               onClick={() => setFilter(filter === category ? null : category)}
             ><ActionIcon action={category === "added" ? "add" : category === "deleted" ? "delete" : category === "modified" ? "update" : "success"}/>
-              {t(`workflow.change.${category}`)}{" "}
+              {t(`workflow.${embedded ? "changeType" : "change"}.${category}`)}{" "}
               {
                 rows.filter(
                   (row) => row.category === category && !ignored(row.key),
@@ -132,6 +128,9 @@ export function UpdateCenter() {
           <Button size="sm" variant={filter === "failed" ? "default" : "outline"} aria-pressed={filter === "failed"} onClick={() => setFilter("failed")}><ActionIcon action="error"/>
             {t("workflow.checkFailed")} {failedRepositories.length}
           </Button>
+          <Button size="sm" variant={filter === "updateFailed" ? "default" : "outline"} aria-pressed={filter === "updateFailed"} onClick={() => setFilter("updateFailed")}><ActionIcon action="error"/>
+            {t("workflow.updateFailed")} {rows.filter(row => !ignored(row.key) && !!failed(row.key)).length}
+          </Button>
           <Button
             size="sm"
             aria-pressed={filter === "ignored"}
@@ -141,9 +140,10 @@ export function UpdateCenter() {
             {t("workflow.ignored")}
           </Button>
         </div>
-        <DialogBody className="min-h-0 max-h-none space-y-3 overflow-auto">
+        <div className="min-h-0 flex-1 space-y-3 overflow-auto">
+          {!visible.length && !visibleFailures.length && <p className="py-8 text-center text-sm text-muted-foreground">{t("workflow.noPendingUpdates")}</p>}
           {state.error && (
-            <p className="text-destructive">{t("workflow.operationFailed")}</p>
+            <div className="flex items-center gap-2"><p className="text-destructive">{t("workflow.operationFailed")}</p><Button size="sm" variant="ghost" onClick={() => state.dismissFailedCheck()}>{t("workflow.removeCheckResult")}</Button></div>
           )}
           {(state.preview?.repositories ?? []).map((repo) => {
             const items = visible.filter((row) => row.repo === repo.repository);
@@ -158,13 +158,14 @@ export function UpdateCenter() {
                       repo.error ? !!retryChoices[repo.repository] : items.some(selectable) &&
                       items.filter(selectable).every(checked)
                     }
+                    disabled={!repo.error && !items.some(selectable)}
                     onChange={(e) =>
                       repo.error ? setRetryChoices(previous => ({...previous, [repo.repository]: e.target.checked})) : setChoices((previous) => ({
                         ...previous,
                         ...Object.fromEntries(
                           items
                             .filter(selectable)
-                            .map((row) => [row.key, e.target.checked]),
+                            .map((row) => [row.pairKey, e.target.checked]),
                         ),
                       }))
                     }
@@ -191,6 +192,7 @@ export function UpdateCenter() {
                         total: items.length,
                       })}
                     </span>
+                    {items.some(row => failed(row.key)) && <span className="shrink-0 text-xs text-destructive">{t("workflow.updateFailed")} {items.filter(row => failed(row.key)).length}</span>}
                   </button>
                 </div>
                 {state.checkedAt[repo.repository.toLowerCase()] && <p className="mt-1 text-xs text-muted-foreground">{t("workflow.repositoryCheckTime")} · {new Date(state.checkedAt[repo.repository.toLowerCase()]).toLocaleString(i18n.language)}</p>}
@@ -200,31 +202,37 @@ export function UpdateCenter() {
 
                   </p>
                 )}
+                {embedded && repo.error && <Button size="sm" variant="outline" className="mt-2" disabled={repositoryChecking(repo.repository)} onClick={() => void state.recheckRepository(repo.repository)}><ActionIcon action="retry"/>{t("workflow.recheck")}</Button>}
+                {embedded && repo.error && <Button size="sm" variant="ghost" className="mt-2" disabled={checking || repositoryChecking(repo.repository)} onClick={() => state.dismissFailedCheck(repo.repository)}><ActionIcon action="delete"/>{t("workflow.removeCheckResult")}</Button>}
                 {expanded[repo.repository] &&
                   items.map((row) => (
                     <div
                       key={row.key}
-                      className="mt-2 rounded bg-muted/20 p-2 text-sm"
+                      className="mt-2 rounded border border-border bg-background p-2 text-sm"
                     >
                       <div className="flex items-center gap-2">
                         <input
                           type="checkbox"
+                          aria-label={row.item.name}
                           checked={checked(row)}
                           disabled={!selectable(row)}
                           onChange={(e) =>
                             setChoices((previous) => ({
                               ...previous,
-                              [row.key]: e.target.checked,
+                              [row.pairKey]: e.target.checked,
                             }))
                           }
                         />
                         <span>{row.item.name}</span>
                         <span className="ml-auto text-xs">
-                          {t(`workflow.change.${row.category}`)}
+                          {t(`workflow.${embedded ? "changeType" : "change"}.${row.category}`)}
                         </span>
-                        {busy(row.key) && (
-                          <span>{t("workflow.taskStatus.running")}</span>
-                        )}
+                        <span className="text-xs text-muted-foreground">{busy(row.key)
+                          ? t(tasks.find(task => task.key === row.key && isTaskActive(task))?.cancelRequested ? "workflow.stopping" : `workflow.taskStatus.${tasks.find(task => task.key === row.key && isTaskActive(task))?.status}`)
+                          : !failed(row.key) ? t(row.category === "unchanged" ? "workflow.change.unchanged" : row.category === "deleted" ? "workflow.pendingDecision" : "workflow.pendingUpdate") : ""}</span>
+                        {failed(row.key) && !busy(row.key) && <span className="text-xs text-destructive">{t("workflow.updateFailed")}</span>}
+                        {embedded && applicable(row) && <Button size="sm" variant="outline" onClick={() => apply([row])}>{t(failed(row.key) ? "workflow.retryTask" : row.replacement ? "workflow.replaceDeletedCompact" : row.category === "deleted" ? "workflow.removeLocal" : "workflow.updateOne")}</Button>}
+                        {embedded && applicable(row) && <Button size="sm" variant="ghost" onClick={() => state.setIgnored([...new Set([...state.ignored,row.key])])}>{t("workflow.ignoreOne")}</Button>}
                         {filter === "ignored" && (
                           <Button
                             size="sm"
@@ -243,7 +251,7 @@ export function UpdateCenter() {
                         <p className="flex items-center gap-1 text-xs">{t("workflow.reimportSource")}
                           <button type="button" className="rounded text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring" title={t("workflow.replaceDeletedHint")} aria-label={t("workflow.replaceDeletedHint")}><Info className="size-3.5"/></button>
                         </p>
-                        <select aria-label={t("workflow.replacementFor",{name:row.item.name})} className="w-full rounded border bg-background p-1" disabled={busy(row.key) || checking}
+                        <select aria-label={t("workflow.replacementFor",{name:row.item.name})} className="w-full rounded border bg-background p-1" disabled={busy(row.key)}
                           value={row.replacement ? updateItemKey(row.repo,row.replacement) : ""}
                           onChange={event=>setPairs(previous=>({...previous,[row.pairKey]:event.target.value}))}>
                           <option value="">{t("workflow.chooseReplacement")}</option>
@@ -258,8 +266,7 @@ export function UpdateCenter() {
                       {failed(row.key) && (
                         <div className="flex flex-wrap items-center gap-2 text-xs text-destructive">
                           {
-                            failed(row.key)?.steps.find((step) => step.error)
-                              ?.error
+                            failed(row.key)
                           }
 
                         </div>
@@ -284,8 +291,8 @@ export function UpdateCenter() {
               </section>
             );
           })}
-        </DialogBody>
-        <DialogFooter className="flex-row flex-wrap items-center gap-x-4 gap-y-3">
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-t pt-3">
           <label className="mr-auto flex items-center gap-2 text-xs">
             <input type="checkbox" aria-label={t("workflow.selectAll")} checked={allSelected}
               aria-checked={partiallySelected ? "mixed" : allSelected}
@@ -298,24 +305,36 @@ export function UpdateCenter() {
           <Button
             size="sm"
             variant="outline"
-            disabled={checking || !selectedRepositories.length}
-            onClick={() => void state.recheckRepositories(selectedRepositories)}
+            disabled={state.isChecking || !repositoriesToRecheck.length}
+            onClick={() => void state.recheckRepositories(repositoriesToRecheck)}
           ><ActionIcon action="check"/>
             {t("workflow.recheckSelected")}
           </Button>
-          {visibleFailures.length > 0 && <Button size="sm" variant="outline" disabled={checking} onClick={()=>void state.recheckRepositories((selectedFailures.length ? selectedFailures : visibleFailures).map(repo=>repo.repository))}><ActionIcon action="retry"/>{t("workflow.retry")}</Button>}
-          <Button size="sm" variant="outline" disabled={checking} onClick={()=>setConfirmCheck(true)}><ActionIcon action="check"/>{t("workflow.checkAllCompact")}</Button>
+          {visibleFailures.length > 0 && <Button size="sm" variant="outline" disabled={state.isChecking || !retryableFailures.length} onClick={()=>void state.recheckRepositories(retryableFailures.map(repo=>repo.repository))}><ActionIcon action="retry"/>{t("workflow.retry")}</Button>}
+          {!embedded && <Button size="sm" variant="outline" disabled={checking} onClick={()=>setConfirmCheck(true)}><ActionIcon action="check"/>{t("workflow.checkAllCompact")}</Button>}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 border-l pl-4">
-          <Button size="sm" variant="outline" disabled={checking || !updatesToApply.length} onClick={()=>state.setIgnored([...new Set([...state.ignored,...updatesToApply.map(row=>row.key)])])}><ActionIcon action="ignore"/>{t("workflow.ignore")}</Button>
-          {visible.some(row => row.candidates.length > 0) && <Button size="sm" variant="outline" title={t("workflow.replaceDeleted")} disabled={checking || !replacementsToApply.length} onClick={()=>apply(replacementsToApply)}><ActionIcon action="delete"/>{t("workflow.replaceDeletedCompact")}</Button>}
-          <Button size="sm" disabled={checking || !regularUpdatesToApply.length} onClick={()=>apply()}><ActionIcon action="update"/>
+          {visible.some(row => failed(row.key)) && <Button size="sm" variant="outline" disabled={!updatesToRetry.length} onClick={() => apply(updatesToRetry)}><ActionIcon action="retry"/>{t("workflow.retryUpdates")}</Button>}
+          <Button size="sm" variant="outline" disabled={!updatesToApply.length} onClick={()=>state.setIgnored([...new Set([...state.ignored,...updatesToApply.map(row=>row.key)])])}><ActionIcon action="ignore"/>{t("workflow.ignore")}</Button>
+          {visible.some(row => row.candidates.length > 0) && <Button size="sm" variant="outline" title={t("workflow.replaceDeleted")} disabled={!replacementsToApply.length} onClick={()=>apply(replacementsToApply)}><ActionIcon action="delete"/>{t("workflow.replaceDeletedCompact")}</Button>}
+          <Button size="sm" disabled={!regularUpdatesToApply.length} onClick={()=>apply()}><ActionIcon action="update"/>
             {t("workflow.apply")}
           </Button>
           </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+    </UpdateFrame>
     </>
   );
+}
+
+function UpdateFrame({embedded, children}: {embedded: boolean; children: ReactNode}) {
+  const {t} = useTranslation();
+  const state = useRepositorySyncStore();
+  if (embedded) return <div className="flex min-h-0 flex-1 flex-col gap-3">{children}</div>;
+  return <Dialog open={state.open} onOpenChange={state.setOpen}>
+    <DialogContent className="flex h-[min(46rem,calc(100dvh-2rem))] w-[min(56rem,calc(100vw-2rem))] max-w-none flex-col overflow-hidden resize">
+      <DialogHeader><DialogTitle>{t("workflow.updateStatus")}</DialogTitle></DialogHeader>
+      {children}
+    </DialogContent>
+  </Dialog>;
 }

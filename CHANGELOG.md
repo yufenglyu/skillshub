@@ -2,6 +2,13 @@
 
 [English](CHANGELOG.md) | [简体中文](CHANGELOG.zh.md)
 
+## Unreleased
+
+- Merge background tasks and update status into one Tasks & updates window with Pending, In progress and History views, available from every page. Keep update selections when switching views and group batch operations with expandable progress and results.
+- Finish update checks with a notification instead of opening the results automatically. Clear previous check reports and records when starting a full repository check, while preserving unrelated results during scoped checks.
+- Allow manual deletion of failed or interrupted task records and dismissal of failed repository check results without deleting skill files. Clearing finished records preserves running tasks and unresolved failures.
+- Continue GitHub repository checks and imports in the background when clicking outside the Add Skills dialog. Keep name conflicts in Pending with a Continue import action; support stopping and retrying background imports. Explicit Cancel still cancels the current dialog operation.
+
 ## 1.1.1 - 2026-09-23
 
 - Add an Update skills confirmation dialog with Last results, Check updates, Update stars and Cancel. Refresh repository stars independently, with progress and retries in background tasks.

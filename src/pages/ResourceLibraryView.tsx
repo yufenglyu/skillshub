@@ -2,7 +2,6 @@ import { ActionIcon } from "@/components/ui/action-icon";
 import { RepositoryCheckConfirm } from "@/components/skill/RepositoryCheckConfirm";
 import { useTaskQueueStore } from "@/stores/taskQueueStore";
 import { AddSkillsDialog } from "@/components/skill/AddSkillsDialog";
-import { UpdateCenter } from "@/components/skill/UpdateCenter";
 import { useMetadataStore, findFolderNote } from "@/stores/metadataStore";
 import { FolderNotesEditor } from "@/components/skill/FolderNotesEditor";
 import { SearchScopes } from "@/components/skill/SearchScopes";
@@ -855,7 +854,6 @@ export function ResourceLibraryView() {
         }
       />
 
-      <UpdateCenter />
 
       <Dialog
         open={!!deleteTargetSkill}

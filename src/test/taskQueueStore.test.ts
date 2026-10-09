@@ -14,6 +14,24 @@ const input = (key: string, locks: string[] = []) => ({
   steps: [{ command: "test", args: { key }, label: key }],
 });
 describe("background queue", () => {
+  it("clears running tasks safely without releasing their target locks early", async () => {
+    let finish!: () => void;
+    invoke.mockImplementationOnce(() => new Promise<void>(resolve => {finish = resolve;})).mockResolvedValue(undefined);
+    const active = queue.getState().enqueue(input("active", ["repo:one"]));
+    const queued = queue.getState().enqueue(input("queued", ["repo:one"]));
+    const activeWaiter = waitForTask(active);
+    const queuedWaiter = waitForTask(queued);
+    queue.getState().clearAll();
+    expect((await queuedWaiter).status).toBe("cancelled");
+    expect(queue.getState().tasks).toHaveLength(1);
+    expect(queue.getState().tasks[0]).toMatchObject({id: active, clearRequested: true, cancelRequested: true});
+    const next = queue.getState().enqueue(input("next", ["repo:one"]));
+    expect(invoke).toHaveBeenCalledTimes(1);
+    finish();
+    expect((await activeWaiter).status).toBe("cancelled");
+    await waitForTask(next);
+    expect(queue.getState().tasks.map(task => task.id)).toEqual([next]);
+  });
   beforeEach(() => {
     invoke.mockReset();
     queue.setState({ tasks: [] });
@@ -128,4 +146,18 @@ it("serializes a full check against updates but lets independent repositories ru
   finishes[0](); await waitForTask(update);
   await waitFor(()=>expect(finishes).toHaveLength(2));
   finishes[1](); await waitForTask(check);
+});
+
+it("reports interrupted downloads as network failures even if a fallback mirror denies access", () => {
+  expect(taskErrorMessage("Failed to download archive: response body failed: network download interrupted; mirror returned HTTP 403")).toBe(i18n.t("workflow.errors.network"));
+  expect(taskErrorMessage("Failed to read GitHub repository archive: error decoding response body", "import")).toBe(i18n.t("workflow.errors.network"));
+  expect(taskErrorMessage("network request or download timed out")).toBe(i18n.t("workflow.errors.timeout"));
+});
+
+it("preserves safe download errors when task failures are handled a second time", () => {
+  for (const key of ["network", "timeout", "githubAuthorization", "rateLimit"]) {
+    const safe = i18n.t(`workflow.errors.${key}`);
+    expect(taskErrorMessage(safe, "import")).toBe(safe);
+    expect(taskErrorMessage(new Error(safe), "import")).toBe(safe);
+  }
 });

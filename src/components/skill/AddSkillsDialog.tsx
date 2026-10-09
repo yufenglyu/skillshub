@@ -1,14 +1,13 @@
 import { ActionIcon } from "@/components/ui/action-icon";
-import { previewLocalImport } from "@/stores/importPreparationStore";
+import { previewLocalImport, enqueueGitHubImport, continueGitHubImportInBackground } from "@/stores/importPreparationStore";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { useGitHubImportStore } from "@/stores/githubImportStore";
-import { registerTaskResult, taskErrorMessage, useTaskQueueStore } from "@/stores/taskQueueStore";
-import { useResourceLibraryStore } from "@/stores/resourceLibraryStore";
-import type { GitHubSkillImportSelection } from "@/types";
+import { taskErrorMessage, useTaskQueueStore } from "@/stores/taskQueueStore";
+import type { GitHubRepoPreview, GitHubSkillImportSelection } from "@/types";
 import { GitHubRepoImportWizard } from "@/components/github-import/GitHubRepoImportWizard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,63 +19,50 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
-for (const command of [
-  "import_github_repo_skills",
-  "add_local_resource_skills",
-]) {
-  registerTaskResult(command, async () => {
-    await useResourceLibraryStore.getState().loadResourceLibrary();
-  });
-}
 export function AddSkillsDialog({
   open: visible,
   onOpenChange,
+  preparedTaskId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  preparedTaskId?: string;
 }) {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
-  const [repo, setRepo] = useState("");
+  const preparedTask = useTaskQueueStore.getState().tasks.find(task => task.id === preparedTaskId);
+  const [repo, setRepo] = useState(String(preparedTask?.steps[0]?.args.repoUrl ?? ""));
+  const [importPreview, setImportPreview] = useState<GitHubRepoPreview | null>((preparedTask?.steps[0]?.result as GitHubRepoPreview | undefined) ?? null);
+  const pendingGitHub = useRef<{repoUrl:string; preview:Promise<GitHubRepoPreview>} | null>(null);
   const [path, setPath] = useState("");
   const [overwrite, setOverwrite] = useState(false);
-  const [wizard, setWizard] = useState(false);
+  const [wizard, setWizard] = useState(!!preparedTask);
   const [preparing, setPreparing] = useState(false);
   const request = useRef(0);
   const store = useGitHubImportStore();
   function close() {
     request.current++;
+    pendingGitHub.current = null;
     setPreparing(false);
     setError(null);
     setWizard(false);
     onOpenChange(false);
   }
-  function queueGitHub(selections: GitHubSkillImportSelection[]) {
-    const chosen = selections.filter((s) => s.resolution !== "skip");
-    if (!chosen.length) return;
-    const preview = useGitHubImportStore.getState().githubImport.preview;
-    const lock = preview
-      ? `${preview.repo.owner}/${preview.repo.repo}`.toLowerCase()
-      : repo.toLowerCase();
-    useTaskQueueStore
-      .getState()
-      .enqueue({
-        key: `import:${lock}:${JSON.stringify(chosen)}`,
-        kind: "import",
-        label: lock,
-        locks: [
-          `repo:${lock}`,
-          ...chosen.map(
-            (s) =>
-              `skill:${s.renamedSkillId ?? preview?.skills.find((item) => item.sourcePath === s.sourcePath)?.skillId ?? s.sourcePath}`,
-          ),
-        ],
-        steps: chosen.map((selection) => ({
-          command: "import_github_repo_skills",
-          label: selection.sourcePath,
-          args: { repoUrl: repo.trim(), selections: [selection] },
-        })),
-      });
+  function detachGitHubImport() {
+    if (pendingGitHub.current) {
+      continueGitHubImportInBackground(pendingGitHub.current.repoUrl, pendingGitHub.current.preview);
+      toast.info(t("workflow.importContinuesInBackground"));
+    }
+    close();
+  }
+  function queueGitHub(selections: GitHubSkillImportSelection[], preview = importPreview ?? store.githubImport.preview) {
+    if (!preview || !selections.some(selection => selection.resolution !== "skip")) return;
+    if (preparedTaskId) {
+      const task = useTaskQueueStore.getState().tasks.find(task => task.id === preparedTaskId);
+      if (!task || task.status !== "awaiting_input") return;
+      useTaskQueueStore.getState().patch(task.id, {status:"success",steps:task.steps.map(step => ({...step,status:"success"}))});
+    }
+    enqueueGitHubImport(repo.trim(), preview, selections, preparedTask?.batchId);
     close();
   }
   async function add(source: "github" | "local") {
@@ -85,8 +71,13 @@ export function AddSkillsDialog({
     setError(null);
     try {
       if (source === "github") {
-        const preview = await store.previewGitHubRepoImport(repo.trim());
+        const repoUrl = repo.trim();
+        const previewRequest = store.previewGitHubRepoImport(repoUrl);
+        pendingGitHub.current = {repoUrl,preview:previewRequest};
+        const preview = await previewRequest;
         if (token !== request.current) return;
+        pendingGitHub.current = null;
+        setImportPreview(preview);
         if (!preview.skills.length) {
           toast.info(t("workflow.noImportableSkills"));
           return;
@@ -100,6 +91,7 @@ export function AddSkillsDialog({
             sourcePath: skill.sourcePath,
             resolution: "overwrite",
           })),
+          preview,
         );
       } else {
         const items = await previewLocalImport(path.trim());
@@ -140,15 +132,18 @@ export function AddSkillsDialog({
         toast.error(message);
       }
     } finally {
-      if (token === request.current) setPreparing(false);
+      if (token === request.current) {pendingGitHub.current = null; setPreparing(false);}
     }
   }
   return (
     <>
       <Dialog
         open={visible && !wizard}
-        onOpenChange={(value) => {
-          if (!value) close();
+        onOpenChange={(value, details) => {
+          if (!value) {
+            if (details.reason === "outside-press" && pendingGitHub.current) detachGitHubImport();
+            else close();
+          }
         }}
       >
         <DialogContent className="sm:max-w-xl">
@@ -228,23 +223,26 @@ export function AddSkillsDialog({
       </Dialog>
       <GitHubRepoImportWizard
         open={visible && wizard}
-        onOpenChange={(value) => {
+        onOpenChange={(value, details) => {
           if (!value) {
-            setWizard(false);
-            onOpenChange(false);
+            if (details?.reason === "outside-press" && !preparedTaskId && importPreview) {
+              continueGitHubImportInBackground(repo.trim(), Promise.resolve(importPreview));
+              toast.info(t("workflow.importNeedsReview"));
+            }
+            close();
           }
         }}
         repoUrl={repo}
         onRepoUrlChange={setRepo}
-        preview={store.githubImport.preview}
+        preview={importPreview ?? store.githubImport.preview}
         previewError={store.githubImport.error}
         isPreviewLoading={store.githubImport.isPreviewLoading}
         isImporting={false}
         importResult={null}
-        onPreview={() => store.previewGitHubRepoImport(repo)}
+        onPreview={async () => {const preview = await store.previewGitHubRepoImport(repo); setImportPreview(preview); return preview;}}
         onReset={store.resetGitHubImport}
         launcherLabel={t("resource.addSkills")}
-        onImport={queueGitHub}
+        onImport={selections => queueGitHub(selections)}
       />
     </>
   );

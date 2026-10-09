@@ -65,6 +65,7 @@ function DummyPage({ label }: { label: string }) {
 describe("AppShell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useRepositorySyncStore.setState({open:false, centerView:null});
     testNavigate = null;
 
     mockUsePlatformStore.mockImplementation((selector?: unknown) => {
