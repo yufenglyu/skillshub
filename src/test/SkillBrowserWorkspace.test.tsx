@@ -4,6 +4,9 @@ import { openRowActions } from "./rowActions";
 import { fireEvent, render as testingRender, screen, within, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SkillBrowserWorkspace } from "@/components/skill/SkillBrowserWorkspace";
+import { SkillBrowserHeader } from "@/components/skill/SkillBrowserHeader";
+import { useShortcutStore } from "@/stores/shortcutStore";
+import { DEFAULT_SHORTCUTS } from "@/lib/shortcutKeys";
 import type { FolderTableItem, SkillTableItem } from "@/components/skill/SkillBrowserTable";
 vi.mock("@/components/skill/SkillDetailView", async (importOriginal) => ({ ...await importOriginal<typeof import("@/components/skill/SkillDetailView")>(), SkillDetailView: ({skillId,agentId,rowId,inspectorTab}:{skillId:string;agentId?:string;rowId?:string;inspectorTab:string}) => <div data-testid="inspector">{[skillId,agentId,rowId,inspectorTab].join("|")}</div> }));
 const render = (ui: ReactElement) => ui.type === MemoryRouter ? testingRender(ui) : testingRender(ui, {wrapper: MemoryRouter});
@@ -16,6 +19,57 @@ const folders: FolderTableItem[] = [{key:"repo",name:"Example/Tools",path:"/demo
 const props={storageKey:"test",skills,folders,showGithubStars:true};
 beforeEach(()=>{localStorage.clear();vi.clearAllMocks()});
 describe("tree browser workspace",()=>{
+ it("restores each view's scroll position after the shorter view clamps scrolling",()=>{
+  render(<SkillBrowserWorkspace {...props}/>);
+  const scroll=screen.getByRole("region",{name:"技能列表"}).children[1] as HTMLElement;
+  scroll.scrollTop=120;
+  fireEvent.click(screen.getByRole("button",{name:"平铺所有技能"}));
+  expect(scroll.scrollTop).toBe(120);
+  scroll.scrollTop=4000;
+  fireEvent.click(screen.getByRole("button",{name:"按仓库分组"}));
+  expect(scroll.scrollTop).toBe(120);
+  scroll.scrollTop=80;
+  fireEvent.click(screen.getByRole("button",{name:"平铺所有技能"}));
+  expect(scroll.scrollTop).toBe(4000);
+  fireEvent.click(screen.getByRole("button",{name:"按仓库分组"}));
+  expect(scroll.scrollTop).toBe(80);
+ });
+ it.each(["resources", "collections", "central", "platform", "project"])("places the %s view switch after Open and handles F3/F5", scope => {
+  useShortcutStore.setState({shortcuts:{...DEFAULT_SHORTCUTS}});
+  const refresh=vi.fn();
+  const toolbar=(viewControl: React.ReactNode) => <SkillBrowserHeader title={<button>Open directory</button>} viewControl={viewControl} actions={<button>Add</button>} search={<input aria-label="search"/>}/>;
+  const {rerender}=render(<SkillBrowserWorkspace {...props} storageKey={scope} toolbar={toolbar} onRefresh={refresh}/>);
+  const toolbarButtons=screen.getByRole("button",{name:"Open directory"}).closest("header")!.querySelectorAll("button");
+  expect([...toolbarButtons].map(button=>button.getAttribute("aria-label") ?? button.textContent)).toEqual(["Open directory","平铺所有技能","Add"]);
+  expect(screen.queryByRole("button",{name:"全部展开"})).not.toBeInTheDocument();
+  const viewEvent=new KeyboardEvent("keydown",{key:"F3",bubbles:true,cancelable:true});
+  fireEvent(screen.getByRole("textbox",{name:"search"}),viewEvent);
+  expect(viewEvent.defaultPrevented).toBe(true);
+  expect(screen.getByRole("columnheader",{name:"仓库"})).toBeInTheDocument();
+  fireEvent.keyDown(window,{key:"F5"});
+  expect(refresh).toHaveBeenCalledOnce();
+  rerender(<SkillBrowserWorkspace {...props} storageKey={scope} toolbar={toolbar} onRefresh={refresh} loading/>);
+  fireEvent.keyDown(window,{key:"F5"});
+  expect(refresh).toHaveBeenCalledOnce();
+  fireEvent.keyDown(window,{key:"F3"});
+  expect(screen.queryByRole("columnheader",{name:"仓库"})).not.toBeInTheDocument();
+  fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});
+  expect(screen.getByRole("button",{name:"查看 First skill 的详情"})).toBeInTheDocument();
+ });
+ it("switches to all skills with repository columns and persists the view",()=>{
+  const {unmount}=render(<SkillBrowserWorkspace {...props} allowFlatView/>);
+  fireEvent.click(screen.getByRole("button",{name:"平铺所有技能"}));
+  expect(screen.getByRole("columnheader",{name:"仓库"})).toBeInTheDocument();
+  expect(screen.getByRole("button",{name:"查看 First skill 的详情"})).toBeInTheDocument();
+  expect(screen.getByRole("button",{name:"查看 Second skill 的详情"})).toBeInTheDocument();
+  expect(screen.queryByRole("button",{name:"全部展开"})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button",{name:"查看 First skill 的详情"}));
+  expect(screen.getByTestId("inspector")).toHaveTextContent("one");
+  unmount();render(<SkillBrowserWorkspace {...props} allowFlatView/>);
+  expect(screen.getByRole("columnheader",{name:"仓库"})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button",{name:"按仓库分组"}));
+  expect(screen.queryByRole("columnheader",{name:"仓库"})).not.toBeInTheDocument();
+ });
  it("keeps selection separate from expansion and renders one shared table",()=>{
   render(<SkillBrowserWorkspace {...props}/>);
   expect(screen.getAllByRole("table")).toHaveLength(1);
@@ -29,12 +83,12 @@ describe("tree browser workspace",()=>{
   expect(screen.getAllByRole("columnheader").map(h=>h.getAttribute("aria-label"))).toEqual(["序号","名称","技能数","星标数","创建时间","更新时间"]);
  });
  it("selects skill rows from non-interactive cells",()=>{
-  render(<SkillBrowserWorkspace {...props}/>);fireEvent.click(screen.getByRole("button", {name:"全部展开"}));
+  render(<SkillBrowserWorkspace {...props}/>);fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});
   const row=screen.getByRole("button",{name:"查看 First skill 的详情"}).closest("tr")!;
   fireEvent.click(within(row).getAllByRole("cell")[0]);expect(screen.getByTestId("inspector")).toHaveTextContent("one");
  });
  it("row actions do not change the current selection",()=>{
-  render(<SkillBrowserWorkspace {...props}/>);fireEvent.click(screen.getByRole("button", {name:"全部展开"}));
+  render(<SkillBrowserWorkspace {...props}/>);fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});
   fireEvent.click(screen.getByRole("button",{name:"查看 Second skill 的详情"}));
   const row=screen.getByRole("button",{name:"查看 First skill 的详情"}).closest("tr")!;
   fireEvent.click(openRowActions(row).getByRole("menuitem", { name: "删除"}));
@@ -49,18 +103,18 @@ describe("tree browser workspace",()=>{
   expect(screen.queryByRole("button",{name:"查看 Second skill 的详情"})).not.toBeInTheDocument();
  });
  it("retains expanded repositories after remount",()=>{
-  const {unmount}=render(<SkillBrowserWorkspace {...props}/>);fireEvent.click(screen.getByRole("button", {name:"全部展开"}));unmount();
+  const {unmount}=render(<SkillBrowserWorkspace {...props}/>);fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});unmount();
   render(<SkillBrowserWorkspace {...props}/>);expect(screen.getByRole("button",{name:"查看 First skill 的详情"})).toBeInTheDocument();
  });
  it("keeps the active document tab when selecting another skill",()=>{
-  render(<SkillBrowserWorkspace {...props}/>);fireEvent.click(screen.getByRole("button", {name:"全部展开"}));fireEvent.click(screen.getByRole("button",{name:"查看 First skill 的详情"}));fireEvent.click(screen.getByRole("tab",{name:"文档"}));fireEvent.click(screen.getByRole("button",{name:"查看 Second skill 的详情"}));expect(screen.getByTestId("inspector")).toHaveTextContent("two|||document");
+  render(<SkillBrowserWorkspace {...props}/>);fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});fireEvent.click(screen.getByRole("button",{name:"查看 First skill 的详情"}));fireEvent.click(screen.getByRole("tab",{name:"文档"}));fireEvent.click(screen.getByRole("button",{name:"查看 Second skill 的详情"}));expect(screen.getByTestId("inspector")).toHaveTextContent("two|||document");
  });
  it("clears stale detail when the selected skill is removed or filtered out",()=>{
-  const {rerender}=render(<SkillBrowserWorkspace {...props}/>);fireEvent.click(screen.getByRole("button", {name:"全部展开"}));fireEvent.click(screen.getByRole("button",{name:"查看 First skill 的详情"}));rerender(<SkillBrowserWorkspace {...props} skills={[skills[1]]}/>);expect(screen.queryByTestId("inspector")).not.toBeInTheDocument();
+  const {rerender}=render(<SkillBrowserWorkspace {...props}/>);fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});fireEvent.click(screen.getByRole("button",{name:"查看 First skill 的详情"}));rerender(<SkillBrowserWorkspace {...props} skills={[skills[1]]}/>);expect(screen.queryByTestId("inspector")).not.toBeInTheDocument();
  });
  it("passes platform row identity to the embedded detail",()=>{
   const duplicates=skills.map((s,i)=>({...s,name:"Same name",detailRequest:{skillId:"same",agentId:"cursor",rowId:`row-${i}`}}));
-  render(<SkillBrowserWorkspace {...props} skills={duplicates} agentId="cursor"/>);fireEvent.click(screen.getByRole("button", {name:"全部展开"}));fireEvent.click(screen.getAllByRole("button",{name:"查看 Same name 的详情"})[1]);expect(screen.getByTestId("inspector")).toHaveTextContent("same|cursor|row-1|overview");
+  render(<SkillBrowserWorkspace {...props} skills={duplicates} agentId="cursor"/>);fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});fireEvent.click(screen.getAllByRole("button",{name:"查看 Same name 的详情"})[1]);expect(screen.getByTestId("inspector")).toHaveTextContent("same|cursor|row-1|overview");
  });
  it("repository location highlights expand and select the target skill",()=>{
   render(<SkillBrowserWorkspace {...props} skills={[{...skills[0],highlighted:true},skills[1]]}/>);expect(screen.getByTestId("inspector")).toHaveTextContent("one");expect(screen.getByRole("button",{name:"查看 First skill 的详情"})).toBeInTheDocument();
@@ -72,7 +126,7 @@ describe("tree browser workspace",()=>{
   const more=[...folders,{...folders[0],key:"large",name:"Large",githubStars:100,skillKeys:[]},{...folders[0],key:"unknown",name:"Unknown",githubStars:null,skillKeys:[]}];
   render(<SkillBrowserWorkspace {...props} folders={more} sortField="githubStars" sortDirection="desc"/>);const rows=screen.getAllByRole("row").slice(1);expect(rows[0]).toHaveTextContent("Large");expect(rows[2]).toHaveTextContent("Unknown");
  });
- it("does not render any modal drawer",()=>{render(<SkillBrowserWorkspace {...props}/>);fireEvent.click(screen.getByRole("button", {name:"全部展开"}));fireEvent.click(screen.getByRole("button",{name:"查看 First skill 的详情"}));expect(screen.queryByRole("dialog")).not.toBeInTheDocument()});
+ it("does not render any modal drawer",()=>{render(<SkillBrowserWorkspace {...props}/>);fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});fireEvent.click(screen.getByRole("button",{name:"查看 First skill 的详情"}));expect(screen.queryByRole("dialog")).not.toBeInTheDocument()});
  it("expands and collapses the focused table with plus/minus without consuming text input", () => {
   render(<SkillBrowserWorkspace {...props} toolbar={<input aria-label="filter" />} />);
   const list = screen.getByRole("region", {name:"技能列表"});
@@ -104,7 +158,7 @@ describe("tree browser workspace",()=>{
  });
  it("opens icon actions with the keyboard, preserves confirmation, and closes on Escape", async () => {
   render(<SkillBrowserWorkspace {...props} />);
-  fireEvent.click(screen.getByRole("button",{name:"全部展开"}));
+  fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});
   const row=screen.getByRole("button",{name:"查看 First skill 的详情"}).closest("tr")!;
   fireEvent.keyDown(row,{key:"F10",shiftKey:true});
   const menu=screen.getByRole("menu",{name:"First skill"});
@@ -130,7 +184,7 @@ describe("tree browser workspace",()=>{
 it("uses detected enabled targets in the install tab and links to their pages", () => {
  const targets = [{id:"cursor",display_name:"Cursor",global_skills_dir:"demo",is_detected:true,is_enabled:true,is_builtin:true}, {id:"missing",display_name:"Missing",global_skills_dir:"demo",is_detected:false,is_enabled:true,is_builtin:true}, {id:"disabled",display_name:"Disabled",global_skills_dir:"demo",is_detected:true,is_enabled:false,is_builtin:true}];
  render(<MemoryRouter><SkillBrowserWorkspace {...props} skills={[{...skills[0],isCentral:true,installAgents:targets}]}/></MemoryRouter>);
- fireEvent.click(screen.getByRole("button",{name:"全部展开"}));
+ fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});
  fireEvent.click(screen.getByRole("button",{name:"查看 First skill 的详情"}));
  fireEvent.click(screen.getByRole("tab",{name:"安装"}));
  expect(screen.getByRole("link",{name:/Cursor/})).toHaveAttribute("href","/platform/cursor");
@@ -199,7 +253,7 @@ it("uses Home and End within the selected row's folder or across folder rows", (
   ...folders,
   {key:"after",name:"Z After",path:"",skillCount:1,skillKeys:["other-skill"],onOpen:vi.fn()},
  ]}/>);
- fireEvent.click(screen.getByRole("button",{name:"全部展开"}));
+ fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});
  const list=within(screen.getByRole("region",{name:"技能列表"}));
  const first=list.getByRole("button",{name:"查看 First skill 的详情"}).closest("tr")!;
  const second=list.getByRole("button",{name:"查看 Second skill 的详情"}).closest("tr")!;
@@ -244,7 +298,7 @@ it("does not scroll back to an old located folder when selecting a later folder'
    {rowKey:"before-skill",name:"Earlier skill",detailRequest:{skillId:"before-skill"}},...skills,
   ]}/>);
   expect(scroll).toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button",{name:"全部展开"}));
+  fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"+"});
   scroll.mockClear();
   const list=within(screen.getByRole("region",{name:"技能列表"}));
   fireEvent.click(list.getByRole("button",{name:"查看 Second skill 的详情"}));

@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { AiPromptSettings } from "@/components/settings/AiPromptSettings";
 import { useCollectionStore } from "@/stores/collectionStore";
 import { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Pencil, Loader2, FolderOpen, AppWindow, Info, Database, Globe, Bot, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save, Keyboard, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Pencil, Loader2, FolderOpen, AppWindow, Info, Database, Globe, Bot, MessageSquareText, ChevronDown, ChevronRight, KeyRound, Download, Upload, RefreshCw, ExternalLink, CircleHelp, Save, Keyboard, RotateCcw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
@@ -46,7 +46,7 @@ import { useShortcutStore } from "@/stores/shortcutStore";
 
 // ─── App constants ────────────────────────────────────────────────────────────
 
-export const APP_VERSION = "1.1.0";
+export const APP_VERSION = "1.2.0";
 const CONFIG_DIR_FALLBACK = "~/.skillshub";
 const COMPLETE_BACKUP_OPTIONS: BackupOptions = {
   includeResourceLibrary: true,
@@ -1654,8 +1654,12 @@ export function SettingsView({ onClose }: {onClose?: () => void} = {}) {
               )}
             </div>
             </section>
-            <details aria-labelledby="ai-prompts-heading" className="rounded-lg border border-border p-4">
-              <summary id="ai-prompts-heading" className="cursor-pointer text-sm font-semibold">{t("settings.aiPromptsTitle")} <HintIcon text={t("settings.aiPromptsHelp")} /></summary>
+            <details aria-labelledby="ai-prompts-heading" className="group/ai-prompts rounded-lg border border-border p-4">
+              <summary id="ai-prompts-heading" className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                <MessageSquareText className="size-5 shrink-0 text-muted-foreground" />
+                <span className="flex items-center gap-2">{t("settings.aiPromptsTitle")}<ChevronRight className="size-4 shrink-0 group-open/ai-prompts:rotate-90" /></span>
+                <HintIcon text={t("settings.aiPromptsHelp")} />
+              </summary>
               <div className="mt-4"><AiPromptSettings /></div>
             </details>
           </CardContent>

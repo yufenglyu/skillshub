@@ -285,6 +285,28 @@ fn skill_filesystem_timestamps(skill: &db::Skill) -> (String, String) {
     (created_at, updated_at)
 }
 
+async fn skill_updated_at_after_check(
+    pool: &DbPool,
+    skill_id: &str,
+    filesystem_time: String,
+) -> Result<String, String> {
+    let checked_at = db::get_skill_source_sync(pool, skill_id)
+        .await?
+        .and_then(|sync| sync.last_checked_at);
+    Ok(checked_at
+        .filter(|time| {
+            match (
+                chrono::DateTime::parse_from_rfc3339(time),
+                chrono::DateTime::parse_from_rfc3339(&filesystem_time),
+            ) {
+                (Ok(checked), Ok(modified)) => checked > modified,
+                (Ok(_), Err(_)) => true,
+                _ => false,
+            }
+        })
+        .unwrap_or(filesystem_time))
+}
+
 fn normalize_skill_tags(tags: Vec<String>) -> Vec<String> {
     let mut seen = BTreeSet::new();
     tags.into_iter()
@@ -1499,6 +1521,7 @@ async fn get_skill_detail_with_row_impl(
     timestamp_skill.file_path = file_path.clone();
     timestamp_skill.canonical_path = Some(dir_path.clone());
     let (created_at, updated_at) = skill_filesystem_timestamps(&timestamp_skill);
+    let updated_at = skill_updated_at_after_check(pool, &skill.id, updated_at).await?;
 
     Ok(SkillDetail {
         row_id,
@@ -1633,6 +1656,7 @@ async fn skill_with_links(pool: &DbPool, skill: db::Skill) -> Result<SkillWithLi
     let linked_agents: Vec<String> = installations.into_iter().map(|i| i.agent_id).collect();
     let read_only_agents = read_only_agent_ids_for_skill(pool, &skill.id, skill.is_central).await?;
     let (created_at, updated_at) = skill_filesystem_timestamps(&skill);
+    let updated_at = skill_updated_at_after_check(pool, &skill.id, updated_at).await?;
     let source_metadata = db::get_skill_source(pool, &skill.id).await?;
     let metadata = db::get_skill_metadata(pool, &skill.id).await?;
     let tags = db::parse_skill_metadata_tags(metadata.as_ref());
@@ -3301,6 +3325,30 @@ mod tests {
     use sqlx::SqlitePool;
     use std::{fs, path::Path};
     use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn successful_check_advances_display_time_without_touching_skill_files() {
+        let pool = setup_test_db().await;
+        let directory = TempDir::new().unwrap();
+        let path = directory.path().join("SKILL.md");
+        fs::write(&path, "---\nname: Same\n---\nUnchanged").unwrap();
+        let before = fs::metadata(&path).unwrap().modified().unwrap();
+        let mut skill = make_skill("checked-skill", "Same", false);
+        skill.file_path = path.to_string_lossy().into_owned();
+        skill.canonical_path = Some(directory.path().to_string_lossy().into_owned());
+        db::upsert_skill(&pool, &skill).await.unwrap();
+        db::upsert_skill_source(&pool, &db::SkillSource {
+            skill_id: skill.id.clone(), source_type: "github".into(), source_url: None,
+            source_author: Some("example".into()), source_repo: Some("example/repo".into()),
+            source_path: Some("SKILL.md".into()), updated_at: Utc::now().to_rfc3339(),
+        }).await.unwrap();
+        let checked_at = (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339();
+        db::record_skill_check_times(&pool, &[skill.id.clone()], &checked_at).await.unwrap();
+        let result = skill_with_links(&pool, skill).await.unwrap();
+        assert_eq!(result.updated_at, checked_at);
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), before);
+        assert!(fs::read_to_string(path).unwrap().ends_with("Unchanged"));
+    }
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect(":memory:").await.unwrap();

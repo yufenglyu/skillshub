@@ -19,6 +19,14 @@ describe("file-backed shortcuts", () => {
     await useShortcutStore.getState().init();
     expect(invoke).toHaveBeenCalledWith("set_setting", { key: "shortcuts", value: JSON.stringify(DEFAULT_SHORTCUTS) });
   });
+  it("upgrades the old view default to F3, adds F5, and preserves custom bindings", async () => {
+    vi.mocked(invoke).mockResolvedValue(JSON.stringify({toggleSkillViewMode:"mod+shift+v",globalSearch:"ctrl+j"}));
+    await useShortcutStore.getState().init();
+    expect(useShortcutStore.getState().shortcuts).toMatchObject({toggleSkillViewMode:"f3",refreshSkillList:"f5",globalSearch:"ctrl+j"});
+    vi.mocked(invoke).mockResolvedValue(JSON.stringify({toggleSkillViewMode:"alt+v",refreshSkillList:"alt+r"}));
+    await useShortcutStore.getState().init();
+    expect(useShortcutStore.getState().shortcuts).toMatchObject({toggleSkillViewMode:"alt+v",refreshSkillList:"alt+r"});
+  });
   it("persists edits and resets through configuration IPC", async () => {
     useShortcutStore.getState().setShortcut("globalSearch", "ctrl+j");
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("set_setting", {

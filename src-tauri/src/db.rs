@@ -967,6 +967,30 @@ pub async fn upsert_skill_source_sync(pool: &DbPool, sync: &SkillSourceSync) -> 
     .map_err(|e| e.to_string())
 }
 
+/// Record a successful check without replacing the installed commit, content
+/// fingerprint, last sync time or error/status of an actual update operation.
+pub async fn record_skill_check_times(
+    pool: &DbPool,
+    skill_ids: &[String],
+    checked_at: &str,
+) -> Result<(), String> {
+    let mut transaction = pool.begin().await.map_err(|e| e.to_string())?;
+    for skill_id in skill_ids {
+        sqlx::query(
+            "INSERT INTO skill_source_syncs (skill_id, last_checked_at, updated_at)
+            VALUES (?, ?, ?) ON CONFLICT(skill_id) DO UPDATE SET
+            last_checked_at = excluded.last_checked_at, updated_at = excluded.updated_at",
+        )
+        .bind(skill_id)
+        .bind(checked_at)
+        .bind(checked_at)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    transaction.commit().await.map_err(|e| e.to_string())
+}
+
 pub async fn get_skill_source_sync(
     pool: &DbPool,
     skill_id: &str,
@@ -1970,6 +1994,27 @@ mod tests {
             .await
             .expect("Failed to initialize test database");
         pool
+    }
+
+    #[tokio::test]
+    async fn successful_check_preserves_installed_sync_baseline() {
+        let pool = setup_test_db().await;
+        upsert_skill_source(&pool, &SkillSource {skill_id: "check-only".into(), source_type: "github".into(),
+            source_url: None, source_author: None, source_repo: Some("example/repo".into()), source_path: None,
+            updated_at: "2026-01-01T00:00:00Z".into()}).await.unwrap();
+        let baseline = SkillSourceSync {skill_id: "check-only".into(), sync_scope: "github-repository".into(),
+            remote_ref: Some("installed-commit".into()), skill_fingerprint: Some("installed-content".into()),
+            last_checked_at: None, last_sync_at: Some("2026-01-01T00:00:00Z".into()),
+            sync_status: "success".into(), sync_error: None, remote_deleted: false, updated_at: "2026-01-01T00:00:00Z".into()};
+        upsert_skill_source_sync(&pool, &baseline).await.unwrap();
+        let time = "2026-10-08T08:00:00Z";
+        record_skill_check_times(&pool, &[baseline.skill_id.clone()], time).await.unwrap();
+        let result = get_skill_source_sync(&pool, &baseline.skill_id).await.unwrap().unwrap();
+        assert_eq!(result.last_checked_at.as_deref(), Some(time));
+        assert_eq!(result.remote_ref, baseline.remote_ref);
+        assert_eq!(result.skill_fingerprint, baseline.skill_fingerprint);
+        assert_eq!(result.last_sync_at, baseline.last_sync_at);
+        assert_eq!(result.sync_status, baseline.sync_status);
     }
 
     #[tokio::test]

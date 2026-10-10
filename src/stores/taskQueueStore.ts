@@ -42,6 +42,7 @@ type Input = Pick<BackgroundTask, "key" | "kind" | "label" | "steps"> & {
 };
 type Handler = (step: TaskStep, result: unknown) => void | Promise<void>;
 const handlers = new Map<string, Handler>();
+const completionHandlers = new Map<string, (task: BackgroundTask) => void | Promise<void>>();
 const failureHandlers = new Map<string, (step: TaskStep) => void | Promise<void>>();
 const inputRequirements = new Map<string, (result: unknown) => boolean>();
 const executors = new Map<
@@ -57,6 +58,9 @@ export function registerTaskExecutor(
 export function registerTaskResult(command: string, handler: Handler) {
   handlers.set(command, handler);
 }
+export function registerTaskCompletion(command: string, handler: (task: BackgroundTask) => void | Promise<void>) {
+  completionHandlers.set(command, handler);
+}
 export function registerTaskFailure(command: string, handler: (step: TaskStep) => void | Promise<void>) {
   failureHandlers.set(command, handler);
 }
@@ -64,6 +68,7 @@ export function registerTaskInputRequirement(command: string, requiresInput: (re
   inputRequirements.set(command, requiresInput);
 }
 const running = new Set<string>();
+const importOperations = new Map<string, string>();
 const limits: Record<TaskKind, number> = {
   check: 5,
   update: 2,
@@ -172,8 +177,15 @@ export const useTaskQueueStore = create<State>()(
         if (!task || !isTaskActive(task)) return;
         get().patch(id, {
           cancelRequested: true,
-          ...(task.status === "queued" ? { status: "cancelled" as const } : {}),
+          ...(task.status === "queued" || !running.has(id) ? { status: "cancelled" as const,
+            steps: task.steps.map(step => step.status === "running" ? {...step, status: "cancelled" as const} : step) } : {}),
         });
+        const operationId = importOperations.get(id);
+        if (operationId && !task.cancelRequested) {
+          void invoke("cancel_github_operation", {operationId}).catch(() => {
+            /* Older backends finish the current step; keep locks until it returns. */
+          });
+        }
       },
       retry: (id) => {
         const task = get().tasks.find((t) => t.id === id);
@@ -205,7 +217,7 @@ export const useTaskQueueStore = create<State>()(
               ...step,
               args: failedRepos?.length
                 ? { ...step.args, repositories: failedRepos }
-                : step.args,
+                : step.command === "prepare_github_resource_import" ? {...step.args, operationId: undefined} : step.args,
               status: "queued",
               error: undefined,
               result: undefined,
@@ -214,7 +226,20 @@ export const useTaskQueueStore = create<State>()(
         });
         pump();
       },
-      remove: (id) => set(s => ({tasks: s.tasks.filter(task => task.id !== id || isTaskActive(task))})),
+      remove: (id) => {
+        const task = get().tasks.find(task => task.id === id);
+        if (!task) return;
+        if (isTaskActive(task)) {
+          if (!task.cancelRequested) return;
+          get().cancel(id);
+          if (running.has(id)) {
+            // Hide the record, but retain its lock and notify waiters at completion.
+            get().patch(id, {clearRequested: true});
+            return;
+          }
+        }
+        set(s => ({tasks: s.tasks.filter(task => task.id !== id)}));
+      },
       clearCheckHistory: () => {
         const isCheck = (task: BackgroundTask) => task.steps.length > 0 && task.steps.every(step => step.command === "preview_source_backed_resource_repository_updates");
         get().tasks.filter(task => task.status === "queued" && isCheck(task)).forEach(task => get().cancel(task.id));
@@ -293,9 +318,11 @@ async function execute(id: string) {
     if (step.status === "success") continue;
     step.status = "running";
     state().patch(id, { steps: steps.map((s) => ({ ...s })) });
+    const cancellable = step.command === "import_github_repo_skills" || step.command === "prepare_github_resource_import";
+    if (cancellable) importOperations.set(id, step.command === "prepare_github_resource_import" && typeof step.args.operationId === "string" ? step.args.operationId : crypto.randomUUID());
     try {
-      const result = await (executors.get(step.command)?.(step.args) ??
-        invoke(step.command, step.args));
+      const args = cancellable ? {...step.args, operationId: importOperations.get(id)} : step.args;
+      const result = await (executors.get(step.command)?.(args) ?? invoke(step.command, args));
       step.result = result;
       step.status = inputRequirements.get(step.command)?.(result) ? "awaiting_input" : "success";
       step.error = undefined;
@@ -316,6 +343,12 @@ async function execute(id: string) {
         /* The operation succeeded; a refresh failure must not rerun a committed write. */
       }
     } catch (error) {
+      if (cancellable && state().tasks.find(task => task.id === id)?.cancelRequested) {
+        step.status = "cancelled";
+        step.error = undefined;
+        state().patch(id, {steps: steps.map(step => ({...step}))});
+        break;
+      }
       step.status = "failed";
       // Provider responses and credentials must never be surfaced in the task UI.
       step.error = taskErrorMessage(error, task.kind);
@@ -325,6 +358,7 @@ async function execute(id: string) {
         /* Keep the original operation failure if a status observer fails. */
       }
     }
+    importOperations.delete(id);
     state().patch(id, { steps: steps.map((s) => ({ ...s })) });
     if (step.status === "awaiting_input") break;
   }
@@ -344,6 +378,19 @@ async function execute(id: string) {
         : "success",
   });
   running.delete(id);
+  importOperations.delete(id);
+  const finished = state().tasks.find(task => task.id === id);
+  if (finished) {
+    for (const command of new Set(finished.steps.map(step => step.command))) {
+      const complete = completionHandlers.get(command);
+      if (!complete) continue;
+      try {
+        await complete(finished);
+      } catch {
+        /* A refresh failure must not retry a completed write. */
+      }
+    }
+  }
   if (state().tasks.find(t => t.id === id)?.clearRequested) {
     useTaskQueueStore.setState(s => ({tasks: s.tasks.filter(t => t.id !== id)}));
   }

@@ -434,6 +434,7 @@ export interface RepositorySyncPreview {
   modified: RepositorySyncPreviewItem[];
   deleted: RepositorySyncPreviewItem[];
   unchanged: RepositorySyncPreviewItem[];
+  updated?: RepositorySyncPreviewItem[];
   error?: string | null;
 }
 

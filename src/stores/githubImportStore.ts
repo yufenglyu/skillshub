@@ -37,7 +37,8 @@ export interface GitHubImportAiSummaryEntry {
 
 interface GitHubImportStoreState {
   githubImport: GitHubImportState;
-  previewGitHubRepoImport: (repoUrl: string) => Promise<GitHubRepoPreview>;
+  previewGitHubRepoImport: (repoUrl: string, operationId?: string) => Promise<GitHubRepoPreview>;
+  cancelGitHubOperation: (operationId: string) => void;
   importGitHubRepoSkills: (
     repoUrl: string,
     selections: GitHubSkillImportSelection[]
@@ -110,7 +111,10 @@ async function setupGitHubImportEventListeners(
 export const useGitHubImportStore = create<GitHubImportStoreState>((set, get) => ({
   githubImport: initialGitHubImportState(),
 
-  previewGitHubRepoImport: async (repoUrl: string) => {
+  cancelGitHubOperation: (operationId) => {
+    void invoke("cancel_github_operation", {operationId}).catch(() => {});
+  },
+  previewGitHubRepoImport: async (repoUrl: string, operationId?: string) => {
     if (!isTauriRuntime()) {
       const error = "Desktop-only feature: GitHub repo preview is available in the Tauri app.";
       set((state) => ({
@@ -144,6 +148,7 @@ export const useGitHubImportStore = create<GitHubImportStoreState>((set, get) =>
     try {
       const preview = await invoke<GitHubRepoPreview>("preview_github_repo_import", {
         repoUrl,
+        ...(operationId ? {operationId} : {}),
       });
       set((state) => ({
         githubImport: {

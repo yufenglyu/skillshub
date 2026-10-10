@@ -7,6 +7,7 @@ export interface SkillColumnOption {
 }
 
 export const SKILL_COLUMN_OPTIONS: SkillColumnOption[] = [
+  { key: "repository", labelKey: "skillBrowser.columns.repository" },
   { key: "index", labelKey: "skillBrowser.columns.index", fixed: true },
   { key: "name", labelKey: "skillBrowser.columns.name", fixed: true },
   { key: "createdAt", labelKey: "skillBrowser.columns.createdAt" },

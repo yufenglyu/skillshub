@@ -2,6 +2,11 @@ import {it, expect} from "vitest";
 import {activityGroups, activityAttention, pendingUpdateCount} from "@/lib/activityCenter";
 import type {BackgroundTask} from "@/stores/taskQueueStore";
 const task = (id:string, status:BackgroundTask["status"], key=id):BackgroundTask => ({id,key,status,label:id,kind:"update",createdAt:1,cancelRequested:false,locks:[],steps:[{command:"test",args:{},label:id}]});
+it("does not count updated or unchanged results as pending work", () => {
+  const report = {repositories:[{repository:"example/repo",added:[{skillId:"new",name:"New"}],modified:[],deleted:[],
+    unchanged:[{skillId:"same",name:"Same"}],updated:[{skillId:"done",name:"Done"}]}]};
+  expect(pendingUpdateCount(report,[],[])).toBe(1);
+});
 it("counts only the latest attempt and groups related failures", () => {
   const tasks = [task("old","failed","same"),{...task("latest","failed","same"),batchId:"batch"},{...task("other","failed"),batchId:"batch"}];
   expect(activityAttention(tasks,null,{},null)).toMatchObject({count:1});

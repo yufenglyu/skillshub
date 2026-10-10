@@ -426,7 +426,7 @@ describe("PlatformView", () => {
     });
 
     renderPlatformView();
-    fireEvent.click(screen.getByRole("button", {name:"全部折叠"}));
+    fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"-"});
 
     expect(screen.getByText("anthropics")).toBeInTheDocument();
     expect(screen.getByText("kepano")).toBeInTheDocument();
@@ -448,7 +448,7 @@ describe("PlatformView", () => {
     renderPlatformView();
     expect(screen.getByText("独立安装")).toBeInTheDocument();
     expect(screen.getByText("共享中心")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /全部折叠|Collapse all/i }));
+    fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"-"});
     expect(screen.getByText("独立安装、共享中心")).toBeInTheDocument();
     expect(within(screen.getByRole("table")).queryByText(/个技能/)).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "安装来源" })).toBeInTheDocument();
@@ -878,7 +878,7 @@ it("blocks shared skill and mixed folder uninstall before any mutation", () => {
   fireEvent.click(openRowActions(screen.getByRole("row", { name: /frontend-design/i })).getByRole("menuitem", { name: /卸载/i }));
   expect(error).toHaveBeenCalledWith("此技能通过共享中心安装，请前往共享中心卸载。");
   expect(mockUninstallSkillFromAgent).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: /全部折叠|Collapse all/i }));
+  fireEvent.keyDown(screen.getByRole("region",{name:"技能列表"}),{key:"-"});
   fireEvent.click(openRowActions(screen.getByRole("row", { name: /example\/mixed/i })).getByRole("menuitem", { name: /卸载/i }));
   expect(error).toHaveBeenCalledWith("此目录包含通过共享中心安装的技能，请前往共享中心卸载。");
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -888,7 +888,7 @@ it("blocks shared skill and mixed folder uninstall before any mutation", () => {
 
 function render(...args: Parameters<typeof rtlRender>) {
   const result = rtlRender(...args);
-  const expand = screen.queryByRole("button", { name: "全部展开" });
-  if (expand) fireEvent.click(expand);
+  const list = screen.queryByRole("region", {name:"技能列表"});
+  if (list) fireEvent.keyDown(list,{key:"+"});
   return result;
 }

@@ -33,7 +33,7 @@ export function AddSkillsDialog({
   const preparedTask = useTaskQueueStore.getState().tasks.find(task => task.id === preparedTaskId);
   const [repo, setRepo] = useState(String(preparedTask?.steps[0]?.args.repoUrl ?? ""));
   const [importPreview, setImportPreview] = useState<GitHubRepoPreview | null>((preparedTask?.steps[0]?.result as GitHubRepoPreview | undefined) ?? null);
-  const pendingGitHub = useRef<{repoUrl:string; preview:Promise<GitHubRepoPreview>} | null>(null);
+  const pendingGitHub = useRef<{repoUrl:string; preview:Promise<GitHubRepoPreview>; operationId:string} | null>(null);
   const [path, setPath] = useState("");
   const [overwrite, setOverwrite] = useState(false);
   const [wizard, setWizard] = useState(!!preparedTask);
@@ -42,6 +42,7 @@ export function AddSkillsDialog({
   const store = useGitHubImportStore();
   function close() {
     request.current++;
+    if (pendingGitHub.current) store.cancelGitHubOperation(pendingGitHub.current.operationId);
     pendingGitHub.current = null;
     setPreparing(false);
     setError(null);
@@ -50,7 +51,8 @@ export function AddSkillsDialog({
   }
   function detachGitHubImport() {
     if (pendingGitHub.current) {
-      continueGitHubImportInBackground(pendingGitHub.current.repoUrl, pendingGitHub.current.preview);
+      continueGitHubImportInBackground(pendingGitHub.current.repoUrl, pendingGitHub.current.preview, pendingGitHub.current.operationId);
+      pendingGitHub.current = null;
       toast.info(t("workflow.importContinuesInBackground"));
     }
     close();
@@ -72,8 +74,9 @@ export function AddSkillsDialog({
     try {
       if (source === "github") {
         const repoUrl = repo.trim();
-        const previewRequest = store.previewGitHubRepoImport(repoUrl);
-        pendingGitHub.current = {repoUrl,preview:previewRequest};
+        const operationId = crypto.randomUUID();
+        const previewRequest = store.previewGitHubRepoImport(repoUrl, operationId);
+        pendingGitHub.current = {repoUrl,preview:previewRequest,operationId};
         const preview = await previewRequest;
         if (token !== request.current) return;
         pendingGitHub.current = null;

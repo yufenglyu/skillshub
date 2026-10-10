@@ -13,8 +13,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   Loader2,
   Layers,
-  ChevronLeft,
-  ChevronRight,
+  PanelLeft,
   Download,
   Monitor,
   Moon,
@@ -106,8 +105,8 @@ function NavItem({
               <span className={cn(
                 "min-w-7 text-center text-xs font-medium tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
                 isActive
-                  ? "bg-white/20 text-white"
-                  : "bg-muted/60 text-muted-foreground"
+                  ? "text-white"
+                  : "text-sidebar-foreground"
               )}>
                 {count}
               </span>
@@ -273,8 +272,8 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
       {/* Toggle button */}
       <div
         className={cn(
-          "flex items-center border-b border-border",
-          expanded ? "justify-between px-3 py-2" : "justify-center py-2"
+          "flex h-11 shrink-0 items-center border-b border-border",
+          expanded ? "justify-between px-3" : "justify-center"
         )}
       >
         {expanded && (
@@ -291,11 +290,7 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
           aria-label={expanded ? t("sidebar.collapseSidebar") : t("sidebar.expandSidebar")}
           title={expanded ? t("sidebar.collapseSidebar") : t("sidebar.expandSidebar")}
         >
-          {expanded ? (
-            <ChevronLeft className="size-4" />
-          ) : (
-            <ChevronRight className="size-4" />
-          )}
+          <PanelLeft className="size-4" />
         </button>
       </div>
 
@@ -351,8 +346,8 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
                   className={cn(
                     "min-w-7 text-center text-xs font-medium tabular-nums px-1.5 py-0.5 rounded-full shrink-0",
                     pathname === "/central"
-                      ? "bg-white/20 text-white"
-                      : "bg-muted/60 text-muted-foreground"
+                      ? "text-white"
+                      : "text-sidebar-foreground"
                   )}
                 >
                   {centralSkillsCount}
@@ -476,8 +471,8 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
 
       <div
         className={cn(
-          "flex shrink-0 items-center gap-1 border-t border-sidebar-border/70 py-2",
-          expanded ? "px-1.5" : "flex-col px-1.5"
+          "flex h-10 shrink-0 items-center border-t border-border",
+          expanded ? "gap-1 px-1.5" : "justify-center"
         )}
       >
         <button
@@ -485,7 +480,7 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
           onClick={cycleThemeMode}
           title={themeLabel}
           aria-label={themeLabel}
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn("inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", expanded ? "size-8" : "size-6")}
         >
           <ThemeIcon className="size-4" />
         </button>
@@ -496,7 +491,8 @@ export function Sidebar({ settingsOpen = false }: {settingsOpen?: boolean} = {})
           aria-current={(settingsOpen || pathname === "/settings") ? "page" : undefined}
           onClick={() => navigate("/settings")}
           className={cn(
-            "inline-flex size-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "inline-flex shrink-0 items-center justify-center rounded-md transition-colors hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            expanded ? "size-8" : "size-6",
             (settingsOpen || pathname === "/settings") ? "bg-primary/15 text-primary" : "text-muted-foreground"
           )}
         >

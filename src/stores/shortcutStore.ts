@@ -25,19 +25,25 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
   init: async () => {
     const raw = await invoke<string | null>("get_setting", { key: "shortcuts" });
     const shortcuts = { ...DEFAULT_SHORTCUTS };
+    let migrated = false;
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         for (const id of Object.keys(DEFAULT_SHORTCUTS) as ShortcutActionId[]) {
           if (typeof parsed[id] === "string") {
             const combo = normalizeShortcutCombo(parsed[id]);
-            if (combo) shortcuts[id] = combo;
+            if (combo) {
+              if (id === "toggleSkillViewMode" && combo === "mod+shift+v") {
+                migrated = true;
+              } else shortcuts[id] = combo;
+            }
           }
         }
       }
     } else {
       await invoke("set_setting", { key: "shortcuts", value: JSON.stringify(shortcuts) });
     }
+    if (migrated) await invoke("set_setting", {key: "shortcuts", value: JSON.stringify(shortcuts)});
     set({ shortcuts });
   },
   setShortcut: (id, combo) => {

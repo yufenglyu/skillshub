@@ -86,7 +86,7 @@ it("validates local skills first and queues selected skills without waiting for 
     useResourceLibraryStore.getState().loadResourceLibrary,
   ).toHaveBeenCalled();
 });
-it("queues GitHub selections as separate retryable steps and closes immediately", async () => {
+it("queues GitHub selections together and closes immediately", async () => {
   const close = vi.fn();
   invoke.mockImplementation((command) =>
     Promise.resolve(
@@ -115,7 +115,25 @@ it("queues GitHub selections as separate retryable steps and closes immediately"
     screen.queryByRole("button", { name: "confirm selection" }),
   ).not.toBeInTheDocument();
   await waitFor(() => expect(queue.getState().tasks[0].status).toBe("success"));
-  expect(queue.getState().tasks[0].steps).toHaveLength(2);
+  expect(queue.getState().tasks[0].steps).toHaveLength(1);
+});
+
+it("imports 100 skills with one repository operation and one library refresh", async () => {
+  const revision = "1234567890123456789012345678901234567890";
+  const skills = Array.from({length:100}, (_, index) => ({sourcePath:`skills/skill-${index}`,skillId:`skill-${index}`}));
+  invoke.mockImplementation(command => Promise.resolve(command === "preview_github_repo_import"
+    ? {repo:{owner:"example",repo:"large",branch:revision},skills} : {importedSkills:[]}));
+  render(<MemoryRouter><AddSkillsDialog open onOpenChange={vi.fn()}/></MemoryRouter>);
+  fireEvent.change(screen.getByLabelText("GitHub"), {target:{value:"example/large"}});
+  fireEvent.click(screen.getByRole("button", {name:"导入"}));
+  await waitFor(() => expect(queue.getState().tasks[0]?.status).toBe("success"));
+  expect(invoke.mock.calls.filter(([command]) => command === "import_github_repo_skills")).toHaveLength(1);
+  expect(invoke).toHaveBeenCalledWith("import_github_repo_skills", {
+    operationId:expect.any(String),
+    repoUrl:`https://github.com/example/large/tree/${revision}`,
+    selections:skills.map(skill => ({sourcePath:skill.sourcePath,resolution:"overwrite"})),
+  });
+  expect(useResourceLibraryStore.getState().loadResourceLibrary).toHaveBeenCalledTimes(1);
 });
 
 it("shows only two add entries and cancellation stops a pending preview from importing", async () => {
@@ -172,7 +190,7 @@ it("continues an unfinished GitHub import in the queue after an outside click an
   expect(queue.getState().tasks).toHaveLength(1);
   view.unmount();
   await act(async () => finish({repo:{owner:"owner",repo:"repo"},skills:[{sourcePath:"skills/a",skillId:"a",skillName:"A"}]}));
-  await waitFor(() => expect(invoke).toHaveBeenCalledWith("import_github_repo_skills", {repoUrl:"owner/repo",selections:[{sourcePath:"skills/a",resolution:"overwrite"}]}));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("import_github_repo_skills", {operationId:expect.any(String),repoUrl:"owner/repo",selections:[{sourcePath:"skills/a",resolution:"overwrite"}]}));
   expect(invoke.mock.calls.filter(([command]) => command === "preview_github_repo_import")).toHaveLength(1);
   await Promise.all(queue.getState().tasks.map(task => waitForTask(task.id)));
 });
@@ -193,7 +211,7 @@ it("keeps conflicts pending and resumes them from the global task center", async
   await waitFor(() => expect(queue.getState().tasks[0].status).toBe("awaiting_input"));
   expect(invoke.mock.calls.filter(([command]) => command === "import_github_repo_skills")).toHaveLength(0);
   render(<MemoryRouter><TaskCenter/></MemoryRouter>);
-  fireEvent.click(screen.getByRole("button", {name:/任务与更新 ·/}));
+  fireEvent.click(screen.getByRole("button", {name:/任务 ·/}));
   fireEvent.click(screen.getByRole("button", {name:"继续导入"}));
   fireEvent.click(screen.getByRole("button", {name:"confirm selection"}));
   await waitFor(() => expect(queue.getState().tasks.every(task => task.status === "success")).toBe(true));

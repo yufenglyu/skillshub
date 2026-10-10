@@ -255,8 +255,14 @@ const GITHUB_MIRROR_ENDPOINTS: &[GitHubMirrorEndpoint] = &[
 pub async fn preview_github_repo_import(
     state: State<'_, AppState>,
     repo_url: String,
+    operation_id: Option<String>,
 ) -> Result<GitHubRepoPreview, String> {
-    preview_github_repo_import_impl(&state.db, &repo_url).await
+    if let Some(id) = operation_id {
+        let operation = super::github_cancellation::Operation::start(id);
+        operation.during(preview_github_repo_import_impl(&state.db, &repo_url)).await
+    } else {
+        preview_github_repo_import_impl(&state.db, &repo_url).await
+    }
 }
 
 #[tauri::command]
@@ -265,8 +271,10 @@ pub async fn import_github_repo_skills(
     state: State<'_, AppState>,
     repo_url: String,
     selections: Vec<GitHubSkillImportSelection>,
+    operation_id: Option<String>,
 ) -> Result<GitHubRepoImportResult, String> {
-    import_github_repo_skills_impl(&state.db, &repo_url, selections, Some(&app)).await
+    let operation = operation_id.map(super::github_cancellation::Operation::start);
+    import_github_repo_skills_cancellable(&state.db, &repo_url, selections, Some(&app), operation.as_ref()).await
 }
 
 #[tauri::command]
@@ -293,7 +301,11 @@ async fn preview_github_repo_import_impl(
     repo_url: &str,
 ) -> Result<GitHubRepoPreview, String> {
     let auth = github_direct_auth_from_settings(pool).await?;
-    let repo = resolve_repo_ref(repo_url, auth.as_deref()).await?;
+    let mut repo = resolve_repo_ref(repo_url, auth.as_deref()).await?;
+    // Preview and import share exactly the same immutable archive.
+    if !is_commit_ref(&repo.branch) {
+        repo.branch = fetch_repo_head_ref(&repo, auth.as_deref()).await?;
+    }
     cache_repository_stars(pool, &repo).await?;
     let candidates = fetch_repo_skill_candidates(&repo, auth.as_deref()).await?;
     let skills = build_preview_skills(pool, &repo, &candidates).await?;
@@ -363,6 +375,16 @@ pub(crate) async fn import_github_repo_skills_impl(
     selections: Vec<GitHubSkillImportSelection>,
     app: Option<&AppHandle>,
 ) -> Result<GitHubRepoImportResult, String> {
+    import_github_repo_skills_cancellable(pool, repo_url, selections, app, None).await
+}
+
+async fn import_github_repo_skills_cancellable(
+    pool: &DbPool,
+    repo_url: &str,
+    selections: Vec<GitHubSkillImportSelection>,
+    app: Option<&AppHandle>,
+    operation: Option<&super::github_cancellation::Operation>,
+) -> Result<GitHubRepoImportResult, String> {
     emit_github_import_progress(
         app,
         GitHubImportProgressPayload {
@@ -376,11 +398,22 @@ pub(crate) async fn import_github_repo_skills_impl(
         },
     );
 
-    let auth = github_direct_auth_from_settings(pool).await?;
-    let repo = resolve_repo_ref(repo_url, auth.as_deref()).await?;
-    cache_repository_stars(pool, &repo).await?;
-    let client = github_client()?;
-    let snapshot = download_repo_snapshot(&client, &repo, auth.as_deref()).await?;
+    let prepare = async {
+        let auth = github_direct_auth_from_settings(pool).await?;
+        let mut repo = resolve_repo_ref(repo_url, auth.as_deref()).await?;
+        if !is_commit_ref(&repo.branch) {
+            repo.branch = fetch_repo_head_ref(&repo, auth.as_deref()).await?;
+        }
+        cache_repository_stars(pool, &repo).await?;
+        let client = github_client()?;
+        let snapshot = download_repo_snapshot(&client, &repo, auth.as_deref()).await?;
+        Ok((repo, snapshot))
+    };
+    let (repo, snapshot) = if let Some(operation) = operation {
+        operation.during(prepare).await?
+    } else {
+        prepare.await?
+    };
     let candidates = build_repo_skill_candidates_from_snapshot(&repo, &snapshot)?;
     if candidates.is_empty() {
         return Err(
@@ -426,6 +459,7 @@ pub(crate) async fn import_github_repo_skills_impl(
     let mut skipped_skills = Vec::new();
 
     for (candidate, selection) in &selected {
+        if let Some(operation) = operation { operation.check()?; }
         match selection.resolution {
             DuplicateResolution::Skip => {
                 skipped_skills.push(candidate.source_path.clone());
@@ -535,6 +569,7 @@ pub(crate) async fn import_github_repo_skills_impl(
     let mut files_transaction = ImportDirectoryTransaction::new(&resource_root)?;
     let mut prepared = Vec::new();
     for (index, op) in staging_ops.iter().enumerate() {
+        if let Some(operation) = operation { operation.check()?; }
         let source_repo = format!("{}/{}", repo.owner, repo.repo);
         let target_dir = source_grouped_skill_dir(
             &resource_root,
@@ -563,6 +598,8 @@ pub(crate) async fn import_github_repo_skills_impl(
         prepared.push((op, target_dir, staged_dir, frontmatter));
     }
 
+    if let Some(operation) = operation { operation.check()?; }
+    // Once installation starts, finish the atomic file/database commit before stopping.
     let mut imported_skills = Vec::new();
     let mut database_transaction = pool.begin().await.map_err(|e| e.to_string())?;
     for (op, target_dir, staged_dir, frontmatter) in prepared {
@@ -866,6 +903,12 @@ pub(crate) async fn resolve_repo_ref(
     auth_token: Option<&str>,
 ) -> Result<GitHubRepoRef, String> {
     let (owner, repo) = parse_github_url(repo_url)?;
+    if let Some(commit) = pinned_commit_from_url(repo_url) {
+        return Ok(GitHubRepoRef {
+            normalized_url: format!("https://github.com/{owner}/{repo}"),
+            owner, repo, branch: commit.to_string(), stars: None,
+        });
+    }
     let client = github_client()?;
     let response = send_github_request_with_fallback(
         &client,
@@ -979,7 +1022,9 @@ pub(crate) async fn github_direct_auth_from_settings(
 
 fn github_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .user_agent("SkillsHub/0.10.7")
+        .user_agent(concat!("SkillsHub/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .read_timeout(std::time::Duration::from_secs(45))
         .build()
         .map_err(|e| e.to_string())
 }
@@ -1073,9 +1118,17 @@ pub(crate) async fn fetch_repo_skill_manifest_paths(
 }
 
 pub(crate) async fn fetch_repo_preview_files(repo: &GitHubRepoRef, auth: Option<&str>) -> Result<(Vec<RemoteSkillCandidate>, HashMap<String, std::collections::BTreeMap<String, Vec<u8>>>), String> {
+    fetch_repo_preview_files_scoped(repo, auth, None).await
+}
+
+pub(crate) async fn fetch_repo_preview_files_scoped(repo: &GitHubRepoRef, auth: Option<&str>, keys: Option<&HashSet<String>>) -> Result<(Vec<RemoteSkillCandidate>, HashMap<String, std::collections::BTreeMap<String, Vec<u8>>>), String> {
     let client = github_client()?;
     let snapshot = download_repo_snapshot(&client, repo, auth).await?;
-    let candidates = build_repo_skill_candidates_from_snapshot(repo, &snapshot)?;
+    let mut candidates = build_repo_skill_candidates_from_snapshot(repo, &snapshot)?;
+    if let Some(keys) = keys {
+        candidates.retain(|candidate| keys.contains(&candidate.skill_id) ||
+            keys.contains(&candidate.source_path) || keys.contains(&candidate.source_manifest_path));
+    }
     let mut contents = HashMap::new();
     for candidate in &candidates {
         let mut files = std::collections::BTreeMap::new();
@@ -1218,9 +1271,101 @@ async fn download_repo_snapshot(
     client: &reqwest::Client,
     repo: &GitHubRepoRef,
     auth_token: Option<&str>,
-) -> Result<GitHubRepoSnapshot, String> {
-    let archive = download_repository_archive(client, repo, auth_token).await?;
-    snapshot_from_repository_archive(&archive)
+) -> Result<std::sync::Arc<GitHubRepoSnapshot>, String> {
+    load_repo_snapshot(repo, auth_token, || async {
+        let archive = download_repository_archive(client, repo, auth_token).await?;
+        snapshot_from_repository_archive(&archive)
+    }).await
+}
+
+type SnapshotCell = std::sync::Arc<tokio::sync::OnceCell<std::sync::Arc<GitHubRepoSnapshot>>>;
+type SnapshotKey = (String, String, String, Option<String>);
+static SNAPSHOTS: tokio::sync::Mutex<Vec<(SnapshotKey, SnapshotCell)>> = tokio::sync::Mutex::const_new(Vec::new());
+const SNAPSHOT_CACHE_BYTES: usize = 512 * 1024 * 1024;
+
+fn is_commit_ref(reference: &str) -> bool {
+    reference.len() == 40 && reference.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+pub(crate) async fn resolve_update_revision(repo: &str, auth: Option<&str>, batch: Option<&str>) -> Result<GitHubRepoRef, String> {
+    load_batch_revision(repo, auth, batch, || async {
+        let mut resolved = resolve_repo_ref(&format!("https://github.com/{repo}"), auth).await?;
+        resolved.branch = fetch_repo_head_ref(&resolved, auth).await?;
+        Ok(resolved)
+    }).await
+}
+
+type RevisionCell = std::sync::Arc<tokio::sync::OnceCell<GitHubRepoRef>>;
+type RevisionKey = (String, String, Option<String>);
+static BATCH_REVISIONS: tokio::sync::Mutex<Vec<(RevisionKey, RevisionCell)>> = tokio::sync::Mutex::const_new(Vec::new());
+
+async fn load_batch_revision<F, Fut>(
+    repo: &str, auth: Option<&str>, batch: Option<&str>, load: F,
+) -> Result<GitHubRepoRef, String>
+where F: FnOnce() -> Fut, Fut: std::future::Future<Output = Result<GitHubRepoRef, String>> {
+    let Some(batch) = batch else { return load().await; };
+    let key = (repo.to_ascii_lowercase(), batch.to_owned(), auth.map(str::to_owned));
+    let cell = {
+        let mut entries = BATCH_REVISIONS.lock().await;
+        let cell = entries.iter().position(|(existing, _)| existing == &key)
+            .map(|index| entries.remove(index).1)
+            .unwrap_or_else(|| std::sync::Arc::new(tokio::sync::OnceCell::new()));
+        entries.push((key, cell.clone()));
+        if entries.len() > 32 { entries.remove(0); }
+        cell
+    };
+    let result = cell.get_or_try_init(load).await.cloned();
+    if result.is_err() {
+        BATCH_REVISIONS.lock().await.retain(|(_, existing)| !std::sync::Arc::ptr_eq(existing, &cell));
+    }
+    result
+}
+
+async fn load_repo_snapshot<F, Fut>(
+    repo: &GitHubRepoRef,
+    auth: Option<&str>,
+    load: F,
+) -> Result<std::sync::Arc<GitHubRepoSnapshot>, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<GitHubRepoSnapshot, String>>,
+{
+    // Branches are mutable: never cache them or suppress a fresh update check.
+    if !is_commit_ref(&repo.branch) {
+        return load().await.map(std::sync::Arc::new);
+    }
+    // Auth scopes stay isolated. Keys and contents are memory-only, never logged.
+    let key = (repo.owner.to_ascii_lowercase(), repo.repo.to_ascii_lowercase(),
+        repo.branch.to_ascii_lowercase(), auth.map(str::to_owned));
+    let cell = {
+        let mut entries = SNAPSHOTS.lock().await;
+        let cell = entries.iter().position(|(existing, _)| existing == &key)
+            .map(|index| entries.remove(index).1)
+            .unwrap_or_else(|| std::sync::Arc::new(tokio::sync::OnceCell::new()));
+        entries.push((key, cell.clone()));
+        cell
+    };
+    // Concurrent operations for one revision share the download and unpack too.
+    let result = cell.get_or_try_init(|| async { load().await.map(std::sync::Arc::new) }).await.cloned();
+    let mut entries = SNAPSHOTS.lock().await;
+    if result.is_err() {
+        entries.retain(|(_, existing)| !std::sync::Arc::ptr_eq(existing, &cell));
+    }
+    let mut bytes = 0usize;
+    let mut count = 0;
+    // Keep recent completed snapshots within both a byte and entry budget.
+    for index in (0..entries.len()).rev() {
+        if let Some(snapshot) = entries[index].1.get() {
+            let size = snapshot.files.iter().map(|(path, data)| path.len() + data.len()).sum::<usize>();
+            if count >= 4 || size > SNAPSHOT_CACHE_BYTES.saturating_sub(bytes) {
+                entries.remove(index);
+            } else {
+                bytes += size;
+                count += 1;
+            }
+        }
+    }
+    result
 }
 
 async fn download_repository_archive(
@@ -1228,7 +1373,7 @@ async fn download_repository_archive(
     repo: &GitHubRepoRef,
     auth_token: Option<&str>,
 ) -> Result<Vec<u8>, String> {
-    let response = send_github_request_with_fallback(
+    send_github_bytes_with_fallback(
         client,
         GitHubFetchSurface::Api,
         |endpoint| {
@@ -1244,31 +1389,7 @@ async fn download_repository_archive(
         "Failed to download GitHub repository archive",
         auth_token,
     )
-    .await?;
-
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err("GitHub repository archive is unavailable.".to_string());
-    }
-    if !response.status().is_success() {
-        let status = response.status();
-        return Err(classify_github_denial_response(
-            response,
-            "downloading the repository archive",
-        )
-        .await
-        .unwrap_or_else(|| {
-            format!(
-                "Failed to download GitHub repository archive: HTTP {}",
-                status
-            )
-        }));
-    }
-
-    response
-        .bytes()
-        .await
-        .map(|bytes| bytes.to_vec())
-        .map_err(|e| format!("Failed to read GitHub repository archive: {}", e))
+    .await
 }
 
 fn snapshot_from_repository_archive(archive_bytes: &[u8]) -> Result<GitHubRepoSnapshot, String> {
@@ -1570,6 +1691,34 @@ fn raw_file_url(endpoint: &GitHubMirrorEndpoint, repo: &GitHubRepoRef, file_path
     )
 }
 
+async fn send_github_bytes_with_fallback<F>(
+    client: &reqwest::Client,
+    surface: GitHubFetchSurface,
+    build_url: F,
+    failure_prefix: &str,
+    auth_token: Option<&str>,
+) -> Result<Vec<u8>, String>
+where
+    F: Fn(&GitHubMirrorEndpoint) -> String,
+{
+    send_github_request_and_read_with_fallback(
+        client,
+        surface,
+        build_url,
+        failure_prefix,
+        auth_token,
+        true,
+        |response| async {
+            response
+                .error_for_status()?
+                .bytes()
+                .await
+                .map(|bytes| bytes.to_vec())
+        },
+    )
+    .await
+}
+
 async fn send_github_request_with_fallback<F>(
     client: &reqwest::Client,
     surface: GitHubFetchSurface,
@@ -1580,103 +1729,200 @@ async fn send_github_request_with_fallback<F>(
 where
     F: Fn(&GitHubMirrorEndpoint) -> String,
 {
+    send_github_request_and_read_with_fallback(
+        client,
+        surface,
+        build_url,
+        failure_prefix,
+        auth_token,
+        false,
+        |response| async { Ok(response) },
+    )
+    .await
+}
+
+// Reading the body belongs to the attempt: HTTP 200 alone is not a completed
+// download. Retry discards the partial buffer and starts a new authenticated GET.
+async fn send_github_request_and_read_with_fallback<F, R, Fut, T>(
+    client: &reqwest::Client,
+    surface: GitHubFetchSurface,
+    build_url: F,
+    failure_prefix: &str,
+    auth_token: Option<&str>,
+    retry_body: bool,
+    read: R,
+) -> Result<T, String>
+where
+    F: Fn(&GitHubMirrorEndpoint) -> String,
+    R: Fn(reqwest::Response) -> Fut,
+    Fut: std::future::Future<Output = Result<T, reqwest::Error>>,
+{
     let mut attempts = Vec::new();
     let mut last_retryable_denial = None;
+    // The five-minute download budget is shared by every retry/mirror, not
+    // multiplied by the number of endpoints. Read-idle timeout remains 45s.
+    let download_deadline =
+        retry_body.then(|| std::time::Instant::now() + std::time::Duration::from_secs(300));
 
-    for endpoint in GITHUB_MIRROR_ENDPOINTS {
-        let url = build_url(endpoint);
-        let mut request = client.get(url);
-        if endpoint.label == "github" {
-            if let Some(token) = auth_token {
-                request = request.bearer_auth(token);
+    'endpoints: for endpoint in GITHUB_MIRROR_ENDPOINTS {
+        // One retry on the original endpoint; mirrors each get one attempt.
+        let max_attempts = if retry_body && endpoint.label == "github" {
+            2
+        } else {
+            1
+        };
+        for attempt in 0..max_attempts {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
-        }
-        match request.send().await {
-            Ok(response) => {
-                let status = response.status();
-                if matches!(
-                    status,
-                    reqwest::StatusCode::UNAUTHORIZED
-                        | reqwest::StatusCode::FORBIDDEN
-                        | reqwest::StatusCode::TOO_MANY_REQUESTS
-                ) {
-                    let denial = parse_github_denial_response(response, "contacting GitHub").await;
-                    let can_retry_public_mirror = auth_token.is_none()
-                        && denial.as_ref().is_some_and(|denial| {
-                            matches!(denial.kind, GitHubAccessDenialKind::RateLimited { .. })
+            let request_timeout = if let Some(deadline) = download_deadline {
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                if remaining.is_zero() {
+                    return Err(format!(
+                        "{failure_prefix}: network download timed out; retry budget exhausted"
+                    ));
+                }
+                remaining
+            } else {
+                std::time::Duration::from_secs(60)
+            };
+            let url = build_url(endpoint);
+            let mut request = client.get(url).timeout(request_timeout);
+            if endpoint.label == "github" {
+                if let Some(token) = auth_token {
+                    request = request.bearer_auth(token);
+                }
+            }
+            match request.send().await {
+                Ok(response) => {
+                    let status = response.status();
+                    if matches!(
+                        status,
+                        reqwest::StatusCode::UNAUTHORIZED
+                            | reqwest::StatusCode::FORBIDDEN
+                            | reqwest::StatusCode::TOO_MANY_REQUESTS
+                    ) {
+                        // A mirror denial says nothing about the user's GitHub credential.
+                        // Try the remaining mirrors and preserve the direct failure category.
+                        if endpoint.label != "github" {
+                            attempts.push(MirrorAttemptOutcome {
+                                status: Some(status),
+                                error_message: format!(
+                                    "{} mirror '{}' denied the network request (HTTP {})",
+                                    surface_label(surface),
+                                    endpoint.label,
+                                    status
+                                ),
+                            });
+                            continue 'endpoints;
+                        }
+                        let denial =
+                            parse_github_denial_response(response, "contacting GitHub").await;
+                        let can_retry_public_mirror = auth_token.is_none()
+                            && denial.as_ref().is_some_and(|denial| {
+                                matches!(denial.kind, GitHubAccessDenialKind::RateLimited { .. })
+                            });
+                        if can_retry_public_mirror {
+                            last_retryable_denial = denial;
+                            attempts.push(MirrorAttemptOutcome {
+                                status: Some(status),
+                                error_message: format!(
+                                    "{} mirror '{}' returned HTTP {} due to rate limiting",
+                                    surface_label(surface),
+                                    endpoint.label,
+                                    status
+                                ),
+                            });
+                            continue 'endpoints;
+                        }
+
+                        return Err(denial
+                            .map(|denial| denial.to_string())
+                            .unwrap_or_else(|| format!("{}: HTTP {}", failure_prefix, status)));
+                    }
+
+                    if status.is_success() {
+                        match read(response).await {
+                            Ok(result) => return Ok(result),
+                            Err(error) if is_retryable_github_transport_error(&error) => {
+                                attempts.push(MirrorAttemptOutcome {
+                                    status: Some(status),
+                                    error_message: format!(
+                                        "{} mirror '{}' response body failed: {}",
+                                        surface_label(surface),
+                                        endpoint.label,
+                                        github_transport_error_detail(&error)
+                                    ),
+                                });
+                                continue;
+                            }
+                            Err(error) => {
+                                return Err(format!(
+                                    "{failure_prefix}: {}",
+                                    github_transport_error_detail(&error)
+                                ))
+                            }
+                        }
+                    }
+
+                    if status == reqwest::StatusCode::NOT_FOUND {
+                        if endpoint.label != "github" && !attempts.is_empty() {
+                            attempts.push(MirrorAttemptOutcome {
+                                status: Some(status),
+                                error_message: format!(
+                                    "{} mirror '{}' returned HTTP 404 after a prior direct failure",
+                                    surface_label(surface),
+                                    endpoint.label
+                                ),
+                            });
+                            continue 'endpoints;
+                        }
+                        return read(response).await.map_err(|error| {
+                            format!(
+                                "{failure_prefix}: {}",
+                                github_transport_error_detail(&error)
+                            )
                         });
-                    if can_retry_public_mirror {
-                        last_retryable_denial = denial;
+                    }
+
+                    if should_retry_via_mirror_status(surface, status) {
                         attempts.push(MirrorAttemptOutcome {
                             status: Some(status),
                             error_message: format!(
-                                "{} mirror '{}' returned HTTP {} due to rate limiting",
+                                "{} mirror '{}' returned HTTP {}",
                                 surface_label(surface),
                                 endpoint.label,
                                 status
                             ),
                         });
-                        continue;
+                        continue 'endpoints;
                     }
 
-                    return Err(denial
-                        .map(|denial| denial.to_string())
-                        .unwrap_or_else(|| format!("{}: HTTP {}", failure_prefix, status)));
+                    return Err(format!("{}: HTTP {}", failure_prefix, status));
                 }
-
-                if status.is_success() {
-                    return Ok(response);
-                }
-
-                if status == reqwest::StatusCode::NOT_FOUND {
-                    if last_retryable_denial.is_some() && auth_token.is_none() {
+                Err(error) => {
+                    if is_retryable_github_transport_error(&error) {
                         attempts.push(MirrorAttemptOutcome {
-                            status: Some(status),
+                            status: error.status(),
                             error_message: format!(
-                                "{} mirror '{}' returned HTTP 404 after a prior rate-limit denial",
+                                "{} mirror '{}' failed: {}",
                                 surface_label(surface),
-                                endpoint.label
+                                endpoint.label,
+                                github_transport_error_detail(&error)
                             ),
                         });
                         continue;
                     }
-                    return Ok(response);
-                }
 
-                if should_retry_via_mirror_status(surface, status) {
-                    attempts.push(MirrorAttemptOutcome {
-                        status: Some(status),
-                        error_message: format!(
-                            "{} mirror '{}' returned HTTP {}",
-                            surface_label(surface),
-                            endpoint.label,
-                            status
-                        ),
-                    });
-                    continue;
+                    return Err(format!(
+                        "{}: {}",
+                        failure_prefix,
+                        github_transport_error_detail(&error)
+                    ));
                 }
-
-                return Err(format!("{}: HTTP {}", failure_prefix, status));
-            }
-            Err(error) => {
-                if is_retryable_github_transport_error(&error) {
-                    attempts.push(MirrorAttemptOutcome {
-                        status: error.status(),
-                        error_message: format!(
-                            "{} mirror '{}' failed: {}",
-                            surface_label(surface),
-                            endpoint.label,
-                            error
-                        ),
-                    });
-                    continue;
-                }
-
-                return Err(format!("{}: {}", failure_prefix, error));
             }
         }
     }
-
     if let Some(denial) = last_retryable_denial {
         return Err(denial.to_string());
     }
@@ -1703,7 +1949,38 @@ fn should_retry_via_mirror_status(
 }
 
 fn is_retryable_github_transport_error(error: &reqwest::Error) -> bool {
-    error.is_timeout() || error.is_connect() || error.is_request() || error.is_body()
+    error.is_timeout()
+        || error.is_connect()
+        || error.is_request()
+        || error.is_body()
+        || error.is_decode()
+}
+
+// Preserve diagnostic categories without exposing request URLs, credentials or
+// arbitrary proxy/server text from a nested error chain.
+fn github_transport_error_detail(error: &reqwest::Error) -> String {
+    use std::error::Error;
+    if let Some(status) = error.status() {
+        return format!("HTTP {status}");
+    }
+    if error.is_timeout() {
+        return "network request or download timed out".into();
+    }
+    let mut chain = String::new();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        chain.push_str(&cause.to_string().to_ascii_lowercase());
+        source = cause.source();
+    }
+    if chain.contains("certificate") || chain.contains("tls") || chain.contains("ssl") {
+        "network TLS connection failed; check the proxy and certificate configuration".into()
+    } else if chain.contains("dns") || chain.contains("resolve") || chain.contains("lookup") {
+        "network DNS resolution failed".into()
+    } else if error.is_body() || error.is_decode() {
+        "network download interrupted or response body incomplete".into()
+    } else {
+        "network connection failed; check the system proxy and network path".into()
+    }
 }
 
 fn summarize_mirror_attempts(attempts: &[MirrorAttemptOutcome]) -> String {
@@ -1864,6 +2141,264 @@ fn sanitize_skill_id(raw: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[tokio::test]
+    #[ignore = "Downloads a public large repository; run explicitly for performance verification"]
+    async fn live_large_repository_snapshot_reuse() {
+        let repo = resolve_update_revision("k-dense-ai/scientific-agent-skills", None, None).await
+            .expect("public repository revision lookup failed");
+        let client = github_client().unwrap();
+        let started = std::time::Instant::now();
+        let snapshot = download_repo_snapshot(&client, &repo, None).await.expect("public snapshot download failed");
+        let first = started.elapsed();
+        let skills = build_repo_skill_candidates_from_snapshot(&repo, &snapshot).unwrap();
+        let started = std::time::Instant::now();
+        for _ in 0..100 {
+            let reused = download_repo_snapshot(&client, &repo, None).await.unwrap();
+            assert!(std::sync::Arc::ptr_eq(&snapshot, &reused));
+        }
+        println!("large repository: skills={}, files={}, bytes={}, first_snapshot_ms={}, cached_100_operations_ms={}",
+            skills.len(), snapshot.files.len(), snapshot.files.values().map(Vec::len).sum::<usize>(),
+            first.as_millis(), started.elapsed().as_millis());
+    }
+
+    #[tokio::test]
+    async fn update_batch_resolves_head_once_and_a_new_check_resolves_it_again() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let repository = format!("example/{}", uuid::Uuid::new_v4());
+        let requests = AtomicUsize::new(0);
+        let load = || async {
+            requests.fetch_add(1, Ordering::SeqCst);
+            Ok(GitHubRepoRef {owner:"example".into(),repo:"fixture".into(),branch:"a".repeat(40),normalized_url:String::new(),stars:None})
+        };
+        for _ in 0..100 {
+            load_batch_revision(&repository, None, Some("first-batch"), load).await.unwrap();
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 1, "one update batch must not inspect repository metadata per skill");
+        load_batch_revision(&repository, None, Some("next-batch"), load).await.unwrap();
+        load_batch_revision(&repository, None, None, load).await.unwrap();
+        load_batch_revision(&repository, None, None, load).await.unwrap();
+        assert_eq!(requests.load(Ordering::SeqCst), 4, "new batches and fresh checks must resolve HEAD again");
+    }
+
+    #[tokio::test]
+    async fn repeated_skill_operations_download_and_unpack_a_revision_once() {
+        let repo = GitHubRepoRef {owner:"example".into(),repo:"performance-fixture".into(),
+            branch:"1234567890123456789012345678901234567890".into(),normalized_url:String::new(),stars:None};
+        let archive = repository_archive(&[("skills/demo/SKILL.md", b"---\nname: Demo\n---\nDemo")]);
+        let downloads = std::sync::atomic::AtomicUsize::new(0);
+        for _ in 0..20 {
+            let snapshot = load_repo_snapshot(&repo, None, || async {
+                downloads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                snapshot_from_repository_archive(&archive)
+            }).await.unwrap();
+            assert!(snapshot.files.contains_key("skills/demo/SKILL.md"));
+        }
+        assert_eq!(downloads.load(std::sync::atomic::Ordering::SeqCst), 1,
+            "per-skill import/update operations must reuse the same immutable repository archive");
+    }
+
+    #[tokio::test]
+    async fn snapshot_cache_shares_concurrent_loads_but_isolates_revisions_and_auth_scopes() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let mut repo = GitHubRepoRef {owner:"example".into(),repo:uuid::Uuid::new_v4().to_string(),
+            branch:"1234567890123456789012345678901234567890".into(),normalized_url:String::new(),stars:None};
+        let downloads = AtomicUsize::new(0);
+        let load = || async {
+            downloads.fetch_add(1, Ordering::SeqCst);
+            tokio::task::yield_now().await;
+            Ok(GitHubRepoSnapshot::default())
+        };
+        let (first, second) = tokio::join!(load_repo_snapshot(&repo, None, load), load_repo_snapshot(&repo, None, load));
+        assert!(std::sync::Arc::ptr_eq(&first.unwrap(), &second.unwrap()));
+        assert_eq!(downloads.load(Ordering::SeqCst), 1);
+        load_repo_snapshot(&repo, Some("fixture-auth-scope"), load).await.unwrap();
+        repo.branch = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into();
+        load_repo_snapshot(&repo, None, load).await.unwrap();
+        assert_eq!(downloads.load(Ordering::SeqCst), 3);
+        repo.branch = "main".into();
+        load_repo_snapshot(&repo, None, load).await.unwrap();
+        load_repo_snapshot(&repo, None, load).await.unwrap();
+        assert_eq!(downloads.load(Ordering::SeqCst), 5, "mutable branches must be fetched afresh");
+    }
+
+    #[tokio::test]
+    async fn snapshot_cache_retries_failures_and_reuses_the_success() {
+        let repo = GitHubRepoRef {owner:"example".into(),repo:uuid::Uuid::new_v4().to_string(),
+            branch:"1234567890123456789012345678901234567890".into(),normalized_url:String::new(),stars:None};
+        assert!(load_repo_snapshot(&repo, None, || async {Err("fixture network failure".into())}).await.is_err());
+        let loaded = load_repo_snapshot(&repo, None, || async {Ok(GitHubRepoSnapshot::default())}).await.unwrap();
+        let cached = load_repo_snapshot(&repo, None, || async {panic!("must reuse the successful snapshot")}).await.unwrap();
+        assert!(std::sync::Arc::ptr_eq(&loaded, &cached));
+    }
+
+    fn archive_test_server(
+        responses: Vec<(&'static str, u64)>,
+    ) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let mut requests = Vec::new();
+            for (response, delay) in responses {
+                loop {
+                    if std::time::Instant::now() > deadline {
+                        return requests;
+                    }
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        continue;
+                    };
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+                        .unwrap();
+                    let mut buffer = [0; 2048];
+                    let n = stream.read(&mut buffer).unwrap();
+                    requests.push(String::from_utf8_lossy(&buffer[..n]).to_string());
+                    let (head, body) = response.split_once("\r\n\r\n").unwrap();
+                    let _ = stream.write_all(format!("{head}\r\n\r\n").as_bytes());
+                    std::thread::sleep(std::time::Duration::from_millis(delay));
+                    let _ = stream.write_all(body.as_bytes());
+                    break;
+                }
+            }
+            requests
+        });
+        (address, server)
+    }
+
+    #[tokio::test]
+    async fn archive_body_retry_recovers_on_direct_endpoint() {
+        let (address, server) = archive_test_server(vec![
+            (
+                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 100\r\n\r\npartial",
+                0,
+            ),
+            (
+                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 8\r\n\r\ncomplete",
+                0,
+            ),
+        ]);
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let result = send_github_bytes_with_fallback(
+            &client,
+            GitHubFetchSurface::Api,
+            |_| address.clone(),
+            "archive download failed",
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, b"complete");
+        assert_eq!(server.join().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn archive_body_stall_retries_with_read_timeout() {
+        let (address, server) = archive_test_server(vec![
+            (
+                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 8\r\n\r\ncomplete",
+                150,
+            ),
+            (
+                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 8\r\n\r\ncomplete",
+                0,
+            ),
+        ]);
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .read_timeout(std::time::Duration::from_millis(75))
+            .build()
+            .unwrap();
+        let result = send_github_bytes_with_fallback(
+            &client,
+            GitHubFetchSurface::Api,
+            |_| address.clone(),
+            "archive download failed",
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, b"complete");
+        assert_eq!(server.join().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn archive_body_retry_is_bounded_and_mirror_denial_is_not_auth_failure() {
+        let mut responses = vec![
+            (
+                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 100\r\n\r\npartial",
+                0
+            );
+            2
+        ];
+        responses.extend(vec![
+            (
+                "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+                0
+            );
+            3
+        ]);
+        let (address, server) = archive_test_server(responses);
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let error = send_github_bytes_with_fallback(
+            &client,
+            GitHubFetchSurface::Api,
+            |_| format!("{address}/private-repository?secret=test-only-token"),
+            "archive download failed",
+            Some("test-only-token"),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("response body failed"));
+        assert!(!error.contains("token/permissions"));
+        assert!(!error.contains("test-only-token"));
+        assert!(!error.contains("private-repository"));
+        assert_eq!(server.join().unwrap().len(), 5);
+    }
+
+    #[tokio::test]
+    async fn archive_permission_denial_is_not_retried() {
+        let (address, server) = archive_test_server(vec![(
+            "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+            0,
+        )]);
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let error = send_github_bytes_with_fallback(
+            &client,
+            GitHubFetchSurface::Api,
+            |_| address.clone(),
+            "archive download failed",
+            Some("test-only-token"),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("denied access"));
+        assert_eq!(server.join().unwrap().len(), 1);
+    }
+    // Real HTTP responses: a successful status followed by an incomplete body
+    // must retry the whole download instead of accepting or appending partial data.
+    #[tokio::test]
+    async fn archive_body_interruption_retries_and_discards_partial_bytes() {
+        let (address, server) = archive_test_server(vec![
+            ("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 100\r\n\r\npartial", 0),
+            ("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 100\r\n\r\npartial", 0),
+            ("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 8\r\n\r\ncomplete", 0),
+        ]);
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let result = send_github_bytes_with_fallback(&client, GitHubFetchSurface::Api,
+            |endpoint| format!("{address}/{}", if endpoint.label == "github" {"direct"} else {"mirror"}),
+            "Failed to download GitHub repository archive", Some("test-only-token")).await;
+        let requests = server.join().unwrap();
+        assert_eq!(result.unwrap(), b"complete");
+        assert_eq!(requests.len(), 3);
+        assert!(requests[..2].iter().all(|r| r.to_lowercase().contains("authorization: bearer test-only-token")));
+        assert!(!requests[2].to_lowercase().contains("authorization"));
+    }
     use super::*;
     use flate2::{write::GzEncoder, Compression};
     use std::collections::HashMap;
@@ -2647,6 +3182,18 @@ metadata: {"openclaw":{"requires":{"bins":["python3"]},"env":["PEXELS_API_KEY"]}
         assert!(root_skill.conflict.is_none());
         let occupied = current_managed_skill_ids(&pool).await.expect("occupied");
         assert!(!occupied.contains("twitterapi-io"));
+    }
+
+    #[tokio::test]
+    async fn cancelled_import_stops_before_network_or_library_writes() {
+        let pool = setup_test_db().await;
+        let before: i64 = sqlx::query("SELECT COUNT(*) AS count FROM skills").fetch_one(&pool).await.unwrap().get("count");
+        let operation = super::super::github_cancellation::Operation::start("cancelled-import-test".into());
+        super::super::github_cancellation::cancel_github_operation("cancelled-import-test".into());
+        let result = import_github_repo_skills_cancellable(&pool, "invalid-url", Vec::new(), None, Some(&operation)).await;
+        assert_eq!(result.unwrap_err(), "Operation cancelled");
+        let after: i64 = sqlx::query("SELECT COUNT(*) AS count FROM skills").fetch_one(&pool).await.unwrap().get("count");
+        assert_eq!(before, after);
     }
 
     #[tokio::test]

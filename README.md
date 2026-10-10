@@ -19,7 +19,7 @@ Import, organize, update and distribute `SKILL.md` skills to Claude Code, Codex 
 
 ![SkillsHub repository with folder browsing, tags and notes](docs/images/en/library.jpg)
 
-*Screenshots show the UI from the current v1.1.1 source, using fictional repositories, skills and paths. The example content is not bundled with the app.*
+*Screenshots show the UI from the current v1.2.0 source, using fictional repositories, skills and paths. The example content is not bundled with the app.*
 
 ## Why SkillsHub?
 
@@ -58,19 +58,22 @@ The **Update skills** dialog offers **Last results / Check updates / Update star
 
 ![Update skills: check changes or refresh stars independently](docs/images/en/update-actions.jpg)
 
-The status bar provides one **Tasks & updates** entry with running and pending counts, available from every page without navigation. **Pending / In progress / History** cover update decisions and failures, batch progress, and finished operations including import results. Checks finish with a lightweight notification instead of opening a dialog; click the notification to review the results.
+The status bar provides one **Tasks** entry with running and pending counts, available from every page. **Skill imports / Skill updates** show tasks by repository or batch on the left, with progress, results and actions on the right. Filter active tasks, items needing attention, failures or completed tasks. Checks finish with a lightweight notification; start new checks from **Update skills** in the main toolbar.
 
-![Tasks & updates with change types and actions (fictional data, Chinese UI)](docs/images/zh/tasks-updates-preview.jpg)
+![Tasks: skill update details and batch actions (fictional data)](docs/images/en/tasks-updates-preview.jpg)
 
-- Select individual skills or entire groups. Upstream deletions are not selected by default.
+- Results default to actionable changes. Filters appear as Needs attention / Failed / Updated / Unchanged / Ignored / All, with All last and including complete results. Select skills to update; source deletions require additional confirmation.
+- Root skills moved into repository subdirectories retain their original identity for content comparison and updates, avoiding false deletion reports. Renames and uncertain matches still require manual confirmation.
 - Ignore a detected version; a later upstream change makes it eligible for review again.
 - Starting a full check clears previous check reports and records; scoped checks preserve other repositories. Delete failed or interrupted task records individually, or dismiss failed repository check results. These actions keep skill files intact.
-- Recheck selected repositories from the footer without losing other results. Retry failures checks selected failed repositories, or all currently visible failures if none are selected.
+- Recheck selected repositories from the footer without losing other results. Failed repository rows also offer individual recheck and dismiss actions.
 - Review replacements under remote deletions and select them and use Delete & reimport in the footer; ambiguous matches require manual pairing.
-- Resize the dialog as needed; switching views preserves its height and update selections. Unchanged skills are hidden by default. Batch updates and star refreshes appear as one operation with expandable details. Clearing finished records keeps running work and unresolved failures.
+- Resize the dialog as needed; switching tasks or tabs preserves update selections. Clear check results removes reports and check records without deleting skills or stopping imports and updates. Batch tasks appear as one operation. Clearing finished records affects only completed or stopped groups in the current tab and preserves active batches and unresolved failures.
 - Imports, update checks, applied updates and AI generation run through a background queue with progress, results, manual stop, retries and manual cleanup. Running tasks stop after the current step finishes.
-- After starting a GitHub import, clicking outside the Add Skills dialog moves repository checks and subsequent imports to the background. Name conflicts remain in Pending until you choose Continue import. Clicking Cancel still cancels the current dialog operation.
+- After starting a GitHub import, clicking outside the Add Skills dialog moves repository checks and subsequent imports to the background. Review skill details and errors under Skill imports; resolve name conflicts with Continue import. Clicking Cancel still cancels the current dialog operation.
 - Navigating away or closing a dialog does not interrupt a task. Tasks run while the app is open; interrupted tasks can be retried after restarting.
+
+![Tasks: skill import results and record management (fictional data)](docs/images/en/tasks-imports.jpg)
 
 ## Build your own skill toolkit
 
@@ -81,8 +84,12 @@ The status bar provides one **Tasks & updates** entry with running and pending c
 - Click a tag to filter, then click it again to clear. Use `Ctrl / Cmd` to select multiple tags and match their intersection.
 - Drag selected skills onto a tag to add it. Hold `Shift` while dropping to remove only that tag.
 - The filter button inside the search field lets you search repository names, skill names, descriptions and notes. Repository folders can have their own notes. The filter closes on focus loss, an outside click or Escape.
+- Switch grouped/flat views from the toolbar button immediately after Open directory in the library, bundles, shared hub and platform/project lists (default F3). Flat view includes a sortable Repository column with owner/repository and repository@owner formats; sorting follows the displayed format. F5 refreshes the current list. Customize both shortcuts in Settings. The name header no longer has an expand-all icon; use + / - with the list focused to expand or collapse all groups.
+- GitHub downloads and preparation can be cancelled. Atomic commits finish safely before stopping. Stopping records can be deleted while active writes retain their locks.
 - The detail pane provides overview, documents and installation information. Tables support sorting, column visibility, reordering and resizing. Switch between `owner/repository` and `repository@owner` from the right of the name header; name sorting follows the displayed format.
 - Skill notes and tags use **AI / Save / Clear** controls. Each AI request produces an editable suggestion. Tag suggestions are appended and deduplicated, preserving existing tags; changes are written only when saved. Configure your own AI service and prompts.
+
+![Flat view: sortable repositories and repository name formats](docs/images/en/library-flat.jpg)
 
 ## Get started
 
@@ -90,7 +97,7 @@ The status bar provides one **Tasks & updates** entry with running and pending c
 2. Check platform directories in Settings, or add your own platforms and projects from the sidebar.
 3. In Skill Repository, choose **Add skills** and enter a GitHub `owner/repo`, repository URL, or local skill folder.
 4. Read the skill, add tags or notes, organize it into a bundle, then install it to the platforms, projects or Shared Hub you need.
-5. Use **Update skills** to review upstream changes and **Tasks & updates** to review results and follow execution.
+5. Use **Update skills** to check upstream changes and **Tasks** to review results and follow execution.
 
 The toolbar uses distinct icons: a package with a plus for adding skills, two circular arrows for updating, and a single rotating arrow for refreshing the list. Hover for labels. GitHub imports only flag overwrites at the actual destination; matching IDs in different repositories remain independent.
 

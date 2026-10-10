@@ -74,12 +74,44 @@ it("selects added and modified skills, keeps remote deletions opt-in and removes
     ),
   );
   expect(invoke).toHaveBeenCalledTimes(2);
+  const batchIds = invoke.mock.calls.map(([, args]) => args.batchId);
+  expect(batchIds[0]).toEqual(expect.any(String));
+  expect(new Set(batchIds).size).toBe(1);
   expect(invoke).not.toHaveBeenCalledWith(
     "apply_repository_update_item",
     expect.objectContaining({ skillId: "deleted" }),
   );
   expect(updates.getState().preview?.repositories[0].deleted).toHaveLength(1);
-  expect(updates.getState().preview?.repositories[0].unchanged).toHaveLength(3);
+  expect(updates.getState().preview?.repositories[0].unchanged).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", {name:"已更新 2"}));
+  expect(screen.getByText("Changed")).toBeInTheDocument();
+  expect(screen.queryByText("Same")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", {name:"应用更新"})).toBeDisabled();
+  await Promise.all(queue.getState().tasks.map(task => waitForTask(task.id)));
+  expect(useResourceLibraryStore.getState().loadResourceLibrary).toHaveBeenCalledTimes(1);
+  expect(useCentralSkillsStore.getState().loadCentralSkills).toHaveBeenCalledTimes(1);
+});
+it("shows unchanged items under All and clears the check report without deleting skills", () => {
+  render(<UpdateCenter embedded/>);
+  expect(screen.getByRole("button", {name:"全部 4"})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name:"owner/repo"}));
+  expect(screen.getByText("Same")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name:"清空检查结果"}));
+  expect(updates.getState().preview).toBeNull();
+  expect(updates.getState().reportCheckedAt).toBeNull();
+  expect(screen.queryByRole("button", {name:"owner/repo"})).not.toBeInTheDocument();
+  expect(invoke).not.toHaveBeenCalled();
+});
+it("refreshes once after simultaneous repository updates settle", async () => {
+  updates.setState({preview:{repositories:[
+    {...structuredClone(preview.repositories[0]),added:[],deleted:[]},
+    {...structuredClone(preview.repositories[0]),repository:"owner/other",added:[],deleted:[],modified:[{skillId:"other",name:"Other",version:"v1"}]},
+  ]}});
+  render(<UpdateCenter/>);
+  fireEvent.click(screen.getByRole("button", {name:"应用更新"}));
+  await waitFor(() => expect(queue.getState().tasks).toHaveLength(2));
+  await Promise.all(queue.getState().tasks.map(task => waitForTask(task.id)));
+  expect(useResourceLibraryStore.getState().loadResourceLibrary).toHaveBeenCalledTimes(1);
 });
 it("ignores only a content version and can restore it", () => {
   const view = render(<UpdateCenter />);
@@ -190,7 +222,7 @@ it("syncs mixed background outcomes and rechecks only the selected failed reposi
   await waitFor(() => expect(recheck).toHaveBeenCalledWith(["one/repo", "two/repo"]));
   await waitFor(() => expect(updates.getState().checkingRepository).toBeNull());
   expect(updates.getState().preview?.repositories[2].modified).toHaveLength(0);
-  expect(updates.getState().preview?.repositories[2].unchanged).toHaveLength(1);
+  expect(updates.getState().preview?.repositories[2].updated).toHaveLength(1);
   expect(screen.getByRole("button", {name: "更新失败 0"})).toBeInTheDocument();
   recheck.mockRestore();
 });
@@ -281,7 +313,7 @@ it("shows failed repositories only under all or failed and scopes bulk selection
   updates.setState({preview:{repositories:[preview.repositories[0],{repository:"failed/repo",added:[],modified:[],deleted:[],unchanged:[],error:"offline"}]}});
   render(<UpdateCenter/>);
   expect(screen.getByRole("dialog",{name:"更新状态"})).toBeInTheDocument();
-  expect(screen.getByRole("button",{name:"全部"})).toHaveAttribute("aria-pressed","true");
+  expect(screen.getByRole("button",{name:/^全部 \d+/})).toHaveAttribute("aria-pressed","true");
   for (const name of ["新增 1","待更新 1","远程删除 1","无变化 1","已忽略"]) {
     fireEvent.click(screen.getByRole("button",{name}));
     expect(screen.queryByRole("checkbox",{name:"failed/repo"})).not.toBeInTheDocument();
@@ -296,7 +328,7 @@ it("shows failed repositories only under all or failed and scopes bulk selection
   expect(screen.getByRole("button",{name:"应用更新"})).toBeDisabled();
   fireEvent.click(screen.getByRole("button",{name:"新增 1"}));
   expect(screen.getByRole("button",{name:"重查所选"})).toBeDisabled();
-  fireEvent.click(screen.getByRole("button",{name:"全部"}));
+  fireEvent.click(screen.getByRole("button",{name:/^全部 \d+/}));
   expect(screen.getByRole("checkbox",{name:"failed/repo"})).toBeChecked();
   expect(screen.getByRole("checkbox",{name:"owner/repo"})).toBeInTheDocument();
 });
@@ -345,10 +377,10 @@ it("places replacements only under deleted and submits one replacement action",a
   expect(replaceButton).toBeEnabled();
   expect(screen.getByRole("button",{name:"应用更新"})).toBeDisabled();
   fireEvent.click(replaceButton);
-  await waitFor(()=>expect(invoke).toHaveBeenCalledWith("apply_repository_update_item",{repository:"owner/repo",skillId:"old",version:"deleted",action:"replace",replacementSkillId:"new",replacementVersion:"v2"}));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith("apply_repository_update_item",{batchId:expect.any(String),repository:"owner/repo",skillId:"old",version:"deleted",action:"replace",replacementSkillId:"new",replacementVersion:"v2"}));
   await waitFor(()=>expect(updates.getState().preview?.repositories[0].deleted).toHaveLength(0));
   expect(updates.getState().preview?.repositories[0].added).toHaveLength(0);
-  expect(updates.getState().preview?.repositories[0].unchanged[0].skillId).toBe("old");
+  expect(updates.getState().preview?.repositories[0].updated?.[0].skillId).toBe("old");
 });
 
 it("keeps ordinary updates separate from selected replacements",async()=>{
@@ -357,7 +389,7 @@ it("keeps ordinary updates separate from selected replacements",async()=>{
   fireEvent.click(screen.getByRole("checkbox",{name:"全选"}));
   expect(screen.getByRole("button",{name:"删除并重导"})).toBeEnabled();
   fireEvent.click(screen.getByRole("button",{name:"应用更新"}));
-  await waitFor(()=>expect(invoke).toHaveBeenCalledWith("apply_repository_update_item",{repository:"owner/repo",skillId:"changed",version:"v1",action:"modified"}));
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith("apply_repository_update_item",{batchId:expect.any(String),repository:"owner/repo",skillId:"changed",version:"v1",action:"modified"}));
   expect(invoke.mock.calls.filter(([command])=>command === "apply_repository_update_item")).toHaveLength(1);
   expect(updates.getState().preview?.repositories[0].deleted).toHaveLength(1);
 });

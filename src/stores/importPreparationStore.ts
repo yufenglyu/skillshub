@@ -42,6 +42,9 @@ export function enqueueGitHubImport(
   const chosen = selections.filter((selection) => selection.resolution !== "skip");
   if (!chosen.length) return null;
   const repository = `${preview.repo.owner}/${preview.repo.repo}`.toLowerCase();
+  const importUrl = /^[a-f0-9]{40}$/i.test(preview.repo.branch ?? "")
+    ? `https://github.com/${preview.repo.owner}/${preview.repo.repo}/tree/${preview.repo.branch}`
+    : repoUrl;
   return useTaskQueueStore.getState().enqueue({
     key: `import:${repository}:${JSON.stringify(chosen)}`,
     kind: "import",
@@ -53,11 +56,12 @@ export function enqueueGitHubImport(
         preview.skills.find((item) => item.sourcePath === selection.sourcePath)?.skillId ??
         selection.sourcePath}`),
     ],
-    steps: chosen.map((selection) => ({
+    // The backend stages the whole selection transactionally from one archive.
+    steps: [{
       command: "import_github_repo_skills",
-      label: selection.sourcePath,
-      args: { repoUrl, selections: [selection] },
-    })),
+      label: repository,
+      args: { repoUrl: importUrl, selections: chosen },
+    }],
   });
 }
 
@@ -65,6 +69,7 @@ export function enqueueGitHubImport(
 export function continueGitHubImportInBackground(
   repoUrl: string,
   preview: Promise<GitHubRepoPreview>,
+  operationId?: string,
 ) {
   const key = `prepare-import:${repoUrl.trim().toLowerCase()}`;
   const existing = useTaskQueueStore.getState().tasks.find((task) => task.key === key &&
@@ -81,7 +86,7 @@ export function continueGitHubImportInBackground(
     steps: [{
       command: PREPARE_GITHUB_IMPORT,
       label: i18n.t("workflow.prepareImport"),
-      args: { repoUrl, requestId },
+      args: { repoUrl, requestId, ...(operationId ? {operationId} : {}) },
     }],
   });
 }
@@ -90,7 +95,7 @@ registerTaskExecutor(PREPARE_GITHUB_IMPORT, async (args) => {
   const requestId = String(args.requestId);
   const pending = pendingPreviews.get(requestId);
   try {
-    return await (pending ?? useGitHubImportStore.getState().previewGitHubRepoImport(String(args.repoUrl)));
+    return await (pending ?? useGitHubImportStore.getState().previewGitHubRepoImport(String(args.repoUrl), String(args.operationId)));
   } finally {
     pendingPreviews.delete(requestId);
   }

@@ -165,8 +165,7 @@ import { ResourceLibraryView } from "@/pages/ResourceLibraryView";
 
 describe("ResourceLibraryView delete", () => {
   async function switchBrowserViewMode(mode: "all" | "folders") {
-    const name = mode === "folders" ? /^全部折叠$|^Collapse all$/i : /^全部展开$|^Expand all$/i;
-    fireEvent.click(await screen.findByRole("button", { name }));
+    fireEvent.keyDown(await screen.findByRole("region", {name:"技能列表"}), {key:mode === "folders" ? "-" : "+"});
   }
 
   function tableDataRows() {
@@ -336,15 +335,15 @@ describe("ResourceLibraryView delete", () => {
     fireEvent.click(screen.getByRole("button", {name:"检查更新"}));
     await waitFor(()=>expect(mockPreviewRepositorySync).toHaveBeenCalledTimes(1));
     view.rerender(<MemoryRouter><AppStatusBar /></MemoryRouter>);
-    expect(screen.getByRole("button", {name: /任务与更新/})).toHaveTextContent(/运行 1/);
+    expect(screen.getByRole("button", {name: /任务/})).toHaveTextContent(/运行 1/);
     finish({ repositories: [] });
-    await waitFor(() => expect(screen.getByRole("button", {name: /任务与更新/})).toHaveTextContent(/运行 0/));
+    await waitFor(() => expect(screen.getByRole("button", {name: /任务/})).toHaveTextContent(/运行 0/));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(mockSyncSourceBackedSkills).not.toHaveBeenCalled();
     expect(mockUpdateSourceBackedSkills).not.toHaveBeenCalled();
     view.rerender(<MemoryRouter><ResourceLibraryView /><AppStatusBar /></MemoryRouter>);
-    fireEvent.click(screen.getByRole("button", {name: /任务与更新/}));
-    await screen.findByRole("dialog", {name: "任务与更新"});
+    fireEvent.click(screen.getByRole("button", {name: /任务/}));
+    await screen.findByRole("dialog", {name: "任务"});
     expect(mockPreviewRepositorySync).toHaveBeenCalledTimes(1);
   });
 
@@ -608,7 +607,8 @@ describe("ResourceLibraryView delete", () => {
     });
     expect(mockSyncSourceBackedSkills).not.toHaveBeenCalled();
     vi.mocked(invoke).mockResolvedValue(undefined);
-    fireEvent.click(screen.getByRole("button", {name: /任务与更新/}));
+    fireEvent.click(screen.getByRole("button", {name: /任务/}));
+    fireEvent.click(await screen.findByRole("checkbox", {name:"resource-demo"}));
     fireEvent.click(await screen.findByRole("button", { name: "应用更新" }));
     await waitFor(()=>expect(invoke).toHaveBeenCalledWith("apply_repository_update_item",expect.objectContaining({repository:"owner/repo",skillId:"resource-demo",action:"modified"})));
 
@@ -700,7 +700,7 @@ describe("ResourceLibraryView delete", () => {
   it.each([false, true])("keeps one global activity entry after a check (applied=%s)", (applied) => {
     useRepositorySyncStore.setState({ preview: { repositories: [] }, applied });
     render(<MemoryRouter><AppStatusBar /></MemoryRouter>);
-    expect(screen.getByRole("button", {name: /任务与更新/})).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /任务/})).toBeInTheDocument();
     expect(screen.queryByRole("button", {name: /更新状态|Update status/i})).not.toBeInTheDocument();
   });
 
@@ -709,7 +709,7 @@ describe("ResourceLibraryView delete", () => {
 
 function render(...args: Parameters<typeof rtlRender>) {
   const result = rtlRender(...args);
-  const expand = screen.queryByRole("button", { name: "全部展开" });
-  if (expand) fireEvent.click(expand);
+  const list = screen.queryByRole("region", {name:"技能列表"});
+  if (list) fireEvent.keyDown(list,{key:"+"});
   return result;
 }

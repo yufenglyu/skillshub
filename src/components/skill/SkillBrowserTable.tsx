@@ -1,5 +1,6 @@
 import { ActionIcon } from "@/components/ui/action-icon";
 import { browserStats } from "@/lib/browserStats";
+import { formatRepositoryName } from "@/lib/repositoryName";
 import { useRepositoryNameStore } from "@/stores/repositoryNameStore";
 import { useBrowserStatusStore } from "@/stores/browserStatusStore";
 import { shouldIgnoreShortcutTarget } from "@/lib/shortcutKeys";
@@ -174,6 +175,7 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   index: 40,
   name: 384,
   source: 180,
+  repository: 220,
   createdAt: 140,
   updatedAt: 140,
   installSummary: 240,
@@ -675,7 +677,7 @@ function readColumnWidths(kind: SkillTableKind) {
 
 function isSortableColumn(column: string, kind: SkillTableKind): column is SkillSortField {
   if (kind === "folder") return column === "skillCount" || column === "githubStars" || column === "name" || column === "createdAt" || column === "updatedAt";
-  return column === "name" || column === "source" || column === "createdAt" || column === "updatedAt";
+  return column === "name" || column === "source" || column === "repository" || column === "createdAt" || column === "updatedAt";
 }
 
 function sortHeaderLabel(
@@ -698,7 +700,7 @@ export function SkillBrowserTable({
   compactList = false,
   kind,
   visibleColumns,
-  skills = [],
+  skills: originalSkills = [],
   folders: originalFolders = [],
   sortField,
   sortDirection = "asc",
@@ -716,15 +718,25 @@ export function SkillBrowserTable({
   const folders = useMemo(() => {
     const result = originalFolders.map(folder => {
       if (!repositoryFirst || folder.sourceRepo?.toLowerCase() !== folder.name.toLowerCase()) return folder;
-      const parts = folder.sourceRepo.split("/");
-      return parts.length === 2 && parts.every(Boolean) ? { ...folder, name: `${parts[1]}@${parts[0]}` } : folder;
+      return { ...folder, name: formatRepositoryName(folder.sourceRepo, repositoryFirst) };
     });
     if (sortField === "name") {
       result.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) * (sortDirection === "asc" ? 1 : -1));
     }
     return result;
   }, [originalFolders, repositoryFirst, sortField, sortDirection]);
-  const canSwitchRepositoryName = kind === "folder" && originalFolders.some(folder => folder.sourceRepo?.toLowerCase() === folder.name.toLowerCase());
+  const skills = useMemo(() => {
+    if (sortField !== "repository") return originalSkills;
+    const compare = (a: string, b: string) => a.localeCompare(b, undefined, {numeric: true, sensitivity: "base"});
+    return [...originalSkills].sort((a, b) => {
+      const first = formatRepositoryName(a.sourceRepo || t("browser.localSkills"), repositoryFirst);
+      const second = formatRepositoryName(b.sourceRepo || t("browser.localSkills"), repositoryFirst);
+      return (compare(first, second) || compare(a.name, b.name)) * (sortDirection === "asc" ? 1 : -1);
+    });
+  }, [originalSkills, sortField, sortDirection, repositoryFirst, t]);
+  const canSwitchRepositoryName = kind === "skill" ? skills.some(skill => !!skill.sourceRepo)
+    : originalFolders.some(folder => folder.sourceRepo?.toLowerCase() === folder.name.toLowerCase());
+  const repositoryNameColumn = kind === "skill" ? "repository" : "name";
   const switchNameLabel = t(repositoryFirst ? "skillBrowser.showOwnerFirst" : "skillBrowser.showRepositoryFirst");
   const columnLabel = (column: string) => t(`skillBrowser.columns.${column === "installSummary" && showInstallationSource ? "installationSource" : column}`);
   const renderInstallationSources = (sources: InstallationSource[] = []) => (
@@ -850,7 +862,7 @@ export function SkillBrowserTable({
   } | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const columns = kind === "skill"
-    ? ["index", "name", "createdAt", "updatedAt", "installSummary"]
+    ? ["index", "name", "repository", "createdAt", "updatedAt", "installSummary"]
     : ["index", "name", "skillCount", ...(showGithubStars ? ["githubStars"] : []), "createdAt", "updatedAt", "installSummary"];
   const orderedColumns = [...columnOrder.filter(column => columns.includes(column)), ...columns.filter(column => !columnOrder.includes(column))];
   const activeColumns = orderedColumns.filter(
@@ -1074,6 +1086,9 @@ export function SkillBrowserTable({
                           </td>
                         );
                       }
+                      if (column === "repository") {
+                        return <td key={column} className="px-3 py-2 text-muted-foreground" title={skill.sourceRepo ?? undefined}>{skill.sourceRepo ? formatRepositoryName(skill.sourceRepo, repositoryFirst) : t("browser.localSkills")}</td>;
+                      }
                       if (column === "source") {
                         return (
                           <td key={column} className="px-3 py-2 text-muted-foreground">
@@ -1178,7 +1193,7 @@ export function SkillBrowserTable({
               />
             ))}
           </colgroup>
-          <thead className={cn("sticky top-[var(--skill-table-sticky-top)] z-20 bg-muted text-xs font-medium text-muted-foreground", compactList ? "shadow-[0_1px_0_0_var(--border)]" : "shadow-[0_2px_0_0_var(--border)]")}>
+          <thead className={cn("sticky top-[var(--skill-table-sticky-top)] z-20 bg-background text-xs font-medium text-muted-foreground", compactList ? "shadow-[0_1px_0_0_var(--border)]" : "shadow-[0_2px_0_0_var(--border)]")}>
             <tr>
               {activeColumns.map((column) => (
                 <th
@@ -1215,16 +1230,16 @@ export function SkillBrowserTable({
                   aria-label={columnLabel(column)}
                   onContextMenu={handleHeaderContextMenu}
                   className={cn(
-                    "relative bg-muted py-2 font-medium",
+                    "relative bg-background py-2 font-medium",
                     dropTarget?.column === column && (dropTarget.after ? "shadow-[inset_-2px_0_var(--primary)]" : "shadow-[inset_2px_0_var(--primary)]"),
                     column === "index" ? "px-2" : "px-3"
                   )}
                 >
                   <div className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
                     {renderHeaderContent(column)}
-                    {column === "name" && <div className="ml-auto flex shrink-0 items-center gap-2 pr-1">
-                      {canSwitchRepositoryName && <button type="button" title={switchNameLabel} aria-label={switchNameLabel} aria-pressed={repositoryFirst} onClick={toggleRepositoryName} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeftRight className="size-4" /></button>}
-                      {nameHeaderAction}
+                    {(column === "name" || column === repositoryNameColumn) && <div className="ml-auto flex shrink-0 items-center gap-2 pr-1">
+                      {column === repositoryNameColumn && canSwitchRepositoryName && <button type="button" title={switchNameLabel} aria-label={switchNameLabel} aria-pressed={repositoryFirst} onClick={toggleRepositoryName} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeftRight className="size-4" /></button>}
+                      {column === "name" && nameHeaderAction}
                     </div>}
                   </div>
                   {column !== "actions" && !compactList ? (
@@ -1259,7 +1274,7 @@ export function SkillBrowserTable({
                       if ((event.key === "ArrowRight") !== Boolean(folder.expanded)) folder.onToggle();
                       return;
                     }
-                    if(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); if(!effectiveSelection.has(`folder:${folder.key}`))setSelectedRows(new Set([`folder:${folder.key}`])); menuReturnFocus.current = event.currentTarget; const rect=event.currentTarget.getBoundingClientRect(); setRowMenu({kind:"folder",key:folder.key,x:rect.left+40,y:rect.top+20}); } }} onClick={(event) => { if (tree && !(event.target as HTMLElement).closest("button,input,a")) folder.onOpen(); }} key={folder.key} ref={node => { const key = `folder:${folder.key}`; if (node) rowNodes.current.set(key, node); else rowNodes.current.delete(key); }} className={cn("align-middle select-none", !selectionClass(`folder:${folder.key}`,folder.highlighted) && "hover:bg-muted/25", tree && "bg-muted/45 font-medium", selectionClass(`folder:${folder.key}`,folder.highlighted) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}>
+                    if(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); if(!effectiveSelection.has(`folder:${folder.key}`))setSelectedRows(new Set([`folder:${folder.key}`])); menuReturnFocus.current = event.currentTarget; const rect=event.currentTarget.getBoundingClientRect(); setRowMenu({kind:"folder",key:folder.key,x:rect.left+40,y:rect.top+20}); } }} onClick={(event) => { if (tree && !(event.target as HTMLElement).closest("button,input,a")) folder.onOpen(); }} key={folder.key} ref={node => { const key = `folder:${folder.key}`; if (node) rowNodes.current.set(key, node); else rowNodes.current.delete(key); }} className={cn("align-middle select-none", !selectionClass(`folder:${folder.key}`,folder.highlighted) && "hover:bg-muted/25", tree && "font-medium", selectionClass(`folder:${folder.key}`,folder.highlighted) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}>
                     {activeColumns.map((column) => {
                       if (column === "index") {
                         return (

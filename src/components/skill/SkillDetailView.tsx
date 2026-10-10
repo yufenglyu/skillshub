@@ -58,7 +58,7 @@ function SectionPanel({
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4", className)}>
+    <div className={cn("space-y-3 rounded-lg border border-border/70 bg-background p-4", className)}>
       {children}
     </div>
   );
@@ -937,7 +937,7 @@ export function SkillDetailView({
                           defaultValue: i18n.language.startsWith("zh") ? "来源状态" : "Source status",
                         })}
                       </SectionLabel>
-                      <div className="rounded-lg border border-border/70 bg-muted/30 p-3 space-y-2">
+                      <div className="rounded-lg border border-border/70 bg-background p-3 space-y-2">
                         <div className="flex flex-wrap items-center gap-1.5">
                           {detail.source_kind && (
                             <SourceOriginBadge originKind={detail.source_kind} />
@@ -960,7 +960,7 @@ export function SkillDetailView({
                   <section hidden={variant === "inspector" && inspectorTab === "document"} aria-label={t("detail.metadataRegion")}>
                     <details open>
                     <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">{t("detail.metadataRegion")}</summary>
-                    <SectionPanel>
+                    <SectionPanel className="bg-transparent">
                       {canEditBasicSource ? (
                         <>
                           <div className="space-y-1.5">
@@ -1084,7 +1084,7 @@ export function SkillDetailView({
                     <>
                     <section hidden={variant === "inspector" && inspectorTab === "document"} aria-label={t("detail.notesRegion")}>
                       <SectionLabel>{t("detail.notes")}</SectionLabel>
-                      <div className="space-y-2.5 rounded-lg border border-border/70 bg-muted/20 p-3">
+                      <div className="space-y-2.5 rounded-lg border border-border/70 bg-background p-3">
                         <div className="space-y-1.5">
                           <Textarea
                             value={notesInput}
@@ -1155,7 +1155,7 @@ export function SkillDetailView({
 
                     <section hidden={variant === "inspector" && inspectorTab === "document"} aria-label={t("detail.tagsRegion")}>
                       <SectionLabel>{t("detail.tags")}</SectionLabel>
-                      <div className="space-y-2.5 rounded-lg border border-border/70 bg-muted/20 p-3">
+                      <div className="space-y-2.5 rounded-lg border border-border/70 bg-background p-3">
                         <div className="space-y-1.5">
                           <Input
                             disabled={isGeneratingTags}

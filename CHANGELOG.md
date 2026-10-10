@@ -2,12 +2,17 @@
 
 [English](CHANGELOG.md) | [简体中文](CHANGELOG.zh.md)
 
-## Unreleased
+## 1.2.0 - 2026-10-10
 
-- Merge background tasks and update status into one Tasks & updates window with Pending, In progress and History views, available from every page. Keep update selections when switching views and group batch operations with expandable progress and results.
-- Finish update checks with a notification instead of opening the results automatically. Clear previous check reports and records when starting a full repository check, while preserving unrelated results during scoped checks.
-- Allow manual deletion of failed or interrupted task records and dismissal of failed repository check results without deleting skill files. Clearing finished records preserves running tasks and unresolved failures.
-- Continue GitHub repository checks and imports in the background when clicking outside the Add Skills dialog. Keep name conflicts in Pending with a Continue import action; support stopping and retrying background imports. Explicit Cancel still cancels the current dialog operation.
+- Redesign Tasks with Skill imports / Skill updates tabs, a task list and a details pane. Keep the existing theme, add title/help/cleanup icons, and retain selections across tabs. Start checks from the main toolbar; closing the dialog keeps tasks running.
+- Default update results to actionable changes. Show separate Failed, Updated, Unchanged and Ignored filters, with All last; remove the update-results search field. Confirm source deletions, support individual failed-check retries and dismissal, and preserve skill files when deleting records.
+- Clear previous reports when starting a full repository check; preserve other repositories during scoped checks. Clear finished records within the current tab while retaining active batches and unresolved failures.
+- Move GitHub imports to the background when the Add Skills dialog loses focus. Continue name-conflict resolution from Tasks, retry failures, cancel downloads and preparation, and let atomic commits finish safely. Allow stopping orphaned tasks and deleting stopping records without releasing active-write locks early.
+- Speed up large-repository imports and updates by reusing bounded immutable snapshots, importing selected skills together at the previewed commit, resolving revisions once per update batch, revalidating only target skills, and refreshing lists once after a batch.
+- Recognize root skills moved into repository subdirectories, fixing false source-deleted results such as last30days. Successful checks refresh displayed check times without changing skill files.
+- Put the persisted grouped/flat view switch after Open directory in every skill toolbar. Add a sortable Repository column and owner/repository or repository@owner formats in flat view. Add configurable F3 view switching and F5 refresh; retain expansion shortcuts without the expand-all header icon.
+- Preserve each view's scroll position, align sidebar and workspace headers/footers, and improve text contrast. Remove extra backgrounds from disabled inputs, tags, sidebar counts and inspector metadata; selected tags use the theme highlight color.
+- Refresh bilingual usage documentation and screenshots for grouped/flat browsing, imports, bundles, update actions and both Tasks tabs, using fictional data.
 
 ## 1.1.1 - 2026-09-23
 

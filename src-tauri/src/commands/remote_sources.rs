@@ -552,6 +552,14 @@ fn skill_source_match_keys(source: &db::SkillSource, skill: &db::Skill) -> HashS
     let mut keys = HashSet::from([skill.id.clone()]);
     if let Some(path) = source.source_path.as_deref() {
         keys.extend(normalized_source_path_keys(path));
+        // Root imports may have a namespaced local ID. Preserve the original
+        // remote identity when the manifest moves into skills/<name>/SKILL.md.
+        if normalized_source_path_keys(path).iter().any(|key| key == ".") {
+            if let Some(repo_name) = source.source_repo.as_deref().and_then(|repo| repo.rsplit('/').next()) {
+                let repo_name = repo_name.to_ascii_lowercase();
+                keys.insert(repo_name.strip_suffix("-skill").unwrap_or(&repo_name).to_string());
+            }
+        }
     }
     keys
 }
@@ -587,6 +595,30 @@ async fn preview_github_repo_group(
     group: &[(db::SkillSource, db::Skill)],
     auth: Option<&str>,
 ) -> RepositorySyncPreview {
+    preview_github_repo_group_scoped(pool, repo, group, auth, None, None).await
+}
+
+async fn preview_github_repo_group_scoped(
+    pool: &db::DbPool,
+    repo: &str,
+    group: &[(db::SkillSource, db::Skill)],
+    auth: Option<&str>,
+    targets: Option<&HashSet<String>>,
+    batch_id: Option<&str>,
+) -> RepositorySyncPreview {
+    // Apply revalidates only its target(s), not every installed skill on each step.
+    let selected_group;
+    let group = if let Some(targets) = targets {
+        selected_group = group.iter().filter(|(_, skill)| targets.contains(&skill.id)).cloned().collect::<Vec<_>>();
+        selected_group.as_slice()
+    } else { group };
+    let candidate_keys = targets.map(|targets| {
+        let mut keys = targets.clone();
+        for (source, skill) in group {
+            keys.extend(skill_source_match_keys(source, skill));
+        }
+        keys
+    });
     let mut current_ref = None;
     for (source, _) in group {
         if let Ok(Some(sync)) = db::get_skill_source_sync(pool, &source.skill_id).await {
@@ -602,7 +634,7 @@ async fn preview_github_repo_group(
     }
 
     let repo_ref =
-        match github_import::resolve_repo_ref(&format!("https://github.com/{repo}"), auth).await {
+        match github_import::resolve_update_revision(repo, auth, batch_id).await {
             Ok(repo_ref) => repo_ref,
             Err(error) => {
                 return RepositorySyncPreview {
@@ -623,28 +655,16 @@ async fn preview_github_repo_group(
 
     // Metadata remains useful even if the subsequent content check fails.
     let _ = github_import::cache_repository_stars(pool, &repo_ref).await;
-    let remote_ref = match github_import::fetch_repo_head_ref(&repo_ref, auth).await {
-        Ok(remote_ref) => remote_ref,
-        Err(error) => {
-            return RepositorySyncPreview {
-                repository: repo.to_string(),
-                current_ref,
-                remote_ref: None,
-                added: Vec::new(),
-                modified: Vec::new(),
-                deleted: Vec::new(),
-                unchanged: group
-                    .iter()
-                    .map(|(_, skill)| preview_item_from_skill(skill))
-                    .collect(),
-                error: Some(error),
-            }
-        }
-    };
+    let remote_ref = repo_ref.branch.clone();
 
     let mut pinned_repo = repo_ref.clone();
     pinned_repo.branch = remote_ref.clone();
-    let (candidates, contents) = match github_import::fetch_repo_preview_files(&pinned_repo, auth).await {
+    let files_result = if candidate_keys.is_some() {
+        github_import::fetch_repo_preview_files_scoped(&pinned_repo, auth, candidate_keys.as_ref()).await
+    } else {
+        github_import::fetch_repo_preview_files(&pinned_repo, auth).await
+    };
+    let (candidates, contents) = match files_result {
         Ok(result) => result,
         Err(error) => {
             return RepositorySyncPreview {
@@ -710,6 +730,15 @@ async fn preview_github_repo_group(
             }
         } else {
             deleted.push(preview_item_from_skill(skill));
+        }
+    }
+
+    // A successful comparison advances the displayed update time even when
+    // contents match. Failed checks must retain the previous successful time.
+    if comparison_error.is_none() {
+        let skill_ids = group.iter().map(|(_, skill)| skill.id.clone()).collect::<Vec<_>>();
+        if let Err(error) = db::record_skill_check_times(pool, &skill_ids, &Utc::now().to_rfc3339()).await {
+            comparison_error = Some(error);
         }
     }
 
@@ -2521,17 +2550,21 @@ fn already_applied(preview: &RepositorySyncPreview, action: &str, skill_id: &str
 }
 
 #[tauri::command]
-pub async fn apply_repository_update_item(state:State<'_,AppState>, repository:String, skill_id:String, version:String, action:String, replacement_skill_id:Option<String>, replacement_version:Option<String>) -> Result<(),String> {
-    apply_repository_update_item_impl(&state.db, repository, skill_id, version, action, replacement_skill_id, replacement_version).await
+#[allow(clippy::too_many_arguments)] // Keep the established Tauri IPC argument names compatible.
+pub async fn apply_repository_update_item(state:State<'_,AppState>, repository:String, skill_id:String, version:String, action:String, replacement_skill_id:Option<String>, replacement_version:Option<String>, batch_id:Option<String>) -> Result<(),String> {
+    apply_repository_update_item_impl(&state.db, repository, skill_id, version, action, replacement_skill_id, replacement_version, batch_id).await
 }
 
-async fn apply_repository_update_item_impl(pool: &db::DbPool, repository:String, skill_id:String, version:String, action:String, replacement_skill_id:Option<String>, replacement_version:Option<String>) -> Result<(),String> {
+#[allow(clippy::too_many_arguments)] // Mirrors the IPC boundary for preview revalidation.
+async fn apply_repository_update_item_impl(pool: &db::DbPool, repository:String, skill_id:String, version:String, action:String, replacement_skill_id:Option<String>, replacement_version:Option<String>, batch_id:Option<String>) -> Result<(),String> {
     static APPLY_LIMIT:tokio::sync::Semaphore=tokio::sync::Semaphore::const_new(2);
     let _permit=APPLY_LIMIT.acquire().await.map_err(|e|e.to_string())?;
     let groups=github_repo_source_groups(pool,false).await?;
     let group=groups.get(&normalized_github_repository_key(&repository)).ok_or("Repository is no longer available")?;
     let auth=github_import::github_direct_auth_from_settings(pool).await?;
-    let preview=preview_github_repo_group(pool,&repository,group,auth.as_deref()).await;
+    let mut targets = HashSet::from([skill_id.clone()]);
+    if let Some(replacement) = &replacement_skill_id { targets.insert(replacement.clone()); }
+    let preview=preview_github_repo_group_scoped(pool,&repository,group,auth.as_deref(),Some(&targets),batch_id.as_deref()).await;
     if let Some(error)=preview.error {return Err(error);}
     // A completed update may be retried after the UI missed its acknowledgement.
     // Treat an exact content match as success; never overwrite it again.
@@ -2560,6 +2593,31 @@ async fn apply_repository_update_item_impl(pool: &db::DbPool, repository:String,
 mod repository_file_tests {
     use super::*;
     #[tokio::test]
+    async fn repository_matching_recognizes_root_skill_moved_into_skills_directory() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        db::init_schema(&pool).await.unwrap();
+        let id = "mvanhorn-last30days-skill-last30days";
+        sqlx::query("INSERT INTO skills (id, name, file_path, scanned_at) VALUES (?, 'last30days', '/fixture/SKILL.md', '2026-10-10')")
+            .bind(id).execute(&pool).await.unwrap();
+        let skill = db::get_skill_by_id(&pool, id).await.unwrap().unwrap();
+        let mut source = db::SkillSource {
+            skill_id: id.into(), source_type: "github".into(), source_url: None,
+            source_author: Some("mvanhorn".into()), source_repo: Some("mvanhorn/last30days-skill".into()),
+            source_path: Some("SKILL.md".into()), updated_at: "2026-10-10".into(),
+        };
+        let candidate = github_import::RemoteSkillCandidate {
+            skill_id: "last30days".into(), skill_name: "last30days".into(), description: None,
+            source_path: "skills/last30days/SKILL.md".into(), source_manifest_path: "skills/last30days/SKILL.md".into(),
+            skill_directory_name: "last30days".into(), root_directory: "skills".into(), download_url: String::new(),
+        };
+        let remote_keys = remote_candidate_match_keys(&candidate);
+        let keys = skill_source_match_keys(&source, &skill);
+        assert!(keys.iter().any(|key| remote_keys.contains(key)), "moved root skill must not be classified as deleted plus added");
+        // A nested skill must not inherit the repository root's identity.
+        source.source_path = Some("skills/other/SKILL.md".into());
+        assert!(!skill_source_match_keys(&source, &skill).iter().any(|key| remote_keys.contains(key)));
+    }
+    #[tokio::test]
     #[ignore = "Requires an isolated replay fixture and live public GitHub access"]
     async fn live_replay_added_skill_survives_apply_and_rescan() {
         let root=std::path::PathBuf::from(std::env::var("SKILLSHUB_REPLAY_ROOT").expect("isolated fixture required"));
@@ -2583,14 +2641,14 @@ mod repository_file_tests {
         println!("preview added={} modified={} deleted={}",preview.added.len(),preview.modified.len(),preview.deleted.len());
         let item=preview.added.iter().find(|item|item.name=="deep-research").expect("expected added deep-research");
         let path=item.source_path.clone();
-        let result=apply_repository_update_item_impl(&pool,repository.clone(),item.skill_id.clone(),item.version.clone(),"added".into(),None,None).await;
+        let result=apply_repository_update_item_impl(&pool,repository.clone(),item.skill_id.clone(),item.version.clone(),"added".into(),None,None,None).await;
         assert!(result.is_ok(),"apply failed: stale={} network={}",result.as_ref().err().is_some_and(|e|e.contains("Preview changed")),result.as_ref().err().is_some_and(|e|e.contains("HTTP")||e.contains("connect")));
         assert!(skills::get_resource_library_skills_impl(&pool).await.is_ok(),"rescan failed");
         let groups=github_repo_source_groups(&pool,false).await.unwrap();
         let after=preview_github_repo_group(&pool,&repository,&groups[&normalized_github_repository_key(&repository)],None).await;
         assert!(after.error.is_none(),"verification preview failed");
         assert!(after.unchanged.iter().any(|item|item.source_path==path),"applied skill did not become unchanged after rescan");
-        let retry=apply_repository_update_item_impl(&pool,repository.clone(),item.skill_id.clone(),item.version.clone(),"added".into(),None,None).await;
+        let retry=apply_repository_update_item_impl(&pool,repository.clone(),item.skill_id.clone(),item.version.clone(),"added".into(),None,None,None).await;
         assert!(retry.is_ok(),"retrying the imported addition must succeed without overwriting");
     }
 

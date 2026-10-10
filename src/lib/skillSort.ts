@@ -1,6 +1,6 @@
 import type { SkillFolderGroup } from "@/lib/skillFolders";
 
-export type SkillSortField = "name" | "source" | "createdAt" | "updatedAt" | "skillCount" | "githubStars";
+export type SkillSortField = "name" | "source" | "repository" | "createdAt" | "updatedAt" | "skillCount" | "githubStars";
 export type SkillSortDirection = "asc" | "desc";
 
 export interface SortableSkill {
@@ -55,7 +55,7 @@ export function compareBySkillBrowserOrder<TSkill extends SortableSkill>(
     return nameComparison * multiplier;
   }
 
-  if (field === "source") {
+  if (field === "source" || field === "repository") {
     const sourceComparison = (a.source_repo ?? a.source_author ?? a.publisher ?? "").localeCompare(
       b.source_repo ?? b.source_author ?? b.publisher ?? "",
       undefined,
@@ -103,7 +103,7 @@ export function compareFolderBySkillBrowserOrder<TSkill extends SortableSkill>(
     sensitivity: "base",
   });
 
-  if (field === "name" || field === "source") {
+  if (field === "name" || field === "source" || field === "repository") {
     return nameComparison * multiplier;
   }
 

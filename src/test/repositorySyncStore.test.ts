@@ -5,6 +5,24 @@ import {useTaskQueueStore as queue, waitForTask, type BackgroundTask} from "@/st
 import type { RepositorySyncPreviewReport } from "@/types";
 
 describe("background repository preview", () => {
+  it("clears check results and records while preserving ignored versions and unrelated tasks", () => {
+    const check:BackgroundTask = {id:"check",key:"check",kind:"check",label:"Check",status:"success",createdAt:1,cancelRequested:false,locks:[],steps:[{command:"preview_source_backed_resource_repository_updates",label:"Check",args:{}}]};
+    const importTask:BackgroundTask = {...check,id:"import",key:"import",kind:"import",status:"running",steps:[{command:"import_github_repo_skills",label:"Import",args:{}}]};
+    queue.setState({tasks:[check,importTask]});
+    useRepositorySyncStore.setState({preview:{repositories:[]},reportCheckedAt:1,checkedAt:{"example/repo":1},ignored:["keep-version"],reportGeneration:"old"});
+    useRepositorySyncStore.getState().clearCheckResults();
+    expect(useRepositorySyncStore.getState()).toMatchObject({preview:null,reportCheckedAt:null,checkedAt:{},ignored:["keep-version"]});
+    expect(useRepositorySyncStore.getState().reportGeneration).not.toBe("old");
+    expect(queue.getState().tasks).toEqual([importTask]);
+    expect(importTask.cancelRequested).toBe(false);
+  });
+  it("does not clear a report while a repository check is running", () => {
+    queue.setState({tasks:[]});
+    useRepositorySyncStore.setState({preview:{repositories:[]},isChecking:true,reportGeneration:"active"});
+    useRepositorySyncStore.getState().clearCheckResults();
+    expect(useRepositorySyncStore.getState().preview).not.toBeNull();
+    expect(useRepositorySyncStore.getState().reportGeneration).toBe("active");
+  });
   it("scans before a full check and preserves its report time on a repository retry", async () => {
     const order:string[]=[];
     useResourceLibraryStore.setState({error:null});

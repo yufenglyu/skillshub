@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type SkillTableKind = "skill" | "folder" | "tree";
+export type SkillTableKind = "skill" | "folder" | "tree" | "flat";
 
 export const FIXED_SKILL_COLUMNS = ["index", "name"] as const;
 export const DEFAULT_SKILL_COLUMNS = [
@@ -29,6 +29,7 @@ function storageKey(kind: SkillTableKind) {
 }
 
 function defaultsFor(kind: SkillTableKind) {
+  if (kind === "flat") return ["index", "name", "repository", "createdAt", "updatedAt"];
   return kind === "tree" ? ["index", "name", "skillCount", "githubStars", "createdAt", "updatedAt"] : kind === "skill" ? DEFAULT_SKILL_COLUMNS : DEFAULT_FOLDER_COLUMNS;
 }
 
@@ -48,6 +49,12 @@ function readColumns(kind: SkillTableKind) {
 
 export function useSkillTableColumns(kind: SkillTableKind) {
   const [visibleColumns, setVisibleColumns] = useState(() => readColumns(kind));
+  const [previousKind, setPreviousKind] = useState(kind);
+  // Switch columns in the same render as the view, before layout and scroll restoration.
+  if (previousKind !== kind) {
+    setPreviousKind(kind);
+    setVisibleColumns(readColumns(kind));
+  }
 
   const persist = useCallback(
     (next: Set<string>) => {
@@ -88,10 +95,6 @@ export function useSkillTableColumns(kind: SkillTableKind) {
     setVisibleColumns(next);
     persist(next);
   }, [kind, persist]);
-
-  useEffect(() => {
-    setVisibleColumns(readColumns(kind));
-  }, [kind]);
 
   useEffect(() => {
     function handleChange(event: Event) {

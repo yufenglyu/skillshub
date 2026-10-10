@@ -86,7 +86,7 @@ export function AppStatusBar({settingsOpen = false}: {settingsOpen?: boolean} = 
   return (
     <>
       <footer
-        className="flex h-7 shrink-0 items-center justify-between gap-3 border-t border-border bg-card/95 px-3 text-xs text-muted-foreground"
+        className="flex h-10 shrink-0 items-center justify-between gap-3 border-t border-border bg-card/95 px-3 text-xs text-muted-foreground"
         aria-label={t("status.label")}
         title={statusTitle}
       >

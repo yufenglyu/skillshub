@@ -160,6 +160,7 @@ pub fn run() {
             commands::settings::check_app_update,
             commands::github_import::preview_github_repo_import,
             commands::github_import::import_github_repo_skills,
+            commands::github_cancellation::cancel_github_operation,
             commands::github_import::import_github_repo_snapshot,
             commands::github_import::fetch_github_skill_markdown,
             // Source updates and AI explanations

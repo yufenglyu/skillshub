@@ -7,6 +7,7 @@ export type ShortcutActionId =
   | "globalSearch"
   | "toggleSidebar"
   | "toggleSkillViewMode"
+  | "refreshSkillList"
   | "goResources"
   | "goCollections"
   | "goCentral"
@@ -37,9 +38,15 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   },
   {
     id: "toggleSkillViewMode",
-    defaultCombo: "mod+shift+v",
+    defaultCombo: "f3",
     labelKey: "settings.shortcuts.toggleSkillViewMode",
     descriptionKey: "settings.shortcuts.toggleSkillViewModeDesc",
+  },
+  {
+    id: "refreshSkillList",
+    defaultCombo: "f5",
+    labelKey: "settings.shortcuts.refreshSkillList",
+    descriptionKey: "settings.shortcuts.refreshSkillListDesc",
   },
   {
     id: "goResources",

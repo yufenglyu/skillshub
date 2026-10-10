@@ -19,6 +19,7 @@ import { SkillPickerDialog } from "@/components/collection/SkillPickerDialog";
 import { CollectionInstallDialog } from "@/components/collection/CollectionInstallDialog";
 import { InstallDialog } from "@/components/central/InstallDialog";
 import { SkillDetailDrawer } from "@/components/skill/SkillDetailDrawer";
+import { OpenableDirectoryPath } from "@/components/common/OpenableDirectoryPath";
 import { SkillBrowserHeader } from "@/components/skill/SkillBrowserHeader";
 import { SearchInput } from "@/components/ui/search-input";
 import { MetadataRow } from "@/components/skill/SkillDetailView";
@@ -74,6 +75,7 @@ export function CollectionsListView() {
   const refreshCounts = usePlatformStore((s) => s.refreshCounts);
 
   // Resource library skills (for resolving SkillWithLinks before opening InstallDialog)
+  const resourceLibraryDir = useResourceLibraryStore((s) => s.resourceLibraryDir);
   const resourceSkills = useResourceLibraryStore((s) => s.skills);
   const resourceAgents = useResourceLibraryStore((s) => s.agents);
   const loadResourceLibrary = useResourceLibraryStore((s) => s.loadResourceLibrary);
@@ -389,13 +391,13 @@ export function CollectionsListView() {
     <div className="flex flex-col h-full">
       <SidebarTagFilter hasSelection={selectedTags.length > 0} onClear={() => setSelectedTags([])}><TagFilters tags={availableTags.map(([key,label])=>({key,label}))} selected={selectedTags} onChange={setSelectedTags}/></SidebarTagFilter>
       <SkillBrowserWorkspace
-        storageKey="collections" collectionsMode loading={isLoading}
+        storageKey="collections" collectionsMode loading={isLoading || isLoadingDetail} onRefresh={handleRefresh}
         sortField={sortField} sortDirection={sortDirection}
         onSortChange={(field, direction) => { setSortField(field); setSortDirection(direction); }}
-        toolbar={<SkillBrowserHeader title={<>
+        toolbar={viewControl => <SkillBrowserHeader viewControl={viewControl} actions={<Button variant="ghost" size="icon" title={t("sidebar.newCollectionLabel")} aria-label={t("sidebar.newCollectionLabel")} onClick={() => setIsEditorOpen(true)}><Plus className="size-4" /></Button>} title={<>
           <h1>{t("sidebar.collections")}</h1>
           <Button variant="ghost" size="icon" title={t("collection.refresh")} aria-label={t("collection.refresh")} onClick={() => void handleRefresh()} disabled={isLoading || isLoadingDetail}><RotateCw className={cn("size-4", isLoading && "animate-spin")} /></Button>
-          <Button variant="ghost" size="icon" title={t("sidebar.newCollectionLabel")} aria-label={t("sidebar.newCollectionLabel")} onClick={() => setIsEditorOpen(true)}><Plus className="size-4" /></Button>
+          <OpenableDirectoryPath iconOnly path={resourceLibraryDir ?? ""} />
         </>} search={<div className="flex items-center gap-2"><SearchInput containerClassName="min-w-0 flex-1" value={search} onValueChange={setSearch} placeholder={t("collection.searchCollections")} trailing={<SearchScopes value={searchScopes} onChange={setSearchScopes}/>} /></div>} />}
         folders={collections.filter(collection => (matchesSearch({name:collection.name,description:collection.description},search,searchScopes,collection.name) || (collectionDetails.find(detail=>detail.id===collection.id)?.skills ?? []).some(skill=>matchesSearch(resourceSkills.find(s=>s.id===skill.id)??skill,search,searchScopes,collection.name)))
           && (!selectedTags.length || (collectionDetails.find(detail=>detail.id===collection.id)?.skills ?? []).some(skill=>matchesTags(resourceSkills.find(s=>s.id===skill.id)?.tags??skill.tags,selectedTags)))).map(collection => ({

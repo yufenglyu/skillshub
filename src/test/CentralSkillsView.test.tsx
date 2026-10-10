@@ -851,7 +851,7 @@ describe("CentralSkillsView", () => {
 
 function render(...args: Parameters<typeof rtlRender>) {
   const result = rtlRender(...args);
-  const expand = screen.queryByRole("button", { name: "全部展开" });
-  if (expand) fireEvent.click(expand);
+  const list = screen.queryByRole("region", {name:"技能列表"});
+  if (list) fireEvent.keyDown(list,{key:"+"});
   return result;
 }

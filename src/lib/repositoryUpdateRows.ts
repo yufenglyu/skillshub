@@ -1,12 +1,12 @@
 import type {RepositorySyncPreview, RepositorySyncPreviewItem} from "@/types";
-export type UpdateCategory = "added" | "modified" | "deleted" | "unchanged";
-export const updateCategories: UpdateCategory[] = ["added","modified","deleted","unchanged"];
+export type UpdateCategory = "added" | "modified" | "deleted" | "unchanged" | "updated";
+export const updateCategories: UpdateCategory[] = ["added","modified","deleted","unchanged","updated"];
 export const updateItemKey = (repo:string,item:RepositorySyncPreviewItem) => `${repo.toLowerCase()}:${item.skillId}:${item.version ?? ""}`;
 export function repositoryUpdateRows(repositories:RepositorySyncPreview[], pairs:Record<string,string>) {
   return repositories.flatMap(repo => {
     if (repo.error) return [];
     const candidates=repo.deleted.length ? repo.added.filter(item=>item.sourcePath && item.version) : [];
-    return updateCategories.flatMap(category => repo[category]
+    return updateCategories.flatMap(category => (repo[category] ?? [])
       .filter(item=>category!=="added" || !candidates.includes(item))
       .map(item=>{
         const pairKey=updateItemKey(repo.repository,item);

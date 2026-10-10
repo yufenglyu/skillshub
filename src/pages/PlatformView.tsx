@@ -420,7 +420,7 @@ export function PlatformView() {
 
 
       {/* Content */}
-      <SkillBrowserWorkspace toolbar={<SkillBrowserHeader title={<div>
+      <SkillBrowserWorkspace onRefresh={() => Promise.all([getSkillsByAgent(agent.id), refreshCounts()])} toolbar={viewControl => <SkillBrowserHeader viewControl={viewControl} title={<div>
         <div className="flex items-center gap-2.5">
           <Button variant="ghost" size="icon" title={t("collection.refresh")} aria-label={t("collection.refresh")} disabled={isLoading} onClick={() => void Promise.all([getSkillsByAgent(agent.id), refreshCounts()])}><RotateCw className={cn("size-4", isLoading && "animate-spin")} /></Button>
           <h1 className="text-xl font-semibold">{agent.display_name}</h1>

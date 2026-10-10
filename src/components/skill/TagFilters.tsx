@@ -154,14 +154,14 @@ export function TagFilters({
             }
             onDrop={(event) => void drop(event, tag.label)}
             className={cn(
-              "rounded px-1.5 py-0.5 text-xs transition-[transform,background-color,box-shadow] duration-150 motion-reduce:transition-none",
+              "rounded bg-transparent px-1.5 py-0.5 text-xs text-foreground transition-[transform,color,box-shadow] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               dropTarget?.key === tag.key
                 ? dropTarget.remove
-                  ? "relative z-10 scale-110 bg-destructive/20 text-destructive ring-2 ring-destructive shadow-sm"
-                  : "relative z-10 scale-110 bg-primary/25 text-foreground ring-2 ring-primary shadow-sm"
+                  ? "relative z-10 scale-110 text-destructive ring-2 ring-destructive shadow-sm"
+                  : "relative z-10 scale-110 text-foreground ring-2 ring-primary shadow-sm"
                 : selected.includes(tag.key)
-                  ? "bg-primary/20 text-foreground"
-                  : "bg-muted/40 text-muted-foreground hover:bg-muted",
+                  ? "font-semibold text-primary"
+                  : "hover:text-primary",
             )}
           >
             {tag.label}

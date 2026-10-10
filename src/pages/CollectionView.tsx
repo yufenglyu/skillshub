@@ -4,10 +4,13 @@ import { SearchScopes } from "@/components/skill/SearchScopes";
 import { useSearchScopes, matchesSearch, matchesTags } from "@/lib/skillFilters";
 import { TagFilters } from "@/components/skill/TagFilters";
 import { SidebarTagFilter } from "@/components/layout/SidebarTagFilter";
+import { SkillBrowserHeader } from "@/components/skill/SkillBrowserHeader";
+import { OpenableDirectoryPath } from "@/components/common/OpenableDirectoryPath";
 import { SkillBrowserWorkspace } from "@/components/skill/SkillBrowserWorkspace";
 import { repositoryLocationUrl } from "@/lib/skillNavigation";
 import {
 Loader2,
+RotateCw,
 PackagePlus,
 Pencil,
 Plus,
@@ -62,6 +65,7 @@ export function CollectionView() {
 
   const refreshCounts = usePlatformStore((s) => s.refreshCounts);
 
+  const resourceLibraryDir = useResourceLibraryStore(s => s.resourceLibraryDir);
   const resourceSkills = useResourceLibraryStore((s) => s.skills);
   const resourceAgents = useResourceLibraryStore((s) => s.agents);
   const togglingAgentId = useResourceLibraryStore((s) => s.togglingAgentId);
@@ -320,7 +324,7 @@ export function CollectionView() {
   return (
     <div className="flex flex-col h-full">
       <SidebarTagFilter hasSelection={selectedTags.length > 0} onClear={() => setSelectedTags([])}><TagFilters tags={[...new Map(collectionSkillsWithLinks.flatMap(s=>(s.tags??[]).map(tag=>[tag.toLowerCase(),tag])))] .map(([key,label])=>({key,label}))} selected={selectedTags} onChange={setSelectedTags}/></SidebarTagFilter>
-      <div className="flex justify-end p-3"><div className="flex min-w-0 w-full max-w-xl items-center gap-2"><SearchInput containerClassName="min-w-0 flex-1" value={search} onValueChange={setSearch} placeholder={t("resource.searchPlaceholder")} trailing={<SearchScopes value={searchScopes} onChange={setSearchScopes}/>} /></div></div>
+
       {/* Header */}
       <div className="border-b border-border px-6 py-4">
         <div className="flex items-start justify-between gap-4">
@@ -401,7 +405,13 @@ export function CollectionView() {
       </div>
 
       {/* Skills list */}
-      <SkillBrowserWorkspace storageKey="CollectionView"  searchActive={false}
+      <SkillBrowserWorkspace storageKey="CollectionView" searchActive={false} loading={isLoadingDetail}
+        onRefresh={() => Promise.all([loadCollectionDetail(currentDetail.id), refreshCounts()])}
+        toolbar={viewControl => <SkillBrowserHeader viewControl={viewControl} title={<>
+          <Button variant="ghost" size="icon" aria-label={t("collection.refresh")} disabled={isLoadingDetail} onClick={() => void Promise.all([loadCollectionDetail(currentDetail.id), refreshCounts()])}><RotateCw className="size-4"/></Button>
+          <OpenableDirectoryPath iconOnly path={resourceLibraryDir ?? ""}/>
+        </>} search={<SearchInput containerClassName="min-w-0 flex-1" value={search} onValueChange={setSearch} placeholder={t("resource.searchPlaceholder")} trailing={<SearchScopes value={searchScopes} onChange={setSearchScopes}/>} />}/>}
+
                 sortField={sortField}
                 sortDirection={sortDirection}
                 onSortChange={(field, direction) => {

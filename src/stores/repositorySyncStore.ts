@@ -3,6 +3,8 @@ import {
   registerTaskExecutor,
   registerTaskResult,
   registerTaskFailure,
+  registerTaskCompletion,
+  isTaskActive,
   useTaskQueueStore,
   waitForTask,
 } from "./taskQueueStore";
@@ -51,6 +53,7 @@ interface RepositorySyncState {
   removeDeleted: boolean;
   repositories: string[] | null;
   setPreview: (preview: RepositorySyncPreviewReport | null) => void;
+  clearCheckResults: () => void;
   dismissFailedCheck: (repository?: string) => void;
   setOpen: (open: boolean) => void;
   setIncludeAdded: (includeAdded: boolean) => void;
@@ -206,6 +209,14 @@ export const useRepositorySyncStore = create<RepositorySyncState>()(
       removeDeleted: false,
       repositories: null,
       setPreview: (preview) => set({ preview }),
+      clearCheckResults: () => {
+        if (get().isChecking || get().checkingRepository || useTaskQueueStore.getState().tasks.some(task =>
+          isTaskActive(task) && task.steps.some(step => step.command === "preview_source_backed_resource_repository_updates"))) return;
+        useTaskQueueStore.getState().clearCheckHistory();
+        set({preview:null, reportCheckedAt:null, checkedAt:{}, updateErrors:{}, error:null,
+          reportGeneration:crypto.randomUUID(), repositories:null, requestedRepositories:null,
+          applied:false, appliedRepositories:[]});
+      },
       dismissFailedCheck: (repository) => {
         if (repository) {
           if (get().isChecking || activeRechecks.has(repository.toLowerCase())) return;
@@ -300,16 +311,21 @@ registerTaskResult("apply_repository_update_item", async (step) => {
         const replacement=repo.added.find(item=>item.skillId===step.args.replacementSkillId && item.version===step.args.replacementVersion);
         if (!replacement || !repo.deleted.some(matches)) return repo;
         return {...repo,deleted:repo.deleted.filter(item=>!matches(item)),added:repo.added.filter(item=>item!==replacement),
-          unchanged:[...repo.unchanged.filter(item=>item.skillId!==step.args.skillId),{...replacement,skillId:String(step.args.skillId),files:[]}]};
+          updated:[...(repo.updated ?? []).filter(item=>item.skillId!==step.args.skillId),{...replacement,skillId:String(step.args.skillId),files:[]}]};
       }
       const completed = repo[action].filter(matches);
       return {...repo, [action]:repo[action].filter(item => !matches(item)),
-        unchanged: action === "deleted" ? repo.unchanged : [...repo.unchanged.filter(item => !completed.some(done => done.skillId === item.skillId)), ...completed.map(item => ({...item, files:[]}))]};
+        updated: [...(repo.updated ?? []).filter(item => !completed.some(done => done.skillId === item.skillId)), ...completed.map(item => ({...item, files:[]}))]};
     })};
     const updateErrors = {...state.updateErrors};
     delete updateErrors[updateStepKey(step.args)];
     return {preview, updateErrors, applied:preview.repositories.every(repo => !repo.error && !hasRepositoryChanges(repo))};
   });
+});
+
+registerTaskCompletion("apply_repository_update_item", async finished => {
+  if (finished.batchId && useTaskQueueStore.getState().tasks.some(task =>
+    task.batchId === finished.batchId && isTaskActive(task))) return;
   await Promise.all([
     useResourceLibraryStore.getState().loadResourceLibrary(),
     useCentralSkillsStore.getState().loadCentralSkills(),

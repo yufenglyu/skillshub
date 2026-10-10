@@ -5,6 +5,24 @@ import { useRepositoryNameStore } from "@/stores/repositoryNameStore";
 
 beforeEach(() => useRepositoryNameStore.setState({ repositoryFirst: false }));
 
+it("sorts flat skill repositories by their displayed format in both directions", () => {
+  const sort = vi.fn();
+  const props = {kind:"skill" as const, visibleColumns:new Set(["name","repository"]), sortField:"repository" as const,
+    onSortChange:sort, skills:[{rowKey:"one",name:"One",sourceRepo:"a/z"},{rowKey:"two",name:"Two",sourceRepo:"b/a"}]};
+  const {rerender} = render(<SkillBrowserTable {...props} sortDirection="asc"/>);
+  const repositories = () => screen.getAllByRole("row").slice(1).map(row => within(row).getAllByRole("cell")[2].textContent);
+  expect(repositories()).toEqual(["a/z","b/a"]);
+  const header = screen.getByRole("columnheader",{name:"仓库"});
+  fireEvent.click(within(header).getByRole("button",{name:"切换为 仓库@作者"}));
+  expect(repositories()).toEqual(["a@b","z@a"]);
+  fireEvent.click(within(header).getAllByRole("button")[0]);
+  expect(sort).toHaveBeenCalledWith("repository","desc");
+  rerender(<SkillBrowserTable {...props} sortDirection="desc"/>);
+  expect(repositories()).toEqual(["z@a","a@b"]);
+  fireEvent.click(screen.getByRole("button",{name:"切换为 作者/仓库"}));
+  expect(repositories()).toEqual(["b/a","a/z"]);
+});
+
 it("switches repository labels and sorts by the displayed name without changing folder identity", () => {
   const open = vi.fn();
   const folders: FolderTableItem[] = [

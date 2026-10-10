@@ -14,6 +14,43 @@ const input = (key: string, locks: string[] = []) => ({
   steps: [{ command: "test", args: { key }, label: key }],
 });
 describe("background queue", () => {
+  it("sends cancellation to the backend import and resolves the task as cancelled", async () => {
+    let rejectImport!: (error: Error) => void;
+    invoke.mockImplementation((command) => command === "import_github_repo_skills"
+      ? new Promise((_, reject) => {rejectImport = reject;})
+      : Promise.resolve(rejectImport(new Error("Operation cancelled"))));
+    const id = queue.getState().enqueue({...input("import"), kind:"import",
+      steps:[{command:"import_github_repo_skills",args:{repoUrl:"example/repo"},label:"import"}]});
+    const operationId = invoke.mock.calls[0][1].operationId;
+    const waiter = waitForTask(id);
+    queue.getState().cancel(id);
+    expect(invoke).toHaveBeenCalledWith("cancel_github_operation", {operationId});
+    expect((await waiter).status).toBe("cancelled");
+    expect(queue.getState().tasks[0].steps[0]).toMatchObject({status:"cancelled",error:undefined});
+  });
+  it("stops an orphaned running record immediately and allows deletion", () => {
+    queue.setState({tasks: [{...input("orphan"), id: "orphan", locks: [], createdAt: 1,
+      status: "running", cancelRequested: true}]});
+    queue.getState().cancel("orphan");
+    expect(queue.getState().tasks[0].status).toBe("cancelled");
+    queue.getState().remove("orphan");
+    expect(queue.getState().tasks).toHaveLength(0);
+  });
+  it("removes a stopping record from display while retaining locks until the write finishes", async () => {
+    let finish!: () => void;
+    invoke.mockImplementationOnce(() => new Promise<void>(resolve => {finish = resolve;})).mockResolvedValue(undefined);
+    const id = queue.getState().enqueue(input("stopping", ["repo:one"]));
+    const waiter = waitForTask(id);
+    queue.getState().cancel(id);
+    queue.getState().remove(id);
+    expect(queue.getState().tasks.find(task => task.id === id)?.clearRequested).toBe(true);
+    const next = queue.getState().enqueue(input("next", ["repo:one"]));
+    expect(invoke).toHaveBeenCalledTimes(1);
+    finish();
+    expect((await waiter).status).toBe("cancelled");
+    await waitForTask(next);
+    expect(queue.getState().tasks.map(task => task.id)).toEqual([next]);
+  });
   it("clears running tasks safely without releasing their target locks early", async () => {
     let finish!: () => void;
     invoke.mockImplementationOnce(() => new Promise<void>(resolve => {finish = resolve;})).mockResolvedValue(undefined);

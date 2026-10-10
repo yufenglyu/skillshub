@@ -12,7 +12,7 @@ import { useAppStatusStore as actualStatusStore } from "@/stores/appStatusStore"
       items: [{ skillId: "demo", name: "Imported Demo", repository: "Owner/Repo", status: "updated" }] } });
     render(<MemoryRouter><AppStatusBar /></MemoryRouter>);
     fireEvent.click(screen.getByRole("button", { name: "查看导入统计" }));
-    const dialog = screen.getByRole("dialog", { name: "任务与更新" });
+    const dialog = screen.getByRole("dialog", { name: "任务" });
 
     expect(within(dialog).getByText("Imported Demo")).toBeInTheDocument();
     expect(within(dialog).getByText("Owner/Repo")).toBeInTheDocument();
